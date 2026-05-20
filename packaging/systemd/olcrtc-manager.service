@@ -1,0 +1,22 @@
+[Unit]
+Description=OlcRTC Manager Panel
+Documentation=https://github.com/BigDaddy3334/olcrtc-manager-panel
+After=network-online.target tor@default.service
+Wants=network-online.target tor@default.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/olcrtc-manager/panel.env
+Environment=OLCRTC_PATH=/usr/local/bin/olcrtc
+Environment=OLCRTC_MANAGER_ADDR=0.0.0.0
+Environment=OLCRTC_HOST_NETWORK=1
+Environment=OLCRTC_EXIT_PROXY=127.0.0.1:9050
+ExecStart=/usr/local/bin/olcrtc-manager -config /etc/olcrtc-manager/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=multi-user.target

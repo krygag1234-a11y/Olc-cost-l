@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# Tor bridge pool: fetch TOR_BRIDGES_ALL.txt, health tracking, active bridges.conf
+#
+# Usage:
+#   tor-bridge-pool.sh                 # fetch + probe + apply + restart tor
+#   tor-bridge-pool.sh --monitor       # only probe + update health (cron)
+#   tor-bridge-pool.sh --apply         # select from pool/health, write bridges.conf
+#   tor-bridge-pool.sh --fetch         # only download/parse pool
+#   tor-bridge-pool.sh --url-only      # fast TCP/URL probe (no tor bootstrap)
+#   tor-bridge-pool.sh --types webtunnel,obfs4
+#   tor-bridge-pool.sh --target 12     # min active bridges in torrc
+#   tor-bridge-pool.sh --no-restart
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tor-bridge-lib.sh
+source "$SCRIPT_DIR/tor-bridge-lib.sh"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh" 2>/dev/null || true
+
+POOL_FILE="${POOL_FILE:-$POOL_DIR/tor-bridges-pool.txt}"
+BRIDGES_OUT="${BRIDGES_OUT:-/etc/tor/bridges.conf}"
+TORRC="${TORRC:-/etc/tor/torrc}"
+LOG_FILE="${LOG_FILE:-/var/log/olcrtc-bridge-pool.log}"
+
+TARGET_ACTIVE="${TARGET_ACTIVE:-12}"
+MAX_ACTIVE="${MAX_ACTIVE:-18}"
+MIN_POOL_CANDIDATES="${MIN_POOL_CANDIDATES:-40}"
+PARALLEL_JOBS="${PARALLEL_JOBS:-6}"
+MODE_PROBE="url-only"
+RESTART_TOR=1
+DO_FETCH=1
+DO_PROBE=1
+DO_APPLY=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --monitor) DO_FETCH=0; DO_APPLY=0 ;;
+    --apply) DO_FETCH=0; DO_PROBE=0 ;;
+    --fetch) DO_PROBE=0; DO_APPLY=0 ;;
+    --url-only) MODE_PROBE="url-only" ;;
+    --full-tor) MODE_PROBE="full" ;;
+    --no-restart) RESTART_TOR=0 ;;
+    --jobs) PARALLEL_JOBS="$2"; shift ;;
+    --target) TARGET_ACTIVE="$2"; shift ;;
+    --max) MAX_ACTIVE="$2"; shift ;;
+    --types) BRIDGE_TYPES="$2"; shift ;;
+    -h|--help)
+      grep '^#' "$0" | head -20
+      exit 0
+      ;;
+    *) echo "Unknown: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+fetch_and_merge_pool() {
+  local raw tmp merged
+  raw="$(mktemp)"
+  tmp="$(mktemp)"
+  merged="$(mktemp)"
+  bridge_log "fetch $BRIDGES_RAW_URL"
+  fetch_bridges_raw "$raw"
+  parse_bridges_file "$raw" "$tmp"
+  rm -f "$raw"
+  bridge_log "parsed $(wc -l <"$tmp") bridges (types=$BRIDGE_TYPES)"
+
+  # merge with existing pool (keep history)
+  {
+    [[ -f "$POOL_FILE" ]] && grep -E '^Bridge ' "$POOL_FILE" 2>/dev/null || true
+    cat "$tmp"
+  } | awk '!seen[$0]++' >"$merged"
+  rm -f "$tmp"
+
+  local count
+  count="$(wc -l <"$merged")"
+  if ((count < MIN_POOL_CANDIDATES)); then
+    bridge_log "WARN: pool has only $count candidates (want $MIN_POOL_CANDIDATES)"
+  fi
+  {
+    echo "# pool $(date -Iseconds)"
+    echo "# source: $BRIDGES_RAW_URL"
+    cat "$merged"
+  } >"$POOL_FILE"
+  bridge_log "pool file: $count lines → $POOL_FILE"
+}
+
+probe_pool_parallel() {
+  mapfile -t lines < <(grep -E '^Bridge ' "$POOL_FILE")
+  local n="${#lines[@]}"
+  ((n > 0)) || return 0
+  bridge_log "probing $n bridges (mode=$MODE_PROBE jobs=$PARALLEL_JOBS)"
+
+  local results_dir i running=0
+  results_dir="$(mktemp -d)"
+
+  probe_one() {
+    local idx="$1" line="$2"
+    local fp status
+    fp="$(bridge_fingerprint "$line")"
+    if probe_url "$line"; then
+      status="url_ok"
+      health_record "$fp" "url_ok"
+    else
+      status="fail"
+      health_record "$fp" "fail"
+    fi
+    echo -e "${fp}\t${status}\t${line}" >"$results_dir/$idx"
+  }
+
+  for ((i = 0; i < n; i++)); do
+    while ((running >= PARALLEL_JOBS)); do
+      wait -n 2>/dev/null || wait
+      running=$((running - 1))
+    done
+    probe_one "$i" "${lines[$i]}" &
+    running=$((running + 1))
+  done
+  wait
+  rm -rf "$results_dir"
+}
+
+select_active_bridges() {
+  mapfile -t candidates < <(grep -E '^Bridge ' "$POOL_FILE")
+  local -a scored=()
+  local line fp score drop
+  for line in "${candidates[@]}"; do
+    fp="$(bridge_fingerprint "$line")"
+    bridge_is_blacklisted "$fp" && continue
+    drop=0
+    health_should_drop "$fp" && drop=1
+    score="$(health_score "$fp")"
+    if [[ "$drop" -eq 1 && "$score" -lt 20 ]]; then
+      continue
+    fi
+    scored+=("$score"$'\t'"$line")
+  done
+
+  # sort by score desc
+  mapfile -t sorted < <(printf '%s\n' "${scored[@]}" | sort -t$'\t' -k1 -nr)
+  local -a active=()
+  local entry s
+  for entry in "${sorted[@]}"; do
+    line="${entry#*$'\t'}"
+    [[ -n "$line" ]] || continue
+    # prefer recent url_ok in last probe — skip if fail_streak high unless need fill
+    active+=("$line")
+    [[ ${#active[@]} -ge $MAX_ACTIVE ]] && break
+  done
+
+  # fill up to TARGET from pool even if low score
+  if (( ${#active[@]} < TARGET_ACTIVE )); then
+    for line in "${candidates[@]}"; do
+      fp="$(bridge_fingerprint "$line")"
+      bridge_is_blacklisted "$fp" && continue
+      health_should_drop "$fp" && continue
+      local found=0
+      for a in "${active[@]}"; do [[ "$a" == "$line" ]] && found=1; done
+      [[ $found -eq 1 ]] && continue
+      active+=("$line")
+      [[ ${#active[@]} -ge $TARGET_ACTIVE ]] && break
+    done
+  fi
+
+  if (( ${#active[@]} == 0 )); then
+    bridge_log "ERROR: no bridges to activate"
+    return 1
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+  write_torrc_header "$tmp"
+  printf '%s\n' "${active[@]}" >>"$tmp"
+  if [[ -f "$BRIDGES_OUT" ]] && cmp -s "$tmp" "$BRIDGES_OUT"; then
+    bridge_log "bridges.conf unchanged (${#active[@]} bridges)"
+    rm -f "$tmp"
+    return 1
+  fi
+  if declare -f safety_install_file >/dev/null 2>&1; then
+    safety_install_file "$tmp" "$BRIDGES_OUT" 0644
+  else
+    cp -a "$BRIDGES_OUT" "${BRIDGES_OUT}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+    install -m 0644 "$tmp" "$BRIDGES_OUT"
+  fi
+  rm -f "$tmp"
+  if declare -f safety_torrc_include_bridges >/dev/null 2>&1; then
+    safety_torrc_include_bridges "$TORRC"
+  else
+    grep -q '%include /etc/tor/bridges.conf' "$TORRC" 2>/dev/null || \
+      echo '%include /etc/tor/bridges.conf' >>"$TORRC"
+  fi
+  bridge_log "wrote $BRIDGES_OUT (${#active[@]} bridges, target=$TARGET_ACTIVE)"
+  return 0
+}
+
+restart_tor_if_needed() {
+  [[ "$RESTART_TOR" -eq 1 ]] || return 0
+  systemctl reset-failed tor@default 2>/dev/null || true
+  systemctl restart tor@default
+  for _ in $(seq 1 40); do
+    if curl -fsS --max-time 3 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip >/dev/null 2>&1; then
+      bridge_log "Tor SOCKS ready"
+      systemctl restart olcrtc-manager 2>/dev/null || true
+      return 0
+    fi
+    sleep 2
+  done
+  bridge_log "WARN: Tor not ready after restart"
+}
+
+main() {
+  [[ "$(id -u)" -eq 0 ]] || { echo "root required" >&2; exit 1; }
+  mkdir -p "$POOL_DIR"
+  touch "$LOG_FILE"
+  health_db_init
+
+  (( DO_FETCH )) && fetch_and_merge_pool
+  [[ -f "$POOL_FILE" ]] || { bridge_log "no pool file"; exit 1; }
+
+  (( DO_PROBE )) && probe_pool_parallel
+  if (( DO_APPLY )); then
+    if select_active_bridges; then
+      restart_tor_if_needed
+    else
+      if [[ "$RESTART_TOR" -eq 1 ]]; then
+        "$SCRIPT_DIR/tor-bridge-rotate.sh" 2>/dev/null || true
+      else
+        "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart 2>/dev/null || true
+      fi
+    fi
+  fi
+  bridge_log "done"
+}
+
+main "$@"

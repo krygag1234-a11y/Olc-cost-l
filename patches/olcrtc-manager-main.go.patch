@@ -1,0 +1,332 @@
+diff --git a/cmd/olcrtc-manager/main.go b/cmd/olcrtc-manager/main.go
+index 8d987b8..23c9f97 100644
+--- a/cmd/olcrtc-manager/main.go
++++ b/cmd/olcrtc-manager/main.go
+@@ -100,19 +100,26 @@ type Transport struct {
+ }
+ 
+ type olcrtcRuntimeConfig struct {
+-	Mode   string             `yaml:"mode"`
+-	Auth   olcrtcAuthConfig   `yaml:"auth"`
+-	Room   olcrtcRoomConfig   `yaml:"room,omitempty"`
+-	Crypto olcrtcCryptoConfig `yaml:"crypto,omitempty"`
+-	Net    olcrtcNetConfig    `yaml:"net"`
+-	SOCKS  olcrtcSocksConfig  `yaml:"socks,omitempty"`
+-	VP8    *olcrtcVP8Config   `yaml:"vp8,omitempty"`
+-	SEI    *olcrtcSEIConfig   `yaml:"sei,omitempty"`
+-	Video  *olcrtcVideoConfig `yaml:"video,omitempty"`
+-	Gen    *olcrtcGenConfig   `yaml:"gen,omitempty"`
+-	Data   string             `yaml:"data,omitempty"`
+-	Debug  bool               `yaml:"debug,omitempty"`
+-	FFmpeg string             `yaml:"ffmpeg,omitempty"`
++	Mode     string               `yaml:"mode"`
++	Auth     olcrtcAuthConfig     `yaml:"auth"`
++	Room     olcrtcRoomConfig     `yaml:"room,omitempty"`
++	Crypto   olcrtcCryptoConfig   `yaml:"crypto,omitempty"`
++	Net      olcrtcNetConfig      `yaml:"net"`
++	Liveness *olcrtcLivenessConfig `yaml:"liveness,omitempty"`
++	SOCKS    olcrtcSocksConfig    `yaml:"socks,omitempty"`
++	VP8      *olcrtcVP8Config     `yaml:"vp8,omitempty"`
++	SEI      *olcrtcSEIConfig     `yaml:"sei,omitempty"`
++	Video    *olcrtcVideoConfig   `yaml:"video,omitempty"`
++	Gen      *olcrtcGenConfig     `yaml:"gen,omitempty"`
++	Data     string               `yaml:"data,omitempty"`
++	Debug    bool                 `yaml:"debug,omitempty"`
++	FFmpeg   string               `yaml:"ffmpeg,omitempty"`
++}
++
++type olcrtcLivenessConfig struct {
++	Interval string `yaml:"interval,omitempty"`
++	Timeout  string `yaml:"timeout,omitempty"`
++	Failures int    `yaml:"failures,omitempty"`
+ }
+ 
+ type olcrtcAuthConfig struct {
+@@ -133,8 +140,9 @@ type olcrtcNetConfig struct {
+ }
+ 
+ type olcrtcSocksConfig struct {
+-	ProxyAddr string `yaml:"proxy_addr,omitempty"`
+-	ProxyPort int    `yaml:"proxy_port,omitempty"`
++	ProxyAddr       string `yaml:"proxy_addr,omitempty"`
++	ProxyPort       int    `yaml:"proxy_port,omitempty"`
++	DirectCIDRsFile string `yaml:"direct_cidrs_file,omitempty"`
+ }
+ 
+ type olcrtcVP8Config struct {
+@@ -373,24 +381,26 @@ func run() error {
+ 		}
+ 		writeJSON(w, map[string]any{"events": readAudit(configPath, 100)})
+ 	})))
+-	handler.Handle("/api/logs/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++	logsHandler := adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		if r.Method != http.MethodGet {
+ 			w.Header().Set("Allow", http.MethodGet)
+ 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+ 			return
+ 		}
+-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/logs/"), "/")
+-		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+-			http.NotFound(w, r)
++		clientID, roomID, transport, ok := parseLogsRequest(r)
++		if !ok {
++			http.Error(w, "invalid logs request: use /api/logs?client_id=&room_id=&transport=", http.StatusBadRequest)
+ 			return
+ 		}
+-		lines, ok := supervisor.Logs(parts[0], parts[1], parts[2])
++		lines, ok := supervisor.Logs(clientID, roomID, transport)
+ 		if !ok {
+-			http.NotFound(w, r)
++			http.Error(w, fmt.Sprintf("logs not found for %s:%s:%s (process not running or already exited)", clientID, roomID, transport), http.StatusNotFound)
+ 			return
+ 		}
+ 		writeJSON(w, map[string][]LogLine{"logs": lines})
+-	})))
++	}))
++	handler.Handle("/api/logs", logsHandler)
++	handler.Handle("/api/logs/", logsHandler)
+ 	handler.Handle("/api/actions/restart", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		if r.Method != http.MethodPost {
+ 			w.Header().Set("Allow", http.MethodPost)
+@@ -779,6 +789,26 @@ func (s *Supervisor) State() State {
+ 	return out
+ }
+ 
++func parseLogsRequest(r *http.Request) (clientID, roomID, transport string, ok bool) {
++	if q := r.URL.Query(); q.Get("client_id") != "" && q.Get("room_id") != "" && q.Get("transport") != "" {
++		return q.Get("client_id"), q.Get("room_id"), q.Get("transport"), true
++	}
++
++	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/logs/"), "/")
++	if len(parts) < 3 || parts[0] == "" || parts[len(parts)-1] == "" {
++		return "", "", "", false
++	}
++	clientID = parts[0]
++	transport = parts[len(parts)-1]
++	roomID = strings.Join(parts[1:len(parts)-1], "/")
++	roomID = strings.Replace(roomID, "https:/", "https://", 1)
++	roomID = strings.Replace(roomID, "http:/", "http://", 1)
++	if roomID == "" {
++		return "", "", "", false
++	}
++	return clientID, roomID, transport, true
++}
++
+ func (s *Supervisor) Logs(clientID, roomID, transport string) ([]LogLine, bool) {
+ 	s.mu.RLock()
+ 	defer s.mu.RUnlock()
+@@ -1127,6 +1157,14 @@ func settingsFromConfig(r *http.Request, configPath string, cfg Config, portOver
+ }
+ 
+ func subscriptionBaseURL(r *http.Request, subscriptionPath string) string {
++	// Stable public URL (DDNS hostname) — avoids rebinding Olcbox when VPS IP changes.
++	if pub := strings.TrimSpace(os.Getenv("OLCRTC_PUBLIC_URL")); pub != "" {
++		base := strings.TrimRight(pub, "/")
++		if subscriptionPath == "" {
++			return base + "/"
++		}
++		return base + "/" + strings.Trim(subscriptionPath, "/") + "/"
++	}
+ 	base := requestOrigin(r)
+ 	if subscriptionPath == "" {
+ 		return base + "/"
+@@ -1610,17 +1648,98 @@ func generateRoomID(ctx context.Context, olcrtcPath, carrier, dns string) (strin
+ 	return "", errors.New("olcrtc generated empty room id")
+ }
+ 
++// bindingRoomURL must match Olcbox/mobile buildRoomURL for vp8channel token derivation.
++// Telemost clients hash "https://telemost.yandex.ru/j/<id>"; bare room id breaks the tunnel.
++func bindingRoomURL(carrier, roomID string) string {
++	roomID = strings.TrimSpace(roomID)
++	switch strings.ToLower(strings.TrimSpace(carrier)) {
++	case "telemost":
++		const prefix = "https://telemost.yandex.ru/j/"
++		if strings.HasPrefix(roomID, "https://") {
++			return roomID
++		}
++		return prefix + roomID
++	default:
++		return roomID
++	}
++}
++
++func exitProxyReachable(addr string, port int) bool {
++	if addr == "" || port <= 0 {
++		return false
++	}
++	conn, err := net.DialTimeout("tcp", net.JoinHostPort(addr, strconv.Itoa(port)), 2*time.Second)
++	if err != nil {
++		return false
++	}
++	_ = conn.Close()
++	return true
++}
++
++func directCIDRsFileFromEnv() string {
++	if p := strings.TrimSpace(os.Getenv("OLCRTC_DIRECT_CIDRS")); p != "" {
++		return p
++	}
++	const defaultPath = "/var/lib/olcrtc/ru-cidrs.txt"
++	if _, err := os.Stat(defaultPath); err == nil {
++		return defaultPath
++	}
++	return ""
++}
++
++func exitProxyFromEnv() (addr string, port int) {
++	raw := strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY"))
++	if raw == "" {
++		addr = strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY_ADDR"))
++		if addr == "" {
++			return "", 0
++		}
++		port, _ = strconv.Atoi(strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY_PORT")))
++		if port <= 0 {
++			port = 9050
++		}
++	} else {
++		host, portStr, err := net.SplitHostPort(raw)
++		if err != nil {
++			addr, port = raw, 9050
++		} else {
++			addr = host
++			port, _ = strconv.Atoi(portStr)
++			if port <= 0 {
++				port = 9050
++			}
++		}
++	}
++	if addr == "" {
++		return "", 0
++	}
++	if !exitProxyReachable(addr, port) {
++		log.Printf("exit proxy %s:%d unreachable, olcrtc runs without SOCKS (Jitsi stays up)", addr, port)
++		return "", 0
++	}
++	return addr, port
++}
++
+ func serverConfig(loc Location) (olcrtcRuntimeConfig, error) {
+ 	cfg := olcrtcRuntimeConfig{
+ 		Mode:   "srv",
+ 		Auth:   olcrtcAuthConfig{Provider: loc.Carrier},
+-		Room:   olcrtcRoomConfig{ID: loc.Endpoint.RoomID},
++		Room:   olcrtcRoomConfig{ID: bindingRoomURL(loc.Carrier, loc.Endpoint.RoomID)},
+ 		Crypto: olcrtcCryptoConfig{Key: loc.Endpoint.Key},
+ 		Net: olcrtcNetConfig{
+ 			Transport: loc.Transport.Type,
+ 			DNS:       loc.DNS,
+ 		},
+-		Data: loc.Data,
++		Liveness: defaultLivenessForTransport(loc.Transport.Type),
++		Data:     loc.Data,
++		Debug:    false,
++	}
++	if proxyAddr, proxyPort := exitProxyFromEnv(); proxyAddr != "" {
++		cfg.SOCKS = olcrtcSocksConfig{
++			ProxyAddr:       proxyAddr,
++			ProxyPort:       proxyPort,
++			DirectCIDRsFile: directCIDRsFileFromEnv(),
++		}
+ 	}
+ 	if err := applyTransportPayload(&cfg, loc.Transport); err != nil {
+ 		return olcrtcRuntimeConfig{}, err
+@@ -1628,6 +1747,31 @@ func serverConfig(loc Location) (olcrtcRuntimeConfig, error) {
+ 	return cfg, nil
+ }
+ 
++func defaultLivenessForTransport(transport string) *olcrtcLivenessConfig {
++	// Media transports ride WebRTC carriers that flap; be lenient on control pongs.
++	switch transport {
++	case "datachannel":
++		// Jitsi DC is stable: fewer control pings = less overhead on the tunnel.
++		return &olcrtcLivenessConfig{
++			Interval: "25s",
++			Timeout:  "10s",
++			Failures: 8,
++		}
++	case "vp8channel", "seichannel", "videochannel":
++		return &olcrtcLivenessConfig{
++			Interval: "30s",
++			Timeout:  "20s",
++			Failures: 10,
++		}
++	default:
++		return &olcrtcLivenessConfig{
++			Interval: "15s",
++			Timeout:  "10s",
++			Failures: 6,
++		}
++	}
++}
++
+ func applyTransportPayload(cfg *olcrtcRuntimeConfig, transport Transport) error {
+ 	payload := cleanPayload(transport.Payload)
+ 	switch transport.Type {
+@@ -2764,26 +2908,43 @@ func startInstance(ctx context.Context, olcrtcPath string, loc Location) (*proce
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	ns, err := setupNetns(ctx, loc)
+-	if err != nil {
+-		_ = os.Remove(configPath)
+-		return nil, fmt.Errorf("setup netns for %s: %w", locationKey(loc), err)
+-	}
+ 
+-	cmdArgs := []string{"netns", "exec", ns.Name, olcrtcPath, configPath}
+-	cmd := exec.CommandContext(ctx, "ip", cmdArgs...)
++	hostNetwork := strings.EqualFold(strings.TrimSpace(os.Getenv("OLCRTC_HOST_NETWORK")), "1") ||
++		strings.EqualFold(strings.TrimSpace(os.Getenv("OLCRTC_HOST_NETWORK")), "true")
++
++	var (
++		cmd *exec.Cmd
++		ns  *netnsRuntime
++	)
++	if hostNetwork {
++		cmd = exec.CommandContext(ctx, olcrtcPath, configPath)
++	} else {
++		ns, err = setupNetns(ctx, loc)
++		if err != nil {
++			_ = os.Remove(configPath)
++			return nil, fmt.Errorf("setup netns for %s: %w", locationKey(loc), err)
++		}
++		cmdArgs := []string{"netns", "exec", ns.Name, olcrtcPath, configPath}
++		cmd = exec.CommandContext(ctx, "ip", cmdArgs...)
++	}
+ 	logs := newLogBuffer(500)
+ 	cmd.Stdout = logWriter{stream: "stdout", buffer: logs}
+ 	cmd.Stderr = logWriter{stream: "stderr", buffer: logs}
+ 
+ 	if err := cmd.Start(); err != nil {
+-		cleanupNetns(context.Background(), ns)
++		if ns != nil {
++			cleanupNetns(context.Background(), ns)
++		}
+ 		_ = os.Remove(configPath)
+ 		return nil, fmt.Errorf("start olcrtc for %s: %w", locationKey(loc), err)
+ 	}
+ 
++	startedIn := "netns"
++	if hostNetwork {
++		startedIn = "host"
++	}
+ 	p := &process{location: loc, cmd: cmd, netns: ns, logs: logs, done: make(chan error, 1), started: time.Now(), running: true}
+-	log.Printf("started olcrtc for %s in %s: %s %s", locationKey(loc), ns.Name, olcrtcPath, configPath)
++	log.Printf("started olcrtc for %s in %s: %s %s", locationKey(loc), startedIn, olcrtcPath, configPath)
+ 
+ 	go func() {
+ 		err := cmd.Wait()
+@@ -3428,7 +3589,12 @@ func adminFileServer() (http.Handler, error) {
+ 	if err != nil {
+ 		return nil, fmt.Errorf("load admin assets: %w", err)
+ 	}
+-	return http.FileServer(http.FS(dist)), nil
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if strings.HasPrefix(r.URL.Path, "/assets/") {
++			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
++		}
++		http.FileServer(http.FS(dist)).ServeHTTP(w, r)
++	}), nil
+ }
+ 
+ func adminPageHandler(files http.Handler) http.HandlerFunc {

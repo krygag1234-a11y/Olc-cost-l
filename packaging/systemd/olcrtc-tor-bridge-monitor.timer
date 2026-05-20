@@ -1,0 +1,11 @@
+[Unit]
+Description=Tor bridge health monitor (every 20 min)
+
+[Timer]
+OnBootSec=12min
+OnUnitActiveSec=20min
+RandomizedDelaySec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

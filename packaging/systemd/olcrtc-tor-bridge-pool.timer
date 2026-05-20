@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic Tor bridge pool refresh (igareck repo)
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=6h
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

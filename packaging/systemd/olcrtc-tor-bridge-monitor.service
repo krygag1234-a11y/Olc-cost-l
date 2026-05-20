@@ -1,0 +1,11 @@
+[Unit]
+Description=Probe Tor bridge pool health (no restart)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/olcrtc/scripts/tor-bridge-monitor.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Install Olc-cost-l to /opt/Olc-cost-l and run bootstrap.
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+#   curl -fsSL ... | sudo bash -s -- --no-tor
+set -euo pipefail
+
+INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
+REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
+BRANCH="${OLC_REPO_BRANCH:-main}"
+
+[[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+
+if [[ ! -d "$INSTALL_DIR/.git" ]]; then
+  git clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+else
+  git -C "$INSTALL_DIR" pull --ff-only || true
+fi
+
+export OLC_REPO_ROOT="$INSTALL_DIR"
+chmod +x "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/install.sh 2>/dev/null || true
+exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" "$@"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Probe Tor webtunnel bridge pool and refresh bridges.conf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/olcrtc/scripts/tor-bridge-pool.sh --fetch --url-only --jobs 6 --target 12
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

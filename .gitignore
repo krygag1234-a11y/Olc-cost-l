@@ -1,0 +1,7 @@
+*.bak.*
+*.log
+.env
+panel.env
+*.token
+*secret*
+.DS_Store
