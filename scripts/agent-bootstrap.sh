@@ -170,8 +170,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 EOF
   chmod 0644 "$cronf"
   # Remove legacy line from /etc/crontab if present (older deploys)
-  if grep -qF 'olcrtc/scripts/healthcheck.sh' /etc/crontab 2>/dev/null; then
-    sed -i '\|olcrtc.*healthcheck.sh|d' /etc/crontab
+  if grep -qF 'healthcheck.sh' /etc/crontab 2>/dev/null; then
+    sed -i '\|healthcheck\.sh|d' /etc/crontab
   fi
 }
 

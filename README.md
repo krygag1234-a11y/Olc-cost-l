@@ -46,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | [docs/VPS-SETUP.md](docs/VPS-SETUP.md) | Полная установка |
 | [docs/TOR-BRIDGES.md](docs/TOR-BRIDGES.md) | Мосты, скорость failover |
 | [docs/CLIENT.md](docs/CLIENT.md) | Olcbox |
-| [docs/SAFETY.md](docs/SAFETY.md) | Откат |
+| [docs/SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат, что скрипты не трогают |
 | [docs/SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS/Tor/авторизация |
 | [docs/RU-VPS-ONLY.md](docs/RU-VPS-ONLY.md) | Split только на RU VPS |
 | [docs/SPLIT-ROUTING.md](docs/SPLIT-ROUTING.md) | Домены vs CDN /32, фикс 404 nginx |
