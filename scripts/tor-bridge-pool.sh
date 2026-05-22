@@ -16,11 +16,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tor-bridge-lib.sh
 source "$SCRIPT_DIR/tor-bridge-lib.sh"
 # shellcheck source=safety-lib.sh
-source "$SCRIPT_DIR/safety-lib.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/safety-lib.sh"
 
 POOL_FILE="${POOL_FILE:-$POOL_DIR/tor-bridges-pool.txt}"
 BRIDGES_OUT="${BRIDGES_OUT:-/etc/tor/bridges.conf}"
 TORRC="${TORRC:-/etc/tor/torrc}"
+safety_check_output_path POOL_FILE "$POOL_FILE"
+safety_check_output_path BRIDGES_OUT "$BRIDGES_OUT"
+safety_check_output_path TORRC "$TORRC"
+[[ "$TORRC" == /etc/tor/torrc ]] || { echo "REFUSE TORRC=$TORRC" >&2; exit 1; }
 LOG_FILE="${LOG_FILE:-/var/log/olcrtc-bridge-pool.log}"
 
 TARGET_ACTIVE="${TARGET_ACTIVE:-12}"
@@ -206,19 +210,9 @@ select_active_bridges() {
     rm -f "$tmp"
     return 1
   fi
-  if declare -f safety_install_file >/dev/null 2>&1; then
-    safety_install_file "$tmp" "$BRIDGES_OUT" 0644
-  else
-    cp -a "$BRIDGES_OUT" "${BRIDGES_OUT}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
-    install -m 0644 "$tmp" "$BRIDGES_OUT"
-  fi
+  safety_install_file "$tmp" "$BRIDGES_OUT" 0644
   rm -f "$tmp"
-  if declare -f safety_torrc_include_bridges >/dev/null 2>&1; then
-    safety_torrc_include_bridges "$TORRC"
-  else
-    grep -q '%include /etc/tor/bridges.conf' "$TORRC" 2>/dev/null || \
-      echo '%include /etc/tor/bridges.conf' >>"$TORRC"
-  fi
+  safety_torrc_include_bridges "$TORRC"
   bridge_log "wrote $BRIDGES_OUT (${#active[@]} bridges, target=$TARGET_ACTIVE)"
   return 0
 }

@@ -2,8 +2,11 @@
 # Merge static RU video balancer domain list (no network).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT="${RU_PLAYER_DOMAINS:-/var/lib/olcrtc/ru-player-cdn-domains.txt}"
+safety_check_output_path OUT "$OUT"
 FULL="$REPO_ROOT/data/ru-video-balancers-full.txt"
 EMBED="$REPO_ROOT/data/ru-embed-balancers.txt"
 

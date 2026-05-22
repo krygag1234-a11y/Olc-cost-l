@@ -3,10 +3,15 @@
 # Usage: discover-page-hosts.sh 'https://doktor-ktto-lordfilm.ru/14-sezon-1-seriya/'
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
+
 URL="${1:-}"
 [[ -n "$URL" ]] || { echo "usage: $0 <url>  OR  DISCOVER_HTML=/path/page.html $0 file://local" >&2; exit 1; }
 
 OUT="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
+safety_check_output_path OUT "$OUT"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 

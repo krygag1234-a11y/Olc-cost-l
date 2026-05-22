@@ -3,7 +3,12 @@
 # Только для RU VPS (вызывается из setup-split-ru.sh).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
+
 OUT="${RU_PLAYER_CIDRS:-/var/lib/olcrtc/ru-player-cdn.txt}"
+safety_check_output_path OUT "$OUT"
 
 # Домены CDN/API российских площадок (дополняйте под свои сайты)
 HOSTS=(

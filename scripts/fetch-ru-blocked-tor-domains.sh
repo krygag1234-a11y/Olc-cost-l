@@ -4,8 +4,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT="${RU_BLOCKED_TOR:-/var/lib/olcrtc/ru-blocked-tor-domains.txt}"
+safety_check_output_path OUT "$OUT"
 SEED="${RU_BLOCKED_TOR_SEED:-$REPO_ROOT/data/ru-blocked-tor-seed.txt}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

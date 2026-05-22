@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=safety-lib.sh
-source "$SCRIPT_DIR/safety-lib.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/safety-lib.sh"
 
 # shellcheck source=tor-bridge-lib.sh
 source "$SCRIPT_DIR/tor-bridge-lib.sh"
@@ -49,12 +49,8 @@ tmp="$(mktemp)"
   echo "ClientTransportPlugin webtunnel exec /usr/bin/webtunnel-client"
   printf '%s\n' "${active[@]}"
 } >"$tmp"
-if declare -f safety_install_file >/dev/null 2>&1; then
-  safety_install_file "$tmp" "$BRIDGES_OUT" 0644
-else
-  cp -a "$BRIDGES_OUT" "${BRIDGES_OUT}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
-  install -m 0644 "$tmp" "$BRIDGES_OUT"
-fi
+safety_check_output_path BRIDGES_OUT "$BRIDGES_OUT"
+safety_install_file "$tmp" "$BRIDGES_OUT" 0644
 rm -f "$tmp"
 
 echo "rotated to offset $idx ($WINDOW bridges)"

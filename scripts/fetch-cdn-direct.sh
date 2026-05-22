@@ -2,7 +2,12 @@
 # Resolve common video/CDN hostnames → /32 for olcrtc direct_cidrs (fix white nginx player via Tor).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
+
 OUT="${CDN_CIDRS:-/var/lib/olcrtc/cdn-direct.txt}"
+safety_check_output_path OUT "$OUT"
 HOSTS=(
   youtube.com www.youtube.com googlevideo.com ytimg.com
   vimeo.com player.vimeo.com

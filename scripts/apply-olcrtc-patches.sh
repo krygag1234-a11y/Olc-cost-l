@@ -5,9 +5,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
+safety_validate_git_build_dir "$OLCRTC_REPO" OLCRTC_REPO
+safety_validate_git_build_dir "$MGR_REPO" OLCRTC_MGR_REPO
 OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 
 log() { echo "[apply-patches] $*"; }

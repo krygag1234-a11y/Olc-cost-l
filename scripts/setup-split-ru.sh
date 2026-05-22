@@ -3,6 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
 
 [[ "${OLCRTC_RU_VPS:-1}" == "1" ]] || {
   echo "[setup-split-ru] skip: OLCRTC_RU_VPS!=1 (foreign VPS)" >&2
@@ -32,21 +34,12 @@ else
 fi
 
 ENV_FILE="${PANEL_ENV:-/etc/olcrtc-manager/panel.env}"
-mkdir -p "$(dirname "$ENV_FILE")"
-touch "$ENV_FILE"
+safety_check_output_path ENV_FILE "$ENV_FILE"
+safety_check_output_path DIRECT_CIDRS "$DIRECT_CIDRS"
 
-set_env() {
-  local key="$1" val="$2"
-  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-    sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
-  else
-    echo "${key}=${val}" >>"$ENV_FILE"
-  fi
-}
-
-set_env OLCRTC_DIRECT_CIDRS "$DIRECT_CIDRS"
-set_env OLCRTC_DIRECT_DOMAINS /var/lib/olcrtc/ru-direct-domains.txt
-set_env OLCRTC_BLOCKED_TOR_DOMAINS /var/lib/olcrtc/ru-blocked-tor-domains.txt
+safety_panel_env_set "$ENV_FILE" OLCRTC_DIRECT_CIDRS "$DIRECT_CIDRS"
+safety_panel_env_set "$ENV_FILE" OLCRTC_DIRECT_DOMAINS /var/lib/olcrtc/ru-direct-domains.txt
+safety_panel_env_set "$ENV_FILE" OLCRTC_BLOCKED_TOR_DOMAINS /var/lib/olcrtc/ru-blocked-tor-domains.txt
 
 # Panel hints (idempotent refresh)
 grep -q '^# Olc-cost-l split' "$ENV_FILE" 2>/dev/null || cat >>"$ENV_FILE" <<EOF

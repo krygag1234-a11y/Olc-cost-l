@@ -28,9 +28,11 @@ REBUILD_ONLY=0
 
 log() { echo "==> $*"; }
 
-# Cron/systemd historically used /opt/olcrtc/scripts — keep one canonical checkout.
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
+
 ensure_install_symlink() {
-  ln -sfn "$REPO_ROOT" /opt/olcrtc
+  safety_ensure_olcrtc_symlink "$REPO_ROOT"
 }
 
 usage() {
@@ -105,7 +107,9 @@ setup_split_routing() {
 }
 
 setup_sysctl() {
-  cat >/etc/sysctl.d/99-olcrtc-performance.conf <<'EOF'
+  local f=/etc/sysctl.d/99-olcrtc-performance.conf
+  safety_path_allowed "$f" || return 1
+  cat >"$f" <<'EOF'
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.core.rmem_max=16777216
@@ -113,7 +117,8 @@ net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 87380 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
 EOF
-  sysctl --system >/dev/null 2>&1 || true
+  # Only our drop-in — do not reload unrelated sysctl.d on shared hosts
+  sysctl -p "$f" >/dev/null 2>&1 || true
 }
 
 install_systemd_units() {
@@ -155,12 +160,18 @@ EOF
 }
 
 setup_cron() {
-  local line="*/10 * * * * root ${REPO_ROOT}/scripts/healthcheck.sh"
-  if grep -qF healthcheck.sh /etc/crontab 2>/dev/null; then
-    sed -i "s|.*/opt/olcrtc/scripts/healthcheck.sh|${REPO_ROOT}/scripts/healthcheck.sh|" /etc/crontab
-    sed -i "s|.*/opt/Olc-cost-l/scripts/healthcheck.sh|${REPO_ROOT}/scripts/healthcheck.sh|" /etc/crontab
-  else
-    echo "$line" >>/etc/crontab
+  local cronf=/etc/cron.d/olcrtc-healthcheck
+  safety_path_allowed "$cronf" || return 1
+  cat >"$cronf" <<EOF
+# Olc-cost-l — healthcheck (safe to delete this file to disable)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+*/10 * * * * root ${REPO_ROOT}/scripts/healthcheck.sh >>/var/log/olcrtc-healthcheck.log 2>&1
+EOF
+  chmod 0644 "$cronf"
+  # Remove legacy line from /etc/crontab if present (older deploys)
+  if grep -qF 'olcrtc/scripts/healthcheck.sh' /etc/crontab 2>/dev/null; then
+    sed -i '\|olcrtc.*healthcheck.sh|d' /etc/crontab
   fi
 }
 

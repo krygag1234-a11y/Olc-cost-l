@@ -3,10 +3,15 @@
 # Complements built-in *.ru in olcrtc (any doktor-ktto-lordfilm.ru matches automatically).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
+
 REPO="${GEOSITE_REPO:-GrimbirdUsers/ru-routing-dat}"
 BRANCH="${GEOSITE_BRANCH:-main}"
 BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}/data-geosite"
 OUT="${GEOSITE_DOMAINS:-/var/lib/olcrtc/ru-geosite-domains.txt}"
+safety_check_output_path OUT "$OUT"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

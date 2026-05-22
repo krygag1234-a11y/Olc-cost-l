@@ -4,8 +4,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT="${RU_DOMAINS:-/var/lib/olcrtc/ru-direct-domains.txt}"
+safety_check_output_path OUT "$OUT"
 GEOSITE="${GEOSITE_DOMAINS:-/var/lib/olcrtc/ru-geosite-domains.txt}"
 EXTRA="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
 EMBED="${RU_EMBED_BALANCERS:-$REPO_ROOT/data/ru-embed-balancers.txt}"

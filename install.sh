@@ -11,6 +11,11 @@ BRANCH="${OLC_REPO_BRANCH:-main}"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/safety-lib.sh
+source "$SCRIPT_DIR/scripts/safety-lib.sh"
+safety_check_install_dir "$INSTALL_DIR"
+
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   git clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 else

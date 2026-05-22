@@ -5,8 +5,12 @@
 #   cat hosts-rules.txt | sudo bash add-domains-extra.sh
 set -euo pipefail
 
-OUT="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=safety-lib.sh
+source "$SCRIPT_DIR/safety-lib.sh"
+
+OUT="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
+safety_check_output_path OUT "$OUT"
 
 {
   echo "# added $(date -Iseconds)"
