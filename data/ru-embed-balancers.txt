@@ -32,3 +32,16 @@ suffix:.buzzoola.com
 suffix:.adtec.ru
 suffix:.videonow.ru
 suffix:.vpaid.ru
+suffix:.online-serial.com
+suffix:.aderom.net
+
+# From Olcbox logs 2026-05-22 (lordfilm / bbc-doctorwho / HDVB players — were Tor → AT geo-block)
+suffix:.lomont.site
+suffix:.replacedomain.github.io
+suffix:.kodir2.github.io
+suffix:.hdvb-player.github.io
+suffix:.showvid.ws
+exact:test.showvid.ws
+suffix:.myangular.life
+exact:s.myangular.life
+suffix:.opravar.online
