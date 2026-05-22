@@ -93,9 +93,3 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 ## DDNS
 
 `OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`
-
----
-
-## Секреты
-
-GitHub PAT / API-ключи **не хранятся** в репозитории. Если ключ светился в чате — **отозвать** в GitHub Settings → Developer settings.
