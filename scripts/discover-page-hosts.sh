@@ -4,13 +4,24 @@
 set -euo pipefail
 
 URL="${1:-}"
-[[ -n "$URL" ]] || { echo "usage: $0 <url>" >&2; exit 1; }
+[[ -n "$URL" ]] || { echo "usage: $0 <url>  OR  DISCOVER_HTML=/path/page.html $0 file://local" >&2; exit 1; }
 
 OUT="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
-curl -fsSL -A 'Mozilla/5.0' --max-time 25 "$URL" >"$TMP" || exit 1
+if [[ -n "${DISCOVER_HTML:-}" && -f "$DISCOVER_HTML" ]]; then
+  cp "$DISCOVER_HTML" "$TMP"
+  echo "[discover] using saved HTML: $DISCOVER_HTML" >&2
+elif [[ "$URL" == file://* ]]; then
+  echo "set DISCOVER_HTML=/path/to/saved.html" >&2
+  exit 1
+else
+  curl -fsSL -A 'Mozilla/5.0' --max-time 25 "$URL" >"$TMP" || {
+    echo "[discover] curl failed (403/WAF?). Save page in browser → scp → discover-page-hosts-from-html.sh" >&2
+    exit 1
+  }
+fi
 
 # kinobalancer: atob("aHR0cHM6Ly9hcGku...") API URLs in page source
 python3 - "$TMP" <<'PY' 2>/dev/null || true
