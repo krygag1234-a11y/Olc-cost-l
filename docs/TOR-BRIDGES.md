@@ -36,12 +36,11 @@ TARGET_ACTIVE=12
 
 ## Плееры (белый экран / «недоступно в регионе»)
 
-**Только RU VPS.** Один скрипт:
+**Только RU VPS:**
 
 ```bash
 sudo /opt/Olc-cost-l/scripts/setup-split-ru.sh
 sudo systemctl restart olcrtc-manager
 ```
 
-Включает RU CIDR + global CDN + **RU player CDN** (Okko, IVI, Rutube, …).  
-См. [RU-VPS-ONLY.md](RU-VPS-ONLY.md), [SECURITY-NETWORK.md](SECURITY-NETWORK.md).
+Домены плееров (без CDN /32 → нет 404 nginx). См. [SPLIT-ROUTING.md](SPLIT-ROUTING.md).

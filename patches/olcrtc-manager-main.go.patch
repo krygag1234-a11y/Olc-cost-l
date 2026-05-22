@@ -50,7 +50,8 @@ index 8d987b8..23c9f97 100644
 -	ProxyPort int    `yaml:"proxy_port,omitempty"`
 +	ProxyAddr       string `yaml:"proxy_addr,omitempty"`
 +	ProxyPort       int    `yaml:"proxy_port,omitempty"`
-+	DirectCIDRsFile string `yaml:"direct_cidrs_file,omitempty"`
++	DirectCIDRsFile   string `yaml:"direct_cidrs_file,omitempty"`
++	DirectDomainsFile string `yaml:"direct_domains_file,omitempty"`
  }
  
  type olcrtcVP8Config struct {
@@ -167,6 +168,17 @@ index 8d987b8..23c9f97 100644
 +		return p
 +	}
 +	const defaultPath = "/var/lib/olcrtc/ru-cidrs.txt"
++	if _, err := os.Stat(defaultPath); err == nil {
++		return defaultPath
++	}
++	return ""
++}
++
++func directDomainsFileFromEnv() string {
++	if p := strings.TrimSpace(os.Getenv("OLCRTC_DIRECT_DOMAINS")); p != "" {
++		return p
++	}
++	const defaultPath = "/var/lib/olcrtc/ru-direct-domains.txt"
 +	if _, err := os.Stat(defaultPath); err == nil {
 +		return defaultPath
 +	}

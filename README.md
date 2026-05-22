@@ -49,6 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | [docs/SAFETY.md](docs/SAFETY.md) | Откат |
 | [docs/SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS/Tor/авторизация |
 | [docs/RU-VPS-ONLY.md](docs/RU-VPS-ONLY.md) | Split только на RU VPS |
+| [docs/SPLIT-ROUTING.md](docs/SPLIT-ROUTING.md) | Домены vs CDN /32, фикс 404 nginx |
 
 ---
 

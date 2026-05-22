@@ -1,0 +1,73 @@
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 8d11661..a1b2c3d 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -108,6 +108,7 @@ type SOCKS struct {
+ 	ProxyAddr        string `yaml:"proxy_addr"`
+ 	ProxyPort        int    `yaml:"proxy_port"`
+ 	DirectCIDRsFile  string `yaml:"direct_cidrs_file,omitempty"`
++	DirectDomainsFile string `yaml:"direct_domains_file,omitempty"`
+ }
+ 
+ // Engine selects a direct SFU connection when Auth.Provider is "none".
+@@ -264,6 +265,7 @@ func Apply(dst session.Config, f File) session.Config {
+ 	dst.SOCKSProxyAddr = pickString(dst.SOCKSProxyAddr, f.SOCKS.ProxyAddr)
+ 	dst.SOCKSProxyPort = pickInt(dst.SOCKSProxyPort, f.SOCKS.ProxyPort)
+ 	dst.DirectCIDRsFile = pickString(dst.DirectCIDRsFile, f.SOCKS.DirectCIDRsFile)
++	dst.DirectDomainsFile = pickString(dst.DirectDomainsFile, f.SOCKS.DirectDomainsFile)
+ 	dst.Video.Width = pickInt(dst.Video.Width, f.Video.Width)
+ 	dst.Video.Height = pickInt(dst.Video.Height, f.Video.Height)
+ 	dst.Video.FPS = pickInt(dst.Video.FPS, f.Video.FPS)
+@@ -310,6 +312,7 @@ func ApplyProfile(base session.Config, p Profile) session.Config {
+ 	dst.SOCKSProxyAddr = overlayString(dst.SOCKSProxyAddr, p.SOCKS.ProxyAddr)
+ 	dst.SOCKSProxyPort = overlayInt(dst.SOCKSProxyPort, p.SOCKS.ProxyPort)
+ 	dst.DirectCIDRsFile = overlayString(dst.DirectCIDRsFile, p.SOCKS.DirectCIDRsFile)
++	dst.DirectDomainsFile = overlayString(dst.DirectDomainsFile, p.SOCKS.DirectDomainsFile)
+ 	dst.Video.Width = overlayInt(dst.Video.Width, p.Video.Width)
+ 	dst.Video.Height = overlayInt(dst.Video.Height, p.Video.Height)
+ 	dst.Video.FPS = overlayInt(dst.Video.FPS, f.Video.FPS)
+diff --git a/internal/server/server.go b/internal/server/server.go
+index eb6ddce..c3d4e5f 100644
+--- a/internal/server/server.go
++++ b/internal/server/server.go
+@@ -78,6 +78,7 @@ type Server struct {
+ 	socksProxyAddr   string
+ 	socksProxyPort   int
+ 	directCIDRs      *routing.Matcher
++	directDomains    *routing.DomainMatcher
+ 	liveness         control.Config
+ 	health         *runtime.HealthTracker
+ 	done           chan struct{}
+@@ -113,6 +114,7 @@ type Config struct {
+ 	SOCKSProxyAddr    string
+ 	SOCKSProxyPort    int
+ 	DirectCIDRsFile   string
++	DirectDomainsFile string
+ 	TransportOptions transport.Options
+ 	Engine           string
+ 	URL              string
+@@ -179,6 +181,14 @@ func Run(ctx context.Context, cfg Config) error {
+ 		s.directCIDRs = m
+ 		logger.Infof("direct routing: %d RU/CIDR entries from %s", m.Len(), cfg.DirectCIDRsFile)
+ 	}
++	if cfg.DirectDomainsFile != "" {
++		dm, err := routing.LoadDomainsFile(cfg.DirectDomainsFile)
++		if err != nil {
++			return fmt.Errorf("load direct domains: %w", err)
++		}
++		s.directDomains = dm
++		logger.Infof("direct routing: %d domain rules from %s", dm.Len(), cfg.DirectDomainsFile)
++	}
+ 
+ 	// Register shutdown BEFORE bringUpLink so a partial setup (e.g.
+ 	// link.New succeeded but ln.Connect timed out) still tears the
+@@ -894,6 +904,9 @@ func (s *Server) dispatch(stream *smux.Stream, req ConnectRequest, sessionID str
+ }
+ 
+ func (s *Server) shouldDialDirect(host string) bool {
++	if s.directDomains != nil && s.directDomains.Match(host) {
++		return true
++	}
+ 	if s.directCIDRs == nil || s.directCIDRs.Len() == 0 {
+ 		return false
+ 	}

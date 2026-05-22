@@ -30,7 +30,10 @@ apply_olcrtc() {
   }
   install -d "$OLCRTC_REPO/internal/routing"
   install -m 0644 "$PATCH_DIR/olcrtc-routing-cidr.go" "$OLCRTC_REPO/internal/routing/cidr.go"
+  install -m 0644 "$PATCH_DIR/olcrtc-routing-domains.go" "$OLCRTC_REPO/internal/routing/domains.go"
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-direct-cidrs.patch") 2>/dev/null || true
+  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-domains.patch") 2>/dev/null || true
+  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-domains-split.patch") 2>/dev/null || true
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true

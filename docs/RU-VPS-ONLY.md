@@ -33,12 +33,12 @@ sudo systemctl restart olcrtc-manager
 
 | Файл | Содержимое |
 |------|------------|
-| `/var/lib/olcrtc/ru-cidrs.txt` | RU CIDR |
-| `/var/lib/olcrtc/cdn-direct.txt` | глобальные CDN |
-| `/var/lib/olcrtc/ru-player-cdn.txt` | Okko, IVI, Kinopoisk, Rutube, VK Video… |
-| `/var/lib/olcrtc/direct-all.txt` | merge → `OLCRTC_DIRECT_CIDRS` |
+| `/var/lib/olcrtc/ru-cidrs.txt` | GeoIP RU (CIDR) |
+| `/var/lib/olcrtc/ru-direct-domains.txt` | **Домены** `.ru`, Okko, IVI, Rutube… (основной фикс плееров) |
+| `OLCRTC_DIRECT_DOMAINS` | в `panel.env` |
 
-Дополнить домены плеера: правьте `scripts/fetch-ru-player-cdn.sh` → `HOSTS=(...)`.
+CDN /32 (`cdn-direct`, `ru-player-cdn`) **отключены** по умолчанию — давали 404 nginx.  
+Дополнить домены: `scripts/fetch-ru-direct-domains.sh`.
 
 ## Nodе / multi-region
 
