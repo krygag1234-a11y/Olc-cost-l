@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "[setup-split-ru] RU CIDR (geoip)…"
 bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
 
-echo "[setup-split-ru] RU direct domains (players/CDN by hostname)…"
+echo "[setup-split-ru] geosite RU domains (~10k from GrimbirdUsers) + builtins…"
 bash "$SCRIPT_DIR/fetch-ru-direct-domains.sh"
 
 # Legacy IP CDN lists — optional, off by default (causes 404 on wrong nginx edge)
@@ -46,4 +46,5 @@ set_env() {
 set_env OLCRTC_DIRECT_CIDRS "$DIRECT_CIDRS"
 set_env OLCRTC_DIRECT_DOMAINS /var/lib/olcrtc/ru-direct-domains.txt
 
-echo "[setup-split-ru] done: CIDR=$(wc -l <"$DIRECT_CIDRS") domains=$(grep -cE '^[.]' /var/lib/olcrtc/ru-direct-domains.txt)"
+dom_n="$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
+echo "[setup-split-ru] done: CIDR=$(wc -l <"$DIRECT_CIDRS") domains=${dom_n} (+ builtin *.ru in olcrtc)"

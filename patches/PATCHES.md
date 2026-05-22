@@ -26,4 +26,13 @@
 | Olcbox | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 | Olcbox (стабильная ссылка) | https://github.com/alananisimov/olcbox/releases |
 
+## Скрипты (пост-фикс после `git checkout` в clone)
+
+| Скрипт | Зачем |
+|--------|--------|
+| `patch-olcrtc-server-domains.sh` | `MatchBuiltinRU` + `direct_domains` в `server.go` |
+| `patch-olcrtc-manager-domains.sh` | `direct_domains_file` в YAML менеджера |
+| `fetch-geosite-ru-domains.sh` | ~20k правил из [ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat) |
+| `discover-page-hosts.sh` | Домены со страницы плеера → `ru-domains-extra.txt` |
+
 Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`

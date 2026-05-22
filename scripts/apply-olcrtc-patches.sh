@@ -34,6 +34,7 @@ apply_olcrtc() {
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-direct-cidrs.patch") 2>/dev/null || true
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-domains.patch") 2>/dev/null || true
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-domains-split.patch") 2>/dev/null || true
+  bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true
@@ -48,6 +49,7 @@ apply_manager() {
       exit 1
     }
   }
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-domains.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Admin UI: use prebuilt dist from clone if present; rebuild only when npm works.
   if [[ -f "$MGR_REPO/package.json" ]] && [[ ! -d "$MGR_REPO/admin/dist" ]]; then
     if command -v npm >/dev/null 2>&1; then

@@ -65,6 +65,9 @@ index eb6ddce..c3d4e5f 100644
  }
  
  func (s *Server) shouldDialDirect(host string) bool {
++	if routing.MatchBuiltinRU(host) {
++		return true
++	}
 +	if s.directDomains != nil && s.directDomains.Match(host) {
 +		return true
 +	}

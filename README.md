@@ -72,7 +72,8 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 - `/api/logs?client_id=` (без trailing slash)
 - `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
 - SOCKS + split для всех location, если Tor жив (`OLCRTC_EXIT_PROXY`)
-- Split: RU + CDN direct, остальное Tor
+- Split: **все `*.ru` встроено в olcrtc** + geosite (~20k доменов) + RU GeoIP; остальное Tor
+- `fetch-geosite-ru-domains.sh` — [GrimbirdUsers/ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat)
 - Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
 
 ---
@@ -89,3 +90,9 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 ## DDNS
 
 `OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`
+
+---
+
+## Секреты
+
+GitHub PAT / API-ключи **не хранятся** в репозитории. Если ключ светился в чате — **отозвать** в GitHub Settings → Developer settings.

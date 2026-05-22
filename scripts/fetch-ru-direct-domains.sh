@@ -1,72 +1,20 @@
 #!/usr/bin/env bash
-# Domain-based split (geosite-style): RU TLD + streaming — без хрупких CDN /32 (404 nginx).
+# Merge geosite-ru + optional extras → ru-direct-domains.txt (used by olcrtc manager).
+# NOTE: *.ru / .su / .рф are ALWAYS direct in olcrtc binary (builtin) — doktor-ktto-lordfilm.ru included.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${RU_DOMAINS:-/var/lib/olcrtc/ru-direct-domains.txt}"
+GEOSITE="${GEOSITE_DOMAINS:-/var/lib/olcrtc/ru-geosite-domains.txt}"
+EXTRA="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
 
-cat >"$OUT" <<'EOF'
-# RU direct by domain — VPS resolves CDN via RU DNS, no stale /32
-# Ref: GrimbirdUsers/ru-routing-dat category-ru / streaming (2026)
+bash "$SCRIPT_DIR/fetch-geosite-ru-domains.sh"
 
-# National TLD
-.ru
-.su
-.рф
-.xn--p1ai
-.moscow
+{
+  echo "# Merged direct domain rules — $(date -Iseconds)"
+  echo "# Builtin olcrtc: ALL hosts ending in .ru .su .рф (any mirror, e.g. doktor-ktto-lordfilm.ru)"
+  [[ -f "$GEOSITE" ]] && grep -v '^#' "$GEOSITE" | awk 'NF'
+  [[ -f "$EXTRA" ]] && grep -v '^#' "$EXTRA" | awk 'NF'
+} | awk '!seen[$0]++' >"$OUT"
 
-# Yandex / Mail / VK
-.yandex.ru
-.yandex.net
-.yandex.com
-.ya.ru
-.yastatic.net
-.strm.yandex.ru
-.mail.ru
-.vk.com
-.vk.ru
-.vkuser.net
-.vk-portal.net
-.vk-cdn.net
-.userapi.com
-.mycdn.me
-.dzen.ru
-
-# Streaming (2026 warnings: VPN off for playback)
-.okko.tv
-.okcdn.ru
-.okko.sport
-.ivi.ru
-.ivi.tv
-.ivicdn.tv
-.kinopoisk.ru
-.kpcdn.net
-.rutube.ru
-.rutube.net
-.more.tv
-.more-tv.ru
-.premier.one
-.start.ru
-.start.film
-.wink.ru
-.megogo.net
-.smotrim.ru
-.kion.ru
-.amediateka.ru
-.viju.ru
-.tvigle.ru
-.boosty.ru
-.cdnvideo.ru
-.catcdn.ru
-
-# Banks / market (often embedded)
-.wildberries.ru
-.wb.ru
-.ozon.ru
-
-# Telecom CDNs
-.mts.ru
-.beeline.ru
-EOF
-
-echo "wrote $(grep -cE '^[.]' "$OUT") domain suffix rules → $OUT"
+echo "merged $(grep -cvE '^#|^$' "$OUT" || echo 0) domain rules → $OUT"
