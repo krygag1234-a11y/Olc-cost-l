@@ -47,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | [docs/TOR-BRIDGES.md](docs/TOR-BRIDGES.md) | Мосты, скорость failover |
 | [docs/CLIENT.md](docs/CLIENT.md) | Olcbox |
 | [docs/SAFETY.md](docs/SAFETY.md) | Откат |
+| [docs/SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS/Tor/авторизация |
+| [docs/RU-VPS-ONLY.md](docs/RU-VPS-ONLY.md) | Split только на RU VPS |
 
 ---
 
@@ -55,8 +57,9 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | Флаг | Результат |
 |------|-----------|
 | `--full` | Tor + split RU/CDN + патчи |
-| `--full --no-tor` | Только панель + olcrtc, **без Tor** |
-| `--no-split` | Tor на весь трафик |
+| `--full --no-tor` / `--foreign` | Иностранный VPS: панель + olcrtc, **без Tor/split/мостов** |
+| `--no-split` | RU VPS: Tor на всё, без списков direct |
+| `--ru` | Явно RU: Tor + split (RU+CDN+плееры) |
 | `--rebuild-only` | Пересборка бинарников |
 
 В `config.json` поле **`link`**: для подписок Olcbox (`tor` / `direct`). **Tor exit на сервере** включается через `OLCRTC_EXIT_PROXY` в systemd — все location получают SOCKS + split (RU/CDN direct, остальное через Tor). Отключить Tor на всём VPS: `--no-tor`.

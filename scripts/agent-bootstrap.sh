@@ -4,13 +4,14 @@
 # Usage:
 #   agent-bootstrap.sh --full              # clean VPS: deps + patched build + all services
 #   agent-bootstrap.sh                     # config only (tor/panel already built)
-#   agent-bootstrap.sh --no-tor            # foreign VPS: no Tor, no split, no bridges
-#   agent-bootstrap.sh --with-tor          # default on RU: Tor + bridge pool + split RU
-#   agent-bootstrap.sh --no-split          # Tor exit for all, no RU direct list
+#   agent-bootstrap.sh --no-tor            # иностранный VPS: только панель+olcrtc, без Tor/split/мостов
+#   agent-bootstrap.sh --with-tor          # RU VPS: Tor + bridge pool + split (RU+CDN+плееры)
+#   agent-bootstrap.sh --no-split          # RU VPS: Tor без списков direct (весь трафик через exit)
+#   agent-bootstrap.sh --foreign           # то же что --no-tor (явно не-RU)
 #   agent-bootstrap.sh --rebuild-only      # only apply patches + rebuild binaries
 #   agent-bootstrap.sh --help
 #
-# Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_BRANCH=master
+# Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_RU_VPS=0|1  OLCRTC_BRANCH=master
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +23,7 @@ export OLC_REPO_ROOT="$REPO_ROOT"
 FULL=0
 ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
 ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
+RU_VPS="${OLCRTC_RU_VPS:-1}"
 REBUILD_ONLY=0
 
 log() { echo "==> $*"; }
@@ -37,9 +39,10 @@ usage() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full) FULL=1 ;;
-    --no-tor) ENABLE_TOR=0; ENABLE_SPLIT=0 ;;
-    --with-tor) ENABLE_TOR=1 ;;
-    --no-split) ENABLE_SPLIT=0 ;;
+    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
+    --with-tor) ENABLE_TOR=1; RU_VPS=1 ;;
+    --no-split) ENABLE_SPLIT=0; RU_VPS=1 ;;
+    --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage; exit 1 ;;
@@ -72,7 +75,8 @@ build_webtunnel() {
 }
 
 setup_tor() {
-  [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor)"; return 0; }
+  [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
+  bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
   log "Tor bridges pool"
   BRIDGE_TYPES=webtunnel,obfs4 \
   bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types webtunnel || \
@@ -88,16 +92,11 @@ setup_tor() {
 }
 
 setup_split_routing() {
-  [[ "$ENABLE_SPLIT" -eq 1 && "$ENABLE_TOR" -eq 1 ]] || {
-    log "skip RU split (direct list)"
+  if [[ "$RU_VPS" -ne 1 || "$ENABLE_SPLIT" -ne 1 || "$ENABLE_TOR" -ne 1 ]]; then
+    log "skip split lists (foreign VPS or --no-split or --no-tor)"
     return 0
-  }
-  bash "$SCRIPT_DIR/fetch-ru-cidrs.sh" || true
-  bash "$SCRIPT_DIR/fetch-cdn-direct.sh" 2>/dev/null || true
-  bash "$SCRIPT_DIR/merge-direct-cidrs.sh" 2>/dev/null || true
-  if [[ -f /var/lib/olcrtc/direct-all.txt ]] && ! grep -q 'OLCRTC_DIRECT_CIDRS' /etc/olcrtc-manager/panel.env 2>/dev/null; then
-    echo 'OLCRTC_DIRECT_CIDRS=/var/lib/olcrtc/direct-all.txt' >>/etc/olcrtc-manager/panel.env
   fi
+  OLCRTC_RU_VPS=1 bash "$SCRIPT_DIR/setup-split-ru.sh"
 }
 
 setup_sysctl() {
@@ -195,10 +194,14 @@ systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-ma
 log "Done. Read $DOC"
 log "Patches: $REPO_ROOT/patches/PATCHES.md"
 if [[ "$ENABLE_TOR" -eq 0 ]]; then
-  log "Mode: NO TOR (foreign VPS) — exit via VPS IP only"
+  log "Mode: FOREIGN / NO TOR — panel only, no bridges, no split scripts"
 else
-  log "Mode: Tor + bridge pool from TOR_BRIDGES_ALL.txt"
-  [[ "$ENABLE_SPLIT" -eq 1 ]] && log "Split: RU CIDR direct, rest via Tor"
+  log "Mode: Tor + bridge pool (RU VPS)"
+  if [[ "$RU_VPS" -eq 1 && "$ENABLE_SPLIT" -eq 1 ]]; then
+    log "Split: RU CIDR + CDN + RU player CDN → direct; rest → Tor"
+  elif [[ "$ENABLE_SPLIT" -eq 0 ]]; then
+    log "Split: disabled (--no-split), all via Tor exit"
+  fi
 fi
 log "Olcbox: https://github.com/alananisimov/olcbox/releases (nightly: .../tag/nightly)"
 log "Set OLCRTC_PUBLIC_URL in panel.env (DDNS, not raw IP)"

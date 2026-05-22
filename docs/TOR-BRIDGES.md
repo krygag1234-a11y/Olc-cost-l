@@ -34,16 +34,14 @@ TARGET_ACTIVE=12
 
 Сейчас: кэш pool, probe топ-N, `tor-bridges-good.txt`, rotate за секунды.
 
-## Плееры (белый экран / nginx)
+## Плееры (белый экран / «недоступно в регионе»)
 
-Tor exit часто режет CDN видео. На VPS:
+**Только RU VPS.** Один скрипт:
 
 ```bash
-/opt/Olc-cost-l/scripts/fetch-cdn-direct.sh
-/opt/Olc-cost-l/scripts/merge-direct-cidrs.sh
-# panel.env:
-OLCRTC_DIRECT_CIDRS=/var/lib/olcrtc/direct-all.txt
-systemctl restart olcrtc-manager
+sudo /opt/Olc-cost-l/scripts/setup-split-ru.sh
+sudo systemctl restart olcrtc-manager
 ```
 
-Или в Olcbox: split tunnel — домены плеера **в обход** SOCKS.
+Включает RU CIDR + global CDN + **RU player CDN** (Okko, IVI, Rutube, …).  
+См. [RU-VPS-ONLY.md](RU-VPS-ONLY.md), [SECURITY-NETWORK.md](SECURITY-NETWORK.md).

@@ -16,8 +16,9 @@
 chmod +x /opt/Olc-cost-l/scripts/*.sh
 bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full
 
-# Иностранный VPS — без Tor
+# Иностранный VPS — без Tor, без split, без мостов
 bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --no-tor
+# то же: --foreign
 
 # Только пересобрать патченные бинарники
 bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
