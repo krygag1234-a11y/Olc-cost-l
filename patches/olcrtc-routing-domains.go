@@ -111,11 +111,8 @@ func MatchBuiltinRU(host string) bool {
 	return false
 }
 
-// Match reports whether host should bypass outbound Tor proxy.
-func (m *DomainMatcher) Match(host string) bool {
-	if MatchBuiltinRU(host) {
-		return true
-	}
+// MatchHostOnly applies file rules only (no builtin *.ru).
+func (m *DomainMatcher) MatchHostOnly(host string) bool {
 	if m == nil {
 		return false
 	}
@@ -126,7 +123,6 @@ func (m *DomainMatcher) Match(host string) bool {
 	if _, ok := m.exact[host]; ok {
 		return true
 	}
-	// subdomain of exact: cache.example.com for exact:example.com
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for exact := range m.exact {
@@ -135,14 +131,19 @@ func (m *DomainMatcher) Match(host string) bool {
 		}
 	}
 	for _, suf := range m.suffix {
-		if host == strings.TrimPrefix(suf, ".") {
-			return true
-		}
-		if strings.HasSuffix(host, suf) {
+		if host == strings.TrimPrefix(suf, ".") || strings.HasSuffix(host, suf) {
 			return true
 		}
 	}
 	return false
+}
+
+// Match reports whether host should bypass outbound Tor proxy (builtin RU TLD + file rules).
+func (m *DomainMatcher) Match(host string) bool {
+	if MatchBuiltinRU(host) {
+		return true
+	}
+	return m.MatchHostOnly(host)
 }
 
 // Len returns approximate rule count (file rules only).

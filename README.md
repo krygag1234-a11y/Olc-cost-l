@@ -50,6 +50,8 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | [docs/SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS/Tor/авторизация |
 | [docs/RU-VPS-ONLY.md](docs/RU-VPS-ONLY.md) | Split только на RU VPS |
 | [docs/SPLIT-ROUTING.md](docs/SPLIT-ROUTING.md) | Домены vs CDN /32, фикс 404 nginx |
+| [docs/RU-BLOCKED-TOR.md](docs/RU-BLOCKED-TOR.md) | Заблокированные в РФ `.ru` → Tor |
+| [docs/ZAPRET-OPTIONAL.md](docs/ZAPRET-OPTIONAL.md) | Zapret/DPI на VPS (опционально) |
 
 ---
 
@@ -72,7 +74,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 - `/api/logs?client_id=` (без trailing slash)
 - `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
 - SOCKS + split для всех location, если Tor жив (`OLCRTC_EXIT_PROXY`)
-- Split: **все `*.ru` встроено в olcrtc** + geosite (~20k доменов) + RU GeoIP; остальное Tor
+- Split: **все `*.ru` direct** + ~80 RU video CDN (Alloha/Rewall/Kodik/HDVB/…) + geosite; **заблокированные .ru** → Tor (`ru-blocked-tor-domains.txt`); остальное Tor
 - `fetch-geosite-ru-domains.sh` — [GrimbirdUsers/ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat)
 - Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
 

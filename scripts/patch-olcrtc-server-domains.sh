@@ -42,10 +42,13 @@ if "LoadDomainsFile" not in t:
 
 # Replace entire shouldDialDirect with safe version (no DNS→CIDR — causes nginx 404 on shared CDN IP)
 new_fn = """func (s *Server) shouldDialDirect(host string) bool {
+\tif s.blockedTorDomains != nil && s.blockedTorDomains.MatchHostOnly(host) {
+\t\treturn false
+\t}
 \tif routing.MatchBuiltinRU(host) {
 \t\treturn true
 \t}
-\tif s.directDomains != nil && s.directDomains.Match(host) {
+\tif s.directDomains != nil && s.directDomains.MatchHostOnly(host) {
 \t\treturn true
 \t}
 \thost = strings.TrimSpace(host)

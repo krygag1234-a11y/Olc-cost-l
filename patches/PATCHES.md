@@ -33,6 +33,9 @@
 | `patch-olcrtc-server-domains.sh` | `MatchBuiltinRU` + `direct_domains` в `server.go` |
 | `patch-olcrtc-manager-domains.sh` | `direct_domains_file` в YAML менеджера |
 | `fetch-geosite-ru-domains.sh` | ~20k правил из [ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat) |
+| `fetch-player-cdn-domains.sh` | RU video balancers (F6: Alloha, Rewall, Lumex, …) |
+| `fetch-ru-blocked-tor-domains.sh` | RF-blocked `.ru` → Tor override |
+| `patch-olcrtc-server-blocked-tor.sh` | `blocked_tor_domains_file` в olcrtc |
 | `discover-page-hosts.sh` | Домены со страницы плеера → `ru-domains-extra.txt` |
 
 Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`

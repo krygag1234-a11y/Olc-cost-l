@@ -1,0 +1,27 @@
+# .ru / .рф sites often blocked inside Russia — force Tor exit (not builtin direct)
+# User-maintained; auto-list: fetch-ru-blocked-tor-domains.sh (Refilter/orefilter)
+# Tor does NOT bypass all RF blocks (e.g. Tor network itself blocked); see docs/RU-BLOCKED-TOR.md
+
+suffix:.twitter.ru
+suffix:.x.com
+exact:twitter.com
+exact:x.com
+suffix:.instagram.com
+exact:instagram.com
+suffix:.facebook.com
+exact:facebook.com
+suffix:.linkedin.com
+suffix:.medium.com
+suffix:.news.google.com
+
+# News / orgs (examples — extend via fetch script)
+exact:echo.msk.ru
+exact:svoboda.org
+exact:meduza.io
+suffix:.meduza.io
+exact:theins.ru
+exact:novayagazeta.ru
+exact:tvrain.ru
+exact:tvrain.com
+exact:dozhd.online
+exact:currenttime.tv

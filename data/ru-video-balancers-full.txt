@@ -1,0 +1,104 @@
+# RU video balancers / embed CDNs (F6 2024–2025: Alloha, Rewall, Lumex, Kodik, HDVB + mirrors)
+# https://habr.com/ru/companies/F6/news/902652/ — need RU VPS exit IP (not Tor → AT geo-block)
+
+# --- Alloha (~61%) ---
+suffix:.alloha.tv
+suffix:.alloha.ru
+suffix:.alloha.me
+suffix:.allaboost.com
+suffix:.alloha.link
+suffix:.alloha-api.com
+
+# --- Rewall (~42%) ---
+suffix:.rewall.tv
+suffix:.rewall.cc
+suffix:.rewall.me
+suffix:.rewall-domain.ru
+suffix:.rewall.tech
+
+# --- Lumex (~11%) ---
+suffix:.lumex.space
+suffix:.lumex.ru
+exact:p.lumex.space
+suffix:.api.lumex.space
+
+# --- Kodik (~9%) ---
+suffix:.kodik.info
+suffix:.kodik.biz
+suffix:.kodik.cc
+suffix:.kodikapi.com
+suffix:.kodikdb.com
+suffix:.kodik-watch.com
+suffix:.players.kodik.cc
+suffix:.kodik-storage.com
+
+# --- HDVB (~7%) ---
+suffix:.hdvb.app
+suffix:.hdvb.ru
+suffix:.hdvb-player.github.io
+suffix:.hdvb.github.io
+
+# --- Voidboost ---
+suffix:.voidboost.cc
+suffix:.voidboost.top
+suffix:.voidboost.fun
+suffix:.voidboost.stream
+suffix:.voidboost.xyz
+
+# --- Collaps ---
+suffix:.collaps.host
+suffix:.collaps.tv
+suffix:.api.collaps.host
+
+# --- Bazon / CDNmovies / Ashdi / Veoveo ---
+suffix:.bazon.cc
+suffix:.bazon.site
+suffix:.cdnmovies.net
+suffix:.cdnmovies.org
+suffix:.ashdi.vip
+suffix:.veoveo.ru
+suffix:.veoveo.net
+
+# --- Videocdn / Moonwalk / HDGO ---
+suffix:.videocdn.tv
+suffix:.videocdn.cloud
+suffix:.cdnvideohub.com
+suffix:.moonwalk.cc
+suffix:.hdgo.cc
+
+# --- Kinobalancer API chain ---
+suffix:.bhcesh.me
+exact:api.bhcesh.me
+suffix:.ortified.ws
+exact:api.ortified.ws
+suffix:.ideacom.ws
+
+# --- HDVB / showvid / lordfilm stack (Olcbox logs) ---
+suffix:.showvid.ws
+exact:test.showvid.ws
+suffix:.lomont.site
+suffix:.myangular.life
+exact:s.myangular.life
+suffix:.opravar.online
+suffix:.replacedomain.github.io
+suffix:.kodir2.github.io
+
+# --- Playerjs / VPAID ---
+suffix:.playerjs.com
+suffix:.giraff.io
+suffix:.buzzoola.com
+suffix:.videonow.ru
+suffix:.adtec.ru
+suffix:.vpaid.ru
+suffix:.online-serial.com
+suffix:.aderom.net
+suffix:.monframe.org
+
+# --- Misc embed ---
+suffix:.svetacdn.in
+suffix:.newplayjj.com
+suffix:.vibix.org
+suffix:.vibix.net
+suffix:.iframe.video
+suffix:.api.atomics.ws
+suffix:.atomicstream.org

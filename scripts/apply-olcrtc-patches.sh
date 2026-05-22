@@ -35,6 +35,10 @@ apply_olcrtc() {
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-domains.patch") 2>/dev/null || true
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-domains-split.patch") 2>/dev/null || true
   bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-blocked-tor.sh" \
+    "$OLCRTC_REPO/internal/server/server.go" \
+    "$OLCRTC_REPO/internal/config/config.go" \
+    "$OLCRTC_REPO/internal/app/session/session.go"
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true
