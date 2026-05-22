@@ -173,18 +173,7 @@ index 8d987b8..23c9f97 100644
 +	return ""
 +}
 +
-+func shouldUseExitProxy(link string) bool {
-	switch strings.ToLower(strings.TrimSpace(link)) {
-	case "direct", "":
-		return false
-	case "tor", "proxy", "socks":
-		return true
-	default:
-		return true
-	}
-}
-
-func exitProxyFromEnv() (addr string, port int) {
++func exitProxyFromEnv() (addr string, port int) {
 +	raw := strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY"))
 +	if raw == "" {
 +		addr = strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY_ADDR"))

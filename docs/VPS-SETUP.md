@@ -63,8 +63,9 @@ flowchart TB
   Route -->|не RU| TorSOCKS[Tor :9050]
 ```
 
-- **Tor и split** — на **все** серверные инстансы (все клиенты в панели), из `Environment` systemd.
-- **Jitsi-медиа** — не через Tor.
+- **Tor и split** — на **все** location, если в systemd задан `OLCRTC_EXIT_PROXY=127.0.0.1:9050` и Tor жив.
+- **meet.cryptopro.ru / RU IP** — direct; **нейросети, зарубежные сайты** — через Tor exit.
+- **Jitsi WebRTC/media** — не через Tor (только туннельный TCP через olcrtc).
 - **Новый клиент в панели** — автоматически получает те же правила.
 
 ---

@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | `--no-split` | Tor на весь трафик |
 | `--rebuild-only` | Пересборка бинарников |
 
-В `config.json`: **`link: direct`** — без SOCKS (Jitsi); **`link: tor`** — exit через Tor (WB Stream).
+В `config.json` поле **`link`**: для подписок Olcbox (`tor` / `direct`). **Tor exit на сервере** включается через `OLCRTC_EXIT_PROXY` в systemd — все location получают SOCKS + split (RU/CDN direct, остальное через Tor). Отключить Tor на всём VPS: `--no-tor`.
 
 ---
 
@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 - `/api/logs?client_id=` (без trailing slash)
 - `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
-- SOCKS только при `link: tor` и если Tor жив
+- SOCKS + split для всех location, если Tor жив (`OLCRTC_EXIT_PROXY`)
 - Split: RU + CDN direct, остальное Tor
 - Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
 

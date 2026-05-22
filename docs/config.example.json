@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "OlcRTC VPS",
+  "port": 8888,
+  "subscription_path": "sub",
+  "clients": [
+    {
+      "client-id": "example-jitsi",
+      "locations": [
+        {
+          "name": "jitsi-tor-split",
+          "endpoint": {
+            "room_id": "https://meet.example.org/your-room",
+            "key": "hex-key-from-panel"
+          },
+          "carrier": "jitsi",
+          "transport": { "type": "datachannel" },
+          "link": "tor",
+          "data": "data",
+          "dns": "8.8.8.8:53"
+        }
+      ]
+    }
+  ]
+}
