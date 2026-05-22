@@ -1,2 +1,3 @@
 #!/usr/bin/env bash
-exec /opt/olcrtc/scripts/fetch-ru-cidrs.sh "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/fetch-ru-cidrs.sh" "$@"

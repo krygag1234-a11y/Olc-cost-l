@@ -18,6 +18,7 @@ else
 fi
 
 export OLC_REPO_ROOT="$INSTALL_DIR"
+ln -sfn "$INSTALL_DIR" /opt/olcrtc
 chmod +x "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/install.sh 2>/dev/null || true
 # По умолчанию RU VPS (Tor+split). Иностранный: bash -s -- --no-tor
 exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" "$@"

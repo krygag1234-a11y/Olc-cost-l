@@ -36,6 +36,7 @@ sudo systemctl restart olcrtc-manager
 ```bash
 OLCRTC_DIRECT_CIDRS=/var/lib/olcrtc/ru-cidrs.txt
 OLCRTC_DIRECT_DOMAINS=/var/lib/olcrtc/ru-direct-domains.txt
+OLCRTC_BLOCKED_TOR_DOMAINS=/var/lib/olcrtc/ru-blocked-tor-domains.txt
 ```
 
 ## Добавить хосты с конкретной страницы (плеер)

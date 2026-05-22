@@ -39,6 +39,7 @@ apply_olcrtc() {
     "$OLCRTC_REPO/internal/server/server.go" \
     "$OLCRTC_REPO/internal/config/config.go" \
     "$OLCRTC_REPO/internal/app/session/session.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-route-log.sh" "$OLCRTC_REPO/internal/server/server.go"
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true

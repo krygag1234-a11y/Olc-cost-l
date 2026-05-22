@@ -48,5 +48,16 @@ set_env OLCRTC_DIRECT_CIDRS "$DIRECT_CIDRS"
 set_env OLCRTC_DIRECT_DOMAINS /var/lib/olcrtc/ru-direct-domains.txt
 set_env OLCRTC_BLOCKED_TOR_DOMAINS /var/lib/olcrtc/ru-blocked-tor-domains.txt
 
+# Panel hints (idempotent refresh)
+grep -q '^# Olc-cost-l split' "$ENV_FILE" 2>/dev/null || cat >>"$ENV_FILE" <<EOF
+
+# Olc-cost-l split — обновление списков:
+#   ${SCRIPT_DIR}/setup-split-ru.sh
+#   ${SCRIPT_DIR}/fetch-ru-cidrs.sh
+#   ${SCRIPT_DIR}/fetch-ru-direct-domains.sh
+#   ${SCRIPT_DIR}/fetch-ru-blocked-tor-domains.sh
+EOF
+sed -i 's|^# RU IP → direct.*|# Olc-cost-l split (см. setup-split-ru.sh в репо)|' "$ENV_FILE" 2>/dev/null || true
+
 dom_n="$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
 echo "[setup-split-ru] done: CIDR=$(wc -l <"$DIRECT_CIDRS") domains=${dom_n} (+ builtin *.ru in olcrtc)"

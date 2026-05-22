@@ -1,17 +1,16 @@
 diff --git a/internal/server/server.go b/internal/server/server.go
 --- a/internal/server/server.go
 +++ b/internal/server/server.go
-@@ -875,7 +875,12 @@ func (s *Server) dispatch(stream *smux.Stream, req ConnectRequest, sessionID st
- 	dialStart := time.Now()
- 	conn, err := s.dial(req)
- 	dialElapsed := time.Since(dialStart)
- 	if err != nil {
- 		return err
+@@ -877,7 +877,12 @@ func (s *Server) dispatch(stream *smux.Stream, req ConnectRequest, sessionID st
  	}
+ 	defer func() { _ = conn.Close() }()
+ 
 -	logger.Infof("sid=%d connected %s in %v", stream.ID(), addr, dialElapsed)
 +	route := "direct"
 +	if s.socksProxyAddr != "" && !s.shouldDialDirect(req.Addr) {
 +		route = "tor"
 +	}
 +	logger.Infof("sid=%d connect %s route=%s in %v", stream.ID(), addr, route, dialElapsed)
- 	defer func() {
+ 
+ 	if _, err := stream.Write([]byte{0x00}); err != nil {
+ 		return

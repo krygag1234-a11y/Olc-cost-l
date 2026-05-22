@@ -4,7 +4,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/olcrtc/scripts/tor-bridge-monitor.sh
+ExecStart=@OLC_SCRIPTS@/tor-bridge-monitor.sh
 Nice=10
 
 [Install]

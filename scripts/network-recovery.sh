@@ -5,7 +5,8 @@ set -euo pipefail
 log() { echo "[$(date -Iseconds)] $*"; }
 
 log "network-recovery: rotate bridges + restart Tor"
-/opt/olcrtc/scripts/tor-bridge-rotate.sh --no-restart 2>/dev/null || true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart 2>/dev/null || true
 systemctl reset-failed tor@default 2>/dev/null || true
 systemctl restart tor@default.service || true
 sleep 3

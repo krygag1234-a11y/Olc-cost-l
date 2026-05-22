@@ -28,6 +28,11 @@ REBUILD_ONLY=0
 
 log() { echo "==> $*"; }
 
+# Cron/systemd historically used /opt/olcrtc/scripts — keep one canonical checkout.
+ensure_install_symlink() {
+  ln -sfn "$REPO_ROOT" /opt/olcrtc
+}
+
 usage() {
   sed -n '3,14p' "$0"
   echo ""
@@ -111,29 +116,31 @@ EOF
   sysctl --system >/dev/null 2>&1 || true
 }
 
-write_manager_unit() {
-  local tor_env=""
-  [[ "$ENABLE_TOR" -eq 1 ]] && tor_env=$'Environment=OLCRTC_EXIT_PROXY=127.0.0.1:9050\n'
-  local tor_after=""
-  [[ "$ENABLE_TOR" -eq 1 ]] && tor_after=$'After=network-online.target tor@default.service\nWants=network-online.target tor@default.service\n'
+install_systemd_units() {
+  local scripts="${REPO_ROOT}/scripts"
+  cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
+  if [[ "$ENABLE_TOR" -ne 1 ]]; then
+    sed -i '/tor@default\.service/d; /^Environment=OLCRTC_EXIT_PROXY=/d' \
+      /etc/systemd/system/olcrtc-manager.service
+  fi
 
-  cat >/etc/systemd/system/olcrtc-manager.service <<EOF
+  for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor; do
+    [[ "$ENABLE_TOR" -eq 1 ]] || continue
+    sed "s|@OLC_SCRIPTS@|${scripts}|g" \
+      "$REPO_ROOT/packaging/systemd/${u}.service" \
+      >/etc/systemd/system/${u}.service
+    install -m 0644 "$REPO_ROOT/packaging/systemd/${u}.timer" \
+      "/etc/systemd/system/${u}.timer"
+  done
+
+  cat >/etc/systemd/system/olcrtc-network-recovery.service <<EOF
 [Unit]
-Description=OlcRTC Manager Panel (patched)
-${tor_after}
+Description=OlcRTC network recovery
+After=network-online.target
 
 [Service]
-Type=simple
-EnvironmentFile=-/etc/olcrtc-manager/panel.env
-Environment=OLCRTC_PATH=/usr/local/bin/olcrtc
-Environment=OLCRTC_MANAGER_ADDR=0.0.0.0
-Environment=OLCRTC_HOST_NETWORK=1
-${tor_env}ExecStart=/usr/local/bin/olcrtc-manager -config /etc/olcrtc-manager/config.json
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
+Type=oneshot
+ExecStart=${scripts}/network-recovery.sh
 EOF
 }
 
@@ -142,27 +149,24 @@ setup_systemd() {
   [[ -f /etc/olcrtc-manager/config.json ]] || cat >/etc/olcrtc-manager/config.json <<'EOF'
 {"version":1,"name":"olcrtc-vps","port":8888,"clients":[]}
 EOF
-  write_manager_unit
-  cat >/etc/systemd/system/olcrtc-network-recovery.service <<'EOF'
-[Unit]
-Description=OlcRTC network recovery
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/opt/olcrtc/scripts/network-recovery.sh
-EOF
+  install_systemd_units
   systemctl daemon-reload
   systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
 }
 
 setup_cron() {
-  grep -qF healthcheck.sh /etc/crontab 2>/dev/null || \
-    echo '*/10 * * * * root /opt/olcrtc/scripts/healthcheck.sh' >>/etc/crontab
+  local line="*/10 * * * * root ${REPO_ROOT}/scripts/healthcheck.sh"
+  if grep -qF healthcheck.sh /etc/crontab 2>/dev/null; then
+    sed -i "s|.*/opt/olcrtc/scripts/healthcheck.sh|${REPO_ROOT}/scripts/healthcheck.sh|" /etc/crontab
+    sed -i "s|.*/opt/Olc-cost-l/scripts/healthcheck.sh|${REPO_ROOT}/scripts/healthcheck.sh|" /etc/crontab
+  else
+    echo "$line" >>/etc/crontab
+  fi
 }
 
 # --- main ---
 require_root
+ensure_install_symlink
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
 
 if [[ "$REBUILD_ONLY" -eq 1 ]]; then
@@ -198,7 +202,7 @@ if [[ "$ENABLE_TOR" -eq 0 ]]; then
 else
   log "Mode: Tor + bridge pool (RU VPS)"
   if [[ "$RU_VPS" -eq 1 && "$ENABLE_SPLIT" -eq 1 ]]; then
-    log "Split: RU CIDR + CDN + RU player CDN → direct; rest → Tor"
+    log "Split: *.ru builtin + geosite/player CDN + ru-cidrs → direct; RF-blocked .ru → Tor; rest → Tor"
   elif [[ "$ENABLE_SPLIT" -eq 0 ]]; then
     log "Split: disabled (--no-split), all via Tor exit"
   fi

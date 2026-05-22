@@ -52,6 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | [docs/SPLIT-ROUTING.md](docs/SPLIT-ROUTING.md) | Домены vs CDN /32, фикс 404 nginx |
 | [docs/RU-BLOCKED-TOR.md](docs/RU-BLOCKED-TOR.md) | Заблокированные в РФ `.ru` → Tor |
 | [docs/ZAPRET-OPTIONAL.md](docs/ZAPRET-OPTIONAL.md) | Zapret/DPI на VPS (опционально) |
+| [docs/WINDOWS-PLAYER-DISCOVER.md](docs/WINDOWS-PLAYER-DISCOVER.md) | Домены плеера с Windows (SSH + консоль) |
 
 ---
 

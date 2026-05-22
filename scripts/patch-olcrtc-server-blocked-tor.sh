@@ -22,7 +22,7 @@ def patch(path, edits):
 srv, cfg, sess = sys.argv[1:4]
 
 srv_text = Path(srv).read_text()
-if "blockedTorDomains" not in srv_text:
+if "blockedTorDomains *routing.DomainMatcher" not in srv_text:
     patch(srv, [
         ("\tdirectDomains    *routing.DomainMatcher\n\tliveness",
          "\tdirectDomains     *routing.DomainMatcher\n\tblockedTorDomains *routing.DomainMatcher\n\tliveness"),

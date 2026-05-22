@@ -241,7 +241,7 @@ write_torrc_header() {
   local dest="$1"
   {
     echo "# Active bridges — $(date -Iseconds)"
-    echo "# Managed by /opt/olcrtc/scripts/tor-bridge-pool.sh"
+    echo "# Managed by Olc-cost-l tor-bridge-pool.sh"
     echo "UseBridges 1"
     if bridge_type_enabled webtunnel; then
       echo "ClientTransportPlugin webtunnel exec /usr/bin/webtunnel-client"

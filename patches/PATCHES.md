@@ -36,6 +36,7 @@
 | `fetch-player-cdn-domains.sh` | RU video balancers (F6: Alloha, Rewall, Lumex, …) |
 | `fetch-ru-blocked-tor-domains.sh` | RF-blocked `.ru` → Tor override |
 | `patch-olcrtc-server-blocked-tor.sh` | `blocked_tor_domains_file` в olcrtc |
+| `olcrtc-dial-route-log.patch` + `patch-olcrtc-server-route-log.sh` | Лог `connect HOST route=direct\|tor` |
 | `discover-page-hosts.sh` | Домены со страницы плеера → `ru-domains-extra.txt` |
 
 Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`
