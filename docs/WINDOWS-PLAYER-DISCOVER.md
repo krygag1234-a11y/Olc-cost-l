@@ -77,7 +77,8 @@ ssh vpsy "sudo bash /opt/Olc-cost-l/scripts/discover-page-hosts.sh 'https://www.
 2. Загрузить и применить:
 
 ```powershell
-scp C:\Users\ВАШ_ЮЗЕР\Downloads\page.html vpsy:/tmp/page.html
+# профиль kryga (не копируйте «ВАШ_ПРОФИЛЬ» — это был пример)
+scp C:\Users\kryga\Downloads\page.html vpsy:/tmp/page.html
 ssh vpsy "sudo bash /opt/Olc-cost-l/scripts/discover-page-hosts-from-html.sh /tmp/page.html && sudo bash /opt/Olc-cost-l/scripts/fetch-ru-direct-domains.sh && sudo systemctl restart olcrtc-manager && echo DONE"
 ```
 
@@ -90,16 +91,26 @@ cd C:\path\to\Olc-cost-l\scripts
 .\win-apply-discover.ps1 -Url "https://www.bbc-doctorwho.ru/season-7/episode-7/"
 ```
 
-### Вставить правила из консоли браузера вручную
+### Вставить правила из консоли (файл на Windows → VPS)
+
+1. Сохраните вывод консоли в `C:\Users\kryga\hosts.txt` (только строки `suffix:` и `exact:`).
+2. Одной командой:
 
 ```powershell
-ssh vpsy
-sudo nano /var/lib/olcrtc/ru-domains-extra.txt
-# вставить suffix:/exact: строки из консоли
-sudo bash /opt/Olc-cost-l/scripts/fetch-ru-direct-domains.sh
-sudo systemctl restart olcrtc-manager
-exit
+scp C:\Users\kryga\hosts.txt vpsy:/tmp/hosts.txt
+ssh vpsy "sudo bash /opt/Olc-cost-l/scripts/add-domains-extra.sh $(cat /tmp/hosts.txt | tr '\n' ' ')"
 ```
+
+Или проще:
+
+```powershell
+scp C:\Users\kryga\hosts.txt vpsy:/tmp/hosts.txt
+ssh vpsy "sudo bash -c 'cat /tmp/hosts.txt >> /var/lib/olcrtc/ru-domains-extra.txt && bash /opt/Olc-cost-l/scripts/fetch-ru-direct-domains.sh && systemctl restart olcrtc-manager' && echo DONE"
+```
+
+### Скрипт консоли из репо (скопировать содержимое в F12)
+
+Файл: `scripts/browser-console-player-hosts.js` — вставить в Console на странице с плеером.
 
 ---
 

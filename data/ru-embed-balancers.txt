@@ -23,3 +23,12 @@ suffix:.bazon.cc
 suffix:.videocdn.tv
 suffix:.ashdi.vip
 suffix:.monframe.org
+
+# Playerjs / VPAID / Vidimost (bbc-doctorwho и похожие темы)
+suffix:.giraff.io
+exact:a.giraff.io
+suffix:.playerjs.com
+suffix:.buzzoola.com
+suffix:.adtec.ru
+suffix:.videonow.ru
+suffix:.vpaid.ru
