@@ -50,11 +50,24 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 ---
 
+## Режимы (`agent-bootstrap.sh`)
+
+| Флаг | Результат |
+|------|-----------|
+| `--full` | Tor + split RU/CDN + патчи |
+| `--full --no-tor` | Только панель + olcrtc, **без Tor** |
+| `--no-split` | Tor на весь трафик |
+| `--rebuild-only` | Пересборка бинарников |
+
+В `config.json`: **`link: direct`** — без SOCKS (Jitsi); **`link: tor`** — exit через Tor (WB Stream).
+
+---
+
 ## Отличия от upstream panel
 
 - `/api/logs?client_id=` (без trailing slash)
 - `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
-- SOCKS только если Tor жив
+- SOCKS только при `link: tor` и если Tor жив
 - Split: RU + CDN direct, остальное Tor
 - Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
 
