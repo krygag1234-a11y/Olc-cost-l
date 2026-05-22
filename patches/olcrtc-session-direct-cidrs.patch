@@ -1,0 +1,19 @@
+--- a/internal/app/session/session.go
++++ b/internal/app/session/session.go
+@@ -189,6 +189,7 @@ type Config struct {
+ 	DNSServer             string
+ 	SOCKSProxyAddr        string
+ 	SOCKSProxyPort        int
++	DirectCIDRsFile       string
+ 	Video                 VideoConfig
+ 	VP8                   VP8Config
+ 	SEI                   SEIConfig
+@@ -652,6 +653,7 @@ func runServer(
+ 			KeyHex:           cfg.KeyHex,
+ 			DNSServer:        cfg.DNSServer,
+ 			SOCKSProxyAddr:   cfg.SOCKSProxyAddr,
+ 			SOCKSProxyPort:   cfg.SOCKSProxyPort,
++			DirectCIDRsFile:  cfg.DirectCIDRsFile,
+ 			TransportOptions: opts,
+ 			Engine:           cfg.Engine,
+ 			URL:              cfg.URL,

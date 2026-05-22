@@ -5,7 +5,12 @@ _TOR_BRIDGE_LIB_LOADED=1
 
 BRIDGES_RAW_URL="${BRIDGES_RAW_URL:-https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt}"
 POOL_DIR="${POOL_DIR:-/var/lib/olcrtc}"
+POOL_FILE="${POOL_FILE:-$POOL_DIR/tor-bridges-pool.txt}"
+GOOD_BRIDGES="${GOOD_BRIDGES:-$POOL_DIR/tor-bridges-good.txt}"
 HEALTH_DB="${HEALTH_DB:-$POOL_DIR/tor-bridge-health.tsv}"
+FETCH_MAX_AGE_SEC="${FETCH_MAX_AGE_SEC:-14400}"
+MAX_POOL_LINES="${MAX_POOL_LINES:-500}"
+MAX_PROBE="${MAX_PROBE:-72}"
 
 # Tor 0.4.8.10 ABRT on this bridge
 BRIDGE_BLACKLIST_FP=(
@@ -90,9 +95,49 @@ bridge_tunnel_url() {
   sed -n 's/.*url=\(https\?:\/\/[^ ]*\).*/\1/p' <<<"$1" | head -1
 }
 
+pool_is_fresh() {
+  [[ -f "$POOL_FILE" ]] || return 1
+  local age now mtime
+  now="$(date +%s)"
+  mtime="$(stat -c %Y "$POOL_FILE" 2>/dev/null || echo 0)"
+  age=$((now - mtime))
+  [[ "$age" -lt "$FETCH_MAX_AGE_SEC" ]]
+}
+
 fetch_bridges_raw() {
   local dest="$1"
   curl -fsSL --max-time 120 "$BRIDGES_RAW_URL" -o "$dest"
+}
+
+trim_pool_file() {
+  [[ -f "$POOL_FILE" ]] || return 0
+  local n
+  n="$(grep -cE '^Bridge ' "$POOL_FILE" 2>/dev/null || echo 0)"
+  ((n <= MAX_POOL_LINES)) && return 0
+  bridge_log "trim pool $n → $MAX_POOL_LINES lines"
+  local tmp scored line fp score
+  tmp="$(mktemp)"
+  mapfile -t lines < <(grep -E '^Bridge ' "$POOL_FILE")
+  scored=()
+  for line in "${lines[@]}"; do
+    fp="$(bridge_fingerprint "$line")"
+    score="$(health_score "$fp")"
+    scored+=("$score"$'\t'"$line")
+  done
+  {
+    head -2 "$POOL_FILE" 2>/dev/null || true
+    printf '%s\n' "${scored[@]}" | sort -t$'\t' -k1 -nr | head -n "$MAX_POOL_LINES" | cut -f2-
+  } >"$tmp"
+  install -m 0644 "$tmp" "$POOL_FILE"
+  rm -f "$tmp"
+}
+
+record_good_bridge() {
+  local line="$1"
+  [[ -f "$GOOD_BRIDGES" ]] || touch "$GOOD_BRIDGES"
+  grep -qxF "$line" "$GOOD_BRIDGES" 2>/dev/null || echo "$line" >>"$GOOD_BRIDGES"
+  awk '!seen[$0]++' "$GOOD_BRIDGES" >"${GOOD_BRIDGES}.tmp" && mv "${GOOD_BRIDGES}.tmp" "$GOOD_BRIDGES"
+  tail -n 120 "$GOOD_BRIDGES" >"${GOOD_BRIDGES}.tmp" && mv "${GOOD_BRIDGES}.tmp" "$GOOD_BRIDGES"
 }
 
 parse_bridges_file() {

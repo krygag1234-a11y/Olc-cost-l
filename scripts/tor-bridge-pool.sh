@@ -36,6 +36,7 @@ DO_APPLY=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --monitor) DO_FETCH=0; DO_APPLY=0 ;;
+    --fast) DO_FETCH=0; MODE_PROBE="skip"; DO_PROBE=0; DO_APPLY=1 ;;
     --apply) DO_FETCH=0; DO_PROBE=0 ;;
     --fetch) DO_PROBE=0; DO_APPLY=0 ;;
     --url-only) MODE_PROBE="url-only" ;;
@@ -55,6 +56,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 fetch_and_merge_pool() {
+  if pool_is_fresh; then
+    bridge_log "pool fresh (<${FETCH_MAX_AGE_SEC}s), skip download"
+    trim_pool_file
+    return 0
+  fi
   local raw tmp merged
   raw="$(mktemp)"
   tmp="$(mktemp)"
@@ -83,13 +89,36 @@ fetch_and_merge_pool() {
     cat "$merged"
   } >"$POOL_FILE"
   bridge_log "pool file: $count lines → $POOL_FILE"
+  trim_pool_file
 }
 
 probe_pool_parallel() {
-  mapfile -t lines < <(grep -E '^Bridge ' "$POOL_FILE")
+  [[ "$MODE_PROBE" != "skip" ]] || { bridge_log "probe skipped"; return 0; }
+  local -a lines=()
+  local active_conf="${BRIDGES_OUT:-/etc/tor/bridges.conf}"
+  if [[ -f "$active_conf" ]]; then
+    mapfile -t active < <(grep -E '^Bridge ' "$active_conf")
+    lines+=("${active[@]}")
+  fi
+  if [[ -f "$GOOD_BRIDGES" ]]; then
+    mapfile -t good < <(grep -E '^Bridge ' "$GOOD_BRIDGES")
+    lines+=("${good[@]}")
+  fi
+  mapfile -t pool < <(grep -E '^Bridge ' "$POOL_FILE")
+  # Top health scores first, then fill probe budget
+  local -a scored=() line fp score
+  for line in "${pool[@]}"; do
+    fp="$(bridge_fingerprint "$line")"
+    score="$(health_score "$fp")"
+    scored+=("$score"$'\t'"$line")
+  done
+  mapfile -t ranked < <(printf '%s\n' "${scored[@]}" | sort -t$'\t' -k1 -nr | head -n "$((MAX_PROBE * 2))" | cut -f2-)
+  lines+=("${ranked[@]}")
+  # dedupe, cap
+  mapfile -t lines < <(printf '%s\n' "${lines[@]}" | awk '!seen[$0]++' | head -n "$MAX_PROBE")
   local n="${#lines[@]}"
   ((n > 0)) || return 0
-  bridge_log "probing $n bridges (mode=$MODE_PROBE jobs=$PARALLEL_JOBS)"
+  bridge_log "probing $n bridges (mode=$MODE_PROBE jobs=$PARALLEL_JOBS max=$MAX_PROBE)"
 
   local results_dir i running=0
   results_dir="$(mktemp -d)"
@@ -101,6 +130,7 @@ probe_pool_parallel() {
     if probe_url "$line"; then
       status="url_ok"
       health_record "$fp" "url_ok"
+      record_good_bridge "$line"
     else
       status="fail"
       health_record "$fp" "fail"
@@ -197,15 +227,15 @@ restart_tor_if_needed() {
   [[ "$RESTART_TOR" -eq 1 ]] || return 0
   systemctl reset-failed tor@default 2>/dev/null || true
   systemctl restart tor@default
-  for _ in $(seq 1 40); do
+  for i in $(seq 1 25); do
     if curl -fsS --max-time 3 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip >/dev/null 2>&1; then
-      bridge_log "Tor SOCKS ready"
+      bridge_log "Tor SOCKS ready (${i}s)"
       systemctl restart olcrtc-manager 2>/dev/null || true
       return 0
     fi
-    sleep 2
+    sleep 1
   done
-  bridge_log "WARN: Tor not ready after restart"
+  bridge_log "WARN: Tor not ready after restart — try tor-bridge-rotate.sh"
 }
 
 main() {
@@ -215,6 +245,7 @@ main() {
   health_db_init
 
   (( DO_FETCH )) && fetch_and_merge_pool
+  [[ -f "$POOL_FILE" ]] || { bridge_log "no pool file"; fetch_and_merge_pool || true; }
   [[ -f "$POOL_FILE" ]] || { bridge_log "no pool file"; exit 1; }
 
   (( DO_PROBE )) && probe_pool_parallel
@@ -223,9 +254,10 @@ main() {
       restart_tor_if_needed
     else
       if [[ "$RESTART_TOR" -eq 1 ]]; then
-        "$SCRIPT_DIR/tor-bridge-rotate.sh" 2>/dev/null || true
+        FAST_WINDOW="${FAST_WINDOW:-6}" "$SCRIPT_DIR/tor-bridge-rotate.sh" 2>/dev/null || true
+        restart_tor_if_needed
       else
-        "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart 2>/dev/null || true
+        FAST_WINDOW="${FAST_WINDOW:-6}" "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart 2>/dev/null || true
       fi
     fi
   fi

@@ -6,18 +6,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh" 2>/dev/null || true
 
+# shellcheck source=tor-bridge-lib.sh
+source "$SCRIPT_DIR/tor-bridge-lib.sh"
+
 POOL_FILE="${POOL_FILE:-/var/lib/olcrtc/tor-bridges-pool.txt}"
 BRIDGES_OUT="/etc/tor/bridges.conf"
 IDX_FILE="/var/lib/olcrtc/bridge-rotation.idx"
-WINDOW="${WINDOW:-8}"
+WINDOW="${WINDOW:-${FAST_WINDOW:-8}}"
 RESTART_TOR=1
 
 [[ "${1:-}" == "--no-restart" ]] && RESTART_TOR=0
 
-[[ -f "$POOL_FILE" ]] || "$SCRIPT_DIR/tor-bridge-pool.sh" --url-only --no-restart 2>/dev/null || true
+[[ -f "$POOL_FILE" ]] || FETCH_MAX_AGE_SEC=0 "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --no-restart 2>/dev/null || true
 [[ -f "$POOL_FILE" ]] || { echo "no pool file" >&2; exit 1; }
 
-mapfile -t pool < <(grep -E '^Bridge webtunnel ' "$POOL_FILE")
+pool=()
+if [[ -f "$GOOD_BRIDGES" ]] && [[ -s "$GOOD_BRIDGES" ]]; then
+  mapfile -t pool < <(grep -E '^Bridge webtunnel ' "$GOOD_BRIDGES")
+fi
+if (( ${#pool[@]} < WINDOW )); then
+  mapfile -t more < <(grep -E '^Bridge webtunnel ' "$POOL_FILE")
+  pool+=("${more[@]}")
+fi
+mapfile -t pool < <(printf '%s\n' "${pool[@]}" | awk '!seen[$0]++')
 n="${#pool[@]}"
 (( n > 0 )) || exit 1
 

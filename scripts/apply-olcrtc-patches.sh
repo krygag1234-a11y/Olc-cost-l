@@ -8,7 +8,7 @@ PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
-OLCRTC_BRANCH="${OLCRTC_BRANCH:-refactor/universal-carrier}"
+OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 
 log() { echo "[apply-patches] $*"; }
 
@@ -30,6 +30,7 @@ apply_olcrtc() {
   }
   install -d "$OLCRTC_REPO/internal/routing"
   install -m 0644 "$PATCH_DIR/olcrtc-routing-cidr.go" "$OLCRTC_REPO/internal/routing/cidr.go"
+  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-direct-cidrs.patch") 2>/dev/null || true
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true
@@ -44,13 +45,21 @@ apply_manager() {
       exit 1
     }
   }
-  # Frontend for admin panel
-  if [[ -f "$MGR_REPO/package.json" ]] && command -v pnpm >/dev/null 2>&1; then
-    (cd "$MGR_REPO" && pnpm install --frozen-lockfile 2>/dev/null || pnpm install)
-    (cd "$MGR_REPO" && pnpm build)
-  elif [[ -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
-    (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install)
-    (cd "$MGR_REPO" && npm run build)
+  # Admin UI: use prebuilt dist from clone if present; rebuild only when npm works.
+  if [[ -f "$MGR_REPO/package.json" ]] && [[ ! -d "$MGR_REPO/admin/dist" ]]; then
+    if command -v npm >/dev/null 2>&1; then
+      (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install) && (cd "$MGR_REPO" && npm run build) || \
+        log "WARN: admin UI build failed — manager will embed whatever is in admin/dist"
+    fi
+  fi
+  # Route /api/logs without trailing slash (upstream only registers /api/logs/)
+  if ! grep -q 'handler.Handle("/api/logs", logsHandler)' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
+    sed -i 's|handler.Handle("/api/logs/", adminAuth(http.HandlerFunc|logsHandler := adminAuth(http.HandlerFunc|' \
+      "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
+    if grep -q 'logsHandler := adminAuth' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
+      sed -i 's|writeJSON(w, map\[string\]\[\]LogLine{"logs": lines})|writeJSON(w, map[string][]LogLine{"logs": lines})\n\t}))\n\thandler.Handle("/api/logs", logsHandler)\n\thandler.Handle("/api/logs/", logsHandler)|' \
+        "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
+    fi
   fi
 }
 

@@ -1,9 +1,11 @@
 # Патчи относительно upstream (обязательны для Jitsi + панель + RU VPS)
 
-Ветка olcrtc: **`refactor/universal-carrier`** (не `main`).  
+Ветка olcrtc: **`master`** (ветка `refactor/universal-carrier` удалена после merge).  
 Документация upstream может не совпадать с кодом — ориентир: исходники.
 
-## olcrtc ([openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc/tree/refactor/universal-carrier))
+## olcrtc ([openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc/tree/master))
+
+- `olcrtc-session-direct-cidrs.patch` — проброс `direct_cidrs_file` в `session.Config` (на master поле есть в YAML, но не в session до патча).
 
 | Патч | Зачем |
 |------|--------|
@@ -18,6 +20,7 @@
 
 ## Клиент
 
-[olcbox nightly-universal-carrier](https://github.com/alananisimov/olcbox/releases/tag/nightly-universal-carrier) — под ветку `refactor/universal-carrier`.
+| Olcbox | https://github.com/alananisimov/olcbox/releases/tag/nightly |
+| Olcbox (стабильная ссылка) | https://github.com/alananisimov/olcbox/releases |
 
 Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`

@@ -2,9 +2,9 @@
 Description=Tor bridge health monitor (every 20 min)
 
 [Timer]
-OnBootSec=12min
-OnUnitActiveSec=20min
-RandomizedDelaySec=3min
+OnBootSec=5min
+OnUnitActiveSec=10min
+RandomizedDelaySec=90s
 Persistent=true
 
 [Install]

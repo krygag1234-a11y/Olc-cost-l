@@ -1,29 +1,39 @@
 # Olc-cost-l
 
-Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** ([ветка `refactor/universal-carrier`](https://github.com/openlibrecommunity/olcrtc/tree/refactor/universal-carrier)) на VPS.
+Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на VPS (RU/foreign).
 
-Рабочий carrier: **Jitsi** (datachannel). WB Stream / Telemost в upstream нестабильны.
+## Upstream (актуально 2026-05)
 
-Клиент: [Olcbox nightly-universal-carrier](https://github.com/alananisimov/olcbox/releases/tag/nightly-universal-carrier).
+| Компонент | Ветка | Ссылка |
+|-----------|--------|--------|
+| olcrtc | **`master`** | https://github.com/openlibrecommunity/olcrtc |
+| manager panel | **`main`** | https://github.com/BigDaddy3334/olcrtc-manager-panel |
+| Olcbox клиент | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
+
+`refactor/universal-carrier` **смержена в master** ([merge 85faadd](https://github.com/openlibrecommunity/olcrtc/commit/85faadd)).  
+Upstream install.sh панели уже ставит `OLCRTC_REF=master` ([коммит 6878fc8](https://github.com/BigDaddy3334/olcrtc-manager-panel/commits/main/)).
+
+**Не используйте** голый `curl …/olcrtc-manager-panel/…/install.sh` на этом VPS — он без Tor/split/патчей. Только этот репо.
+
+### Olcbox — ссылки для пользователей
+
+- Стабильная (не ломается при смене тега): https://github.com/alananisimov/olcbox/releases  
+- Репозиторий: https://github.com/alananisimov/olcbox  
+- Конкретный nightly: https://github.com/alananisimov/olcbox/releases/tag/nightly  
+
+Подробнее: [docs/CLIENT.md](docs/CLIENT.md)
 
 ---
 
 ## Быстрая установка
 
 ```bash
-# RU VPS: Tor + split (RU напрямую, остальное через Tor) + патчи
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
-
-# Иностранный VPS — без Tor
+# Иностранный VPS:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-tor
-
-# Уже клонировали репо
-git clone https://github.com/krygag1234-a11y/Olc-cost-l.git /opt/Olc-cost-l
-cd /opt/Olc-cost-l && chmod +x scripts/*.sh install.sh
-sudo OLC_REPO_ROOT=/opt/Olc-cost-l ./scripts/agent-bootstrap.sh --full
 ```
 
-Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` — при первом входе задайте пароль.
+Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin`
 
 ---
 
@@ -31,36 +41,22 @@ sudo OLC_REPO_ROOT=/opt/Olc-cost-l ./scripts/agent-bootstrap.sh --full
 
 | Каталог | Содержимое |
 |---------|------------|
-| `scripts/` | Установка, Tor pool, healthcheck, RU CIDR |
-| `patches/` | Патчи к upstream olcrtc + manager ([PATCHES.md](patches/PATCHES.md)) |
-| `packaging/systemd/` | Примеры unit/timer |
-| [docs/VPS-SETUP.md](docs/VPS-SETUP.md) | Полная документация |
-| [docs/SAFETY.md](docs/SAFETY.md) | Что трогают скрипты, откат |
+| `scripts/` | bootstrap, патчи, Tor pool, RU/CDN direct |
+| `patches/` | olcrtc + manager ([PATCHES.md](patches/PATCHES.md)) |
+| [docs/VPS-SETUP.md](docs/VPS-SETUP.md) | Полная установка |
+| [docs/TOR-BRIDGES.md](docs/TOR-BRIDGES.md) | Мосты, скорость failover |
+| [docs/CLIENT.md](docs/CLIENT.md) | Olcbox |
+| [docs/SAFETY.md](docs/SAFETY.md) | Откат |
 
 ---
 
-## Режимы установки
+## Отличия от upstream panel
 
-| Команда | Когда |
-|---------|--------|
-| `agent-bootstrap.sh --full` | Чистый VPS |
-| `agent-bootstrap.sh --full --no-tor` | VPS за границей, Tor не нужен |
-| `agent-bootstrap.sh --no-split` | Tor без RU direct |
-| `agent-bootstrap.sh --rebuild-only` | Только пересборка патченных бинарников |
-
----
-
-## Отличия от «голого» upstream
-
-- Логи в панели: `/api/logs?client_id=...`
-- Jitsi: увеличенный datachannel payload, мягкий liveness
-- `OLCRTC_HOST_NETWORK=1` — без netns (проще на VPS)
-- Tor exit только если SOCKS жив (Jitsi не падает при мёртвом Tor)
-- Split: RU IP → direct, остальное → Tor
-- Пул мостов из [TOR_BRIDGES_ALL.txt](https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt) без комментариев в torrc
-- DDNS: `OLCRTC_PUBLIC_URL` для подписок Olcbox
-
-**Ветка olcrtc — не `main`.** Документация upstream может не совпадать с кодом.
+- `/api/logs?client_id=` (без trailing slash)
+- `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
+- SOCKS только если Tor жив
+- Split: RU + CDN direct, остальное Tor
+- Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
 
 ---
 
@@ -68,28 +64,17 @@ sudo OLC_REPO_ROOT=/opt/Olc-cost-l ./scripts/agent-bootstrap.sh --full
 
 ```bash
 /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --fetch --url-only --target 12
-/opt/Olc-cost-l/scripts/tor-bridge-monitor.sh   # health, без рестарта
+/opt/Olc-cost-l/scripts/tor-bridge-monitor.sh   # timer: fast rotate если Tor down
 ```
 
-Мосты с [bridges.torproject.org](https://bridges.torproject.org) (капча) — **не автоматизируем**.
+---
+
+## DDNS
+
+`OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`
 
 ---
 
-## DDNS (динамический IP VPS)
+## Секреты
 
-В Olcbox: `http://ваш-домен:8888/<client_id>/`  
-В `/etc/olcrtc-manager/panel.env`: `OLCRTC_PUBLIC_URL=http://ваш-домен:8888`
-
----
-
-## Безопасность
-
-Скрипты пишут только в allowlist путей, делают `.bak.*` перед заменой `bridges.conf`, не трогают SSH и маршрутизацию хоста. Подробно: [docs/SAFETY.md](docs/SAFETY.md).
-
----
-
-## Лицензии upstream
-
-- [olcrtc](https://github.com/openlibrecommunity/olcrtc) — WTFPL  
-- [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel)  
-- Патчи и скрипты в этом репозитории — как есть, на свой риск
+GitHub PAT / API-ключи **не хранятся** в репозитории. Если ключ светился в чате — **отозвать** в GitHub Settings → Developer settings.

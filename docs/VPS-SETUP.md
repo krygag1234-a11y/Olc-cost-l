@@ -1,9 +1,9 @@
 # OlcRTC VPS — полная документация
 
-**Обновлено:** 2026-05-20  
-**Ветка olcrtc:** [`refactor/universal-carrier`](https://github.com/openlibrecommunity/olcrtc/tree/refactor/universal-carrier) (не `main`)  
+**Обновлено:** 2026-05-22  
+**Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) (`refactor/universal-carrier` смержена, отдельной ветки нет)  
 **Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + **патчи** в `/opt/Olc-cost-l/patches/`  
-**Клиент:** [olcbox nightly-universal-carrier](https://github.com/alananisimov/olcbox/releases/tag/nightly-universal-carrier)
+**Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) · [все релизы](https://github.com/alananisimov/olcbox/releases) · [репо](https://github.com/alananisimov/olcbox) — см. [CLIENT.md](CLIENT.md)
 
 Копия: `/root/VPS-SETUP.md` → симлинк сюда.
 
@@ -29,7 +29,7 @@ bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 
 | Компонент | Upstream | На этом VPS |
 |-----------|----------|-------------|
-| olcrtc | `refactor/universal-carrier` | + payload Jitsi 16K, split RU/Tor, `internal/routing/cidr.go` |
+| olcrtc | `master` | + payload Jitsi 16K, split RU/Tor (`internal/routing/cidr.go`), `session.DirectCIDRsFile` |
 | manager | `main` без патчей | + логи API query, HOST_NETWORK, EXIT_PROXY если Tor жив, PUBLIC_URL, Jitsi liveness, Telemost URL |
 | Tor bridges | вручную | пул из [TOR_BRIDGES_ALL.txt](https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt), мониторинг, ротация |
 | Капча bridges.torproject.org | — | **не автоматизируем** ([gist s3rgeym](https://gist.github.com/s3rgeym/48405a282d61fd6bf74aed578f483111) — капча, с RU IP неудобно) |
@@ -249,8 +249,8 @@ journalctl -u olcrtc-manager -n 20 --no-pager
 7. DDNS + `OLCRTC_PUBLIC_URL`  
 8. TCP 8888 открыт  
 
-**Ветка:** `refactor/universal-carrier` — не `master`.  
-**Документация upstream** может расходиться с кодом — смотреть `internal/` и `cmd/`.
+**Ветка:** `master` (clone: `OLCRTC_BRANCH=master`).  
+**Панель:** `main` на [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + патчи из `patches/olcrtc-manager-main.go.patch`.
 
 ---
 
@@ -270,7 +270,7 @@ journalctl -u olcrtc-manager -n 20 --no-pager
 
 ## Ссылки
 
-- [olcrtc refactor/universal-carrier](https://github.com/openlibrecommunity/olcrtc/tree/refactor/universal-carrier)
+- [olcrtc master](https://github.com/openlibrecommunity/olcrtc/tree/master)
 - [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel)
 - [olcbox](https://github.com/alananisimov/olcbox)
 - [igareck TOR-BRIDGES](https://github.com/igareck/vpn-configs-for-russia/tree/main/TOR-BRIDGES)

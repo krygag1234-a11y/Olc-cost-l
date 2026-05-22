@@ -10,7 +10,7 @@
 #   agent-bootstrap.sh --rebuild-only      # only apply patches + rebuild binaries
 #   agent-bootstrap.sh --help
 #
-# Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_BRANCH=refactor/universal-carrier
+# Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_BRANCH=master
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,9 +29,9 @@ log() { echo "==> $*"; }
 usage() {
   sed -n '3,14p' "$0"
   echo ""
-  echo "Patches: /opt/olcrtc/patches/PATCHES.md"
-  echo "Branch:  refactor/universal-carrier (NOT main)"
-  echo "Client:  olcbox nightly-universal-carrier"
+  echo "Patches: $REPO_ROOT/patches/PATCHES.md"
+  echo "olcrtc:  master | panel: main | Olcbox: releases/tag/nightly"
+  echo "Client:  https://github.com/alananisimov/olcbox/releases"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -93,6 +93,11 @@ setup_split_routing() {
     return 0
   }
   bash "$SCRIPT_DIR/fetch-ru-cidrs.sh" || true
+  bash "$SCRIPT_DIR/fetch-cdn-direct.sh" 2>/dev/null || true
+  bash "$SCRIPT_DIR/merge-direct-cidrs.sh" 2>/dev/null || true
+  if [[ -f /var/lib/olcrtc/direct-all.txt ]] && ! grep -q 'OLCRTC_DIRECT_CIDRS' /etc/olcrtc-manager/panel.env 2>/dev/null; then
+    echo 'OLCRTC_DIRECT_CIDRS=/var/lib/olcrtc/direct-all.txt' >>/etc/olcrtc-manager/panel.env
+  fi
 }
 
 setup_sysctl() {
@@ -195,5 +200,5 @@ else
   log "Mode: Tor + bridge pool from TOR_BRIDGES_ALL.txt"
   [[ "$ENABLE_SPLIT" -eq 1 ]] && log "Split: RU CIDR direct, rest via Tor"
 fi
-log "Olcbox client: https://github.com/alananisimov/olcbox/releases/tag/nightly-universal-carrier"
+log "Olcbox: https://github.com/alananisimov/olcbox/releases (nightly: .../tag/nightly)"
 log "Set OLCRTC_PUBLIC_URL in panel.env (DDNS, not raw IP)"
