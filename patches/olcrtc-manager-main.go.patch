@@ -173,7 +173,18 @@ index 8d987b8..23c9f97 100644
 +	return ""
 +}
 +
-+func exitProxyFromEnv() (addr string, port int) {
++func shouldUseExitProxy(link string) bool {
+	switch strings.ToLower(strings.TrimSpace(link)) {
+	case "direct", "":
+		return false
+	case "tor", "proxy", "socks":
+		return true
+	default:
+		return true
+	}
+}
+
+func exitProxyFromEnv() (addr string, port int) {
 +	raw := strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY"))
 +	if raw == "" {
 +		addr = strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY_ADDR"))
@@ -241,15 +252,15 @@ index 8d987b8..23c9f97 100644
 +	case "datachannel":
 +		// Jitsi DC is stable: fewer control pings = less overhead on the tunnel.
 +		return &olcrtcLivenessConfig{
-+			Interval: "25s",
-+			Timeout:  "10s",
-+			Failures: 8,
++			Interval: "45s",
++			Timeout:  "25s",
++			Failures: 12,
 +		}
 +	case "vp8channel", "seichannel", "videochannel":
 +		return &olcrtcLivenessConfig{
-+			Interval: "30s",
-+			Timeout:  "20s",
-+			Failures: 10,
++			Interval: "40s",
++			Timeout:  "25s",
++			Failures: 12,
 +		}
 +	default:
 +		return &olcrtcLivenessConfig{
