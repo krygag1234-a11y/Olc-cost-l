@@ -50,8 +50,12 @@ parse_geosite() {
         [[ -z "$d" ]] && continue
         # geosite: single label ru/su = national TLD (builtin in olcrtc too)
         if [[ "$d" != *.* ]]; then
+          # single-label geosite (ru, su) — builtin in olcrtc; skip generic com/net/org
+          case "$d" in ru|su|рф|xn--p1ai) continue ;; com|net|org|io|me|cc|tv) continue ;; esac
           echo "suffix:.${d}"
         else
+          # skip ultra-broad suffixes that false-match CDNs (e.g. .com, .me.com on foo.me)
+          case "$d" in com|net|org|io|me|cc|tv|cloudfront.net|amazonaws.com) continue ;; esac
           echo "suffix:.${d}"
           echo "exact:${d}"
         fi

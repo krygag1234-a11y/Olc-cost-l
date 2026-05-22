@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Idempotent: direct_domains + MatchBuiltinRU in olcrtc internal/server/server.go
+# Idempotent: direct_domains + MatchBuiltinRU; NO DNS→CIDR (fixes nginx 404 on CDN edges)
 set -euo pipefail
 
 SERVER_GO="${1:-/tmp/olcrtc-src/internal/server/server.go}"
 [[ -f "$SERVER_GO" ]] || { echo "missing $SERVER_GO" >&2; exit 1; }
 
 python3 - "$SERVER_GO" <<'PY'
-import sys
+import sys, re
 from pathlib import Path
 
 p = Path(sys.argv[1])
@@ -40,23 +40,28 @@ if "LoadDomainsFile" not in t:
         '\t\tlogger.Infof("direct routing: %d RU/CIDR entries from %s", m.Len(), cfg.DirectCIDRsFile)\n\t}\n\n' + block + '\t// Register shutdown',
     )
 
-old = """func (s *Server) shouldDialDirect(host string) bool {
-\tif s.directCIDRs == nil || s.directCIDRs.Len() == 0 {
-\t\treturn false
-\t}"""
-new = """func (s *Server) shouldDialDirect(host string) bool {
+# Replace entire shouldDialDirect with safe version (no DNS→CIDR — causes nginx 404 on shared CDN IP)
+new_fn = """func (s *Server) shouldDialDirect(host string) bool {
 \tif routing.MatchBuiltinRU(host) {
 \t\treturn true
 \t}
 \tif s.directDomains != nil && s.directDomains.Match(host) {
 \t\treturn true
 \t}
-\tif s.directCIDRs == nil || s.directCIDRs.Len() == 0 {
-\t\treturn false
-\t}"""
-if old in t:
-    t = t.replace(old, new)
+\thost = strings.TrimSpace(host)
+\tif ip := net.ParseIP(host); ip != nil && s.directCIDRs != nil && s.directCIDRs.Len() > 0 {
+\t\treturn s.directCIDRs.Contains(ip)
+\t}
+\treturn false
+}
+"""
+
+m = re.search(r"func \(s \*Server\) shouldDialDirect\(host string\) bool \{[\s\S]*?\n\}", t)
+if m:
+    t = t[: m.start()] + new_fn + t[m.end() :]
+else:
+    raise SystemExit("shouldDialDirect not found")
 
 p.write_text(t)
-print("[patch-server-domains] ok:", p)
+print("[patch-server-domains] ok (domain-first, CIDR only for literal IP):", p)
 PY

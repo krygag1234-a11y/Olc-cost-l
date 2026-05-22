@@ -1,0 +1,25 @@
+# Video embed stacks (kinobalancer / lordfilm / bbc-doctorwho themes) — need RU VPS exit, not CIDR-guess
+# Parsed from typical player HTML (api.bhcesh.me → api.ortified.ws → iframe hosts)
+suffix:.bhcesh.me
+exact:api.bhcesh.me
+suffix:.ortified.ws
+exact:api.ortified.ws
+suffix:.ideacom.ws
+suffix:.rewall-domain.ru
+suffix:.lumex.space
+suffix:.svetacdn.in
+suffix:.newplayjj.com
+suffix:.kinobalancer.ru
+suffix:.voidboost.cc
+suffix:.voidboost.top
+suffix:.voidboost.fun
+suffix:.alloha.tv
+suffix:.kodik.info
+suffix:.kodik.biz
+suffix:.kodikapi.com
+suffix:.collaps.host
+suffix:.cdnmovies.net
+suffix:.bazon.cc
+suffix:.videocdn.tv
+suffix:.ashdi.vip
+suffix:.monframe.org
