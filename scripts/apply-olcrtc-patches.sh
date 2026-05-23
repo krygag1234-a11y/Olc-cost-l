@@ -81,15 +81,7 @@ apply_manager() {
         log "WARN: admin UI build failed — manager will embed whatever is in admin/dist"
     fi
   fi
-  # Route /api/logs without trailing slash (upstream only registers /api/logs/)
-  if ! grep -q 'handler.Handle("/api/logs", logsHandler)' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
-    sed -i 's|handler.Handle("/api/logs/", adminAuth(http.HandlerFunc|logsHandler := adminAuth(http.HandlerFunc|' \
-      "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
-    if grep -q 'logsHandler := adminAuth' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
-      sed -i 's|writeJSON(w, map\[string\]\[\]LogLine{"logs": lines})|writeJSON(w, map[string][]LogLine{"logs": lines})\n\t}))\n\thandler.Handle("/api/logs", logsHandler)\n\thandler.Handle("/api/logs/", logsHandler)|' \
-        "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
-    fi
-  fi
+  # /api/logs without trailing slash — upstream main often has logsHandler already
 }
 
 build_binaries() {
