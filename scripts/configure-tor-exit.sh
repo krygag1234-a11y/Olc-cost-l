@@ -10,8 +10,9 @@ source "$SCRIPT_DIR/safety-lib.sh"
 
 MARK="# olcrtc: exit countries"
 CONF="${TOR_EXIT_CONF:-/etc/tor/torrc.d/olcrtc-exit.conf}"
-EXCLUDE="${OLCRTC_TOR_EXCLUDE_EXIT:-{ru},{by},{ua},{kz},{cn},{ir},{sy}}"
-EXIT="${OLCRTC_TOR_EXIT_NODES:-{de},{nl},{fi},{pl},{se},{at},{ch}}"
+# Quoted defaults: unquoted {ru},{by} triggers bash brace expansion and breaks torrc.
+EXCLUDE="${OLCRTC_TOR_EXCLUDE_EXIT:-'{ru},{by},{ua},{kz},{cn},{ir},{sy}'}"
+EXIT="${OLCRTC_TOR_EXIT_NODES:-'{de},{nl},{fi},{pl},{se},{at},{ch}'}"
 STRICT="${OLCRTC_TOR_STRICT_NODES:-1}"
 
 safety_path_allowed "$CONF" || exit 1
