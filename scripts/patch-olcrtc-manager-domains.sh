@@ -4,21 +4,34 @@ MAIN="${1:-/tmp/olcrtc-manager-panel/cmd/olcrtc-manager/main.go}"
 [[ -f "$MAIN" ]] || exit 1
 
 python3 - "$MAIN" <<'PY'
-import sys
+import sys, re
 from pathlib import Path
+
 p = Path(sys.argv[1])
 t = p.read_text()
 
+# --- struct olcrtcSocksConfig ---
 if "DirectDomainsFile" not in t:
-    t = t.replace(
-        "\tDirectCIDRsFile string `yaml:\"direct_cidrs_file,omitempty\"`\n}",
-        "\tDirectCIDRsFile   string `yaml:\"direct_cidrs_file,omitempty\"`\n\tDirectDomainsFile string `yaml:\"direct_domains_file,omitempty\"`\n}",
+    t = re.sub(
+        r"(type olcrtcSocksConfig struct \{[\s\S]*?DirectCIDRsFile string `yaml:\"direct_cidrs_file,omitempty\"`)\n(\})",
+        r"\1\n\tDirectDomainsFile       string `yaml:\"direct_domains_file,omitempty\"`\n\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n\tForceTorDomainsFile   string `yaml:\"force_tor_domains_file,omitempty\"`\n\2",
+        t,
+        count=1,
     )
 
-if "directDomainsFileFromEnv" not in t:
+def insert_before_direct_cidrs_env(name, body):
+    global t
+    if f"func {name}(" in t:
+        return
     t = t.replace(
         "func directCIDRsFileFromEnv() string {",
-        """func directDomainsFileFromEnv() string {
+        body + "func directCIDRsFileFromEnv() string {",
+        1,
+    )
+
+insert_before_direct_cidrs_env(
+    "directDomainsFileFromEnv",
+    '''func directDomainsFileFromEnv() string {
 \tif p := strings.TrimSpace(os.Getenv("OLCRTC_DIRECT_DOMAINS")); p != "" {
 \t\treturn p
 \t}
@@ -29,22 +42,12 @@ if "directDomainsFileFromEnv" not in t:
 \treturn ""
 }
 
-func directCIDRsFileFromEnv() string {""",
-    )
-    t = t.replace(
-        "\t\t\tDirectCIDRsFile: directCIDRsFileFromEnv(),\n\t\t}",
-        "\t\t\tDirectCIDRsFile:   directCIDRsFileFromEnv(),\n\t\t\tDirectDomainsFile: directDomainsFileFromEnv(),\n\t\t}",
-    )
+''',
+)
 
-if "BlockedTorDomainsFile" not in t:
-    t = t.replace(
-        "\tDirectDomainsFile string `yaml:\"direct_domains_file,omitempty\"`\n}",
-        "\tDirectDomainsFile       string `yaml:\"direct_domains_file,omitempty\"`\n\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n}",
-    )
-if "blockedTorDomainsFileFromEnv" not in t:
-    t = t.replace(
-        "func directCIDRsFileFromEnv() string {",
-        """func blockedTorDomainsFileFromEnv() string {
+insert_before_direct_cidrs_env(
+    "blockedTorDomainsFileFromEnv",
+    '''func blockedTorDomainsFileFromEnv() string {
 \tif p := strings.TrimSpace(os.Getenv("OLCRTC_BLOCKED_TOR_DOMAINS")); p != "" {
 \t\treturn p
 \t}
@@ -55,22 +58,12 @@ if "blockedTorDomainsFileFromEnv" not in t:
 \treturn ""
 }
 
-func directCIDRsFileFromEnv() string {""",
-    )
-    t = t.replace(
-        "\t\t\tDirectDomainsFile: directDomainsFileFromEnv(),\n\t\t}",
-        "\t\t\tDirectDomainsFile:       directDomainsFileFromEnv(),\n\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),\n\t\t}",
-    )
+''',
+)
 
-if "ForceTorDomainsFile" not in t:
-    t = t.replace(
-        "\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n}",
-        "\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n\tForceTorDomainsFile   string `yaml:\"force_tor_domains_file,omitempty\"`\n}",
-    )
-if "forceTorDomainsFileFromEnv" not in t:
-    t = t.replace(
-        "func blockedTorDomainsFileFromEnv() string {",
-        """func forceTorDomainsFileFromEnv() string {
+insert_before_direct_cidrs_env(
+    "forceTorDomainsFileFromEnv",
+    '''func forceTorDomainsFileFromEnv() string {
 \tif p := strings.TrimSpace(os.Getenv("OLCRTC_FORCE_TOR_DOMAINS")); p != "" {
 \t\treturn p
 \t}
@@ -81,11 +74,27 @@ if "forceTorDomainsFileFromEnv" not in t:
 \treturn ""
 }
 
-func blockedTorDomainsFileFromEnv() string {""",
-    )
-    t = t.replace(
-        "\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),\n\t\t}",
-        "\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),\n\t\t\tForceTorDomainsFile:   forceTorDomainsFileFromEnv(),\n\t\t}",
+''',
+)
+
+# --- serverConfig SOCKS block ---
+socks_new = """\tif proxyAddr, proxyPort := exitProxyFromEnv(); proxyAddr != "" {
+\t\tcfg.SOCKS = olcrtcSocksConfig{
+\t\t\tProxyAddr:             proxyAddr,
+\t\t\tProxyPort:             proxyPort,
+\t\t\tDirectCIDRsFile:       directCIDRsFileFromEnv(),
+\t\t\tDirectDomainsFile:     directDomainsFileFromEnv(),
+\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),
+\t\t\tForceTorDomainsFile:   forceTorDomainsFileFromEnv(),
+\t\t}
+\t}"""
+
+if "ForceTorDomainsFile:" not in t:
+    t = re.sub(
+        r"\tif proxyAddr, proxyPort := exitProxyFromEnv\(\); proxyAddr != \"\" \{[\s\S]*?\n\t\}",
+        socks_new,
+        t,
+        count=1,
     )
 
 p.write_text(t)
