@@ -4,6 +4,11 @@
 _TOR_BRIDGE_LIB_LOADED=1
 
 BRIDGES_RAW_URL="${BRIDGES_RAW_URL:-https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt}"
+_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OLC_REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$_lib_dir/.." && pwd)}"
+BRIDGES_EXTRA_URLS_FILE="${BRIDGES_EXTRA_URLS_FILE:-$OLC_REPO_ROOT/data/bridge-extra-urls.txt}"
+# Extra pools: env BRIDGES_EXTRA_URLS and/or data/bridge-extra-urls.txt
+BRIDGES_EXTRA_URLS="${BRIDGES_EXTRA_URLS:-}"
 POOL_DIR="${POOL_DIR:-/var/lib/olcrtc}"
 POOL_FILE="${POOL_FILE:-$POOL_DIR/tor-bridges-pool.txt}"
 GOOD_BRIDGES="${GOOD_BRIDGES:-$POOL_DIR/tor-bridges-good.txt}"
@@ -17,8 +22,10 @@ BRIDGE_BLACKLIST_FP=(
   EDF46C5F723F323521075F7F8D7E534700D1019E
 )
 
-# webtunnel only by default (RU DPI); comma list: webtunnel,obfs4,vanilla
-BRIDGE_TYPES="${BRIDGE_TYPES:-webtunnel}"
+# RU VPS: webtunnel + obfs4; optional snowflake (fallback line), vanilla
+BRIDGE_TYPES="${BRIDGE_TYPES:-webtunnel,obfs4}"
+USER_BRIDGES_FILE="${USER_BRIDGES_FILE:-/var/lib/olcrtc/tor-user-bridges.txt}"
+OLCRTC_BRIDGE_IPV4_ONLY="${OLCRTC_BRIDGE_IPV4_ONLY:-1}"
 
 bridge_log() { echo "[$(date -Iseconds)] $*" | tee -a "${LOG_FILE:-/var/log/olcrtc-bridge-pool.log}"; }
 
@@ -48,6 +55,10 @@ bridge_line_valid() {
     bridge_type_enabled obfs4 || return 1
     return 0
   fi
+  if [[ "$line" =~ ^snowflake([[:space:]]|$) ]]; then
+    bridge_type_enabled snowflake || return 1
+    return 0
+  fi
   if [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+[[:space:]]+[0-9A-Fa-f]{40} ]]; then
     bridge_type_enabled vanilla || return 1
     return 0
@@ -69,7 +80,7 @@ bridge_to_torrc() {
     echo "$line"
     return 0
   fi
-  if [[ "$line" =~ ^webtunnel || "$line" =~ ^obfs4 ]]; then
+  if [[ "$line" =~ ^webtunnel || "$line" =~ ^obfs4 || "$line" =~ ^snowflake ]]; then
     echo "Bridge $line"
     return 0
   fi
@@ -82,13 +93,98 @@ bridge_to_torrc() {
 
 bridge_fingerprint() {
   local line="$1"
-  if [[ "$line" =~ ^Bridge[[:space:]]webtunnel || "$line" =~ ^Bridge[[:space:]]obfs4 ]]; then
+  if [[ "$line" =~ ^Bridge[[:space:]]snowflake ]]; then
+    echo "snowflake-fallback"
+  elif [[ "$line" =~ ^Bridge[[:space:]]webtunnel || "$line" =~ ^Bridge[[:space:]]obfs4 ]]; then
     awk '{print $4}' <<<"$line"
   elif [[ "$line" =~ ^Bridge[[:space:]] ]]; then
     awk '{print $3}' <<<"$line"
   else
     awk '{print $(NF-1); print $4}' <<<"$line" 2>/dev/null | head -1
   fi
+}
+
+bridge_is_ipv6_heavy() {
+  local line="$1"
+  [[ "$line" == *"["* ]] && return 0
+  [[ "$line" =~ [0-9a-fA-F]{2,}:[0-9a-fA-F]{2,}: ]] && return 0
+  return 1
+}
+
+bridge_probe_hostport() {
+  local line="$1"
+  awk '{
+    for (i = 1; i <= NF; i++)
+      if ($i ~ /^(\[?[0-9a-fA-F:.]+\]?):[0-9]+$/) { print $i; exit }
+  }' <<<"$line"
+}
+
+bridge_pool_grep_pattern() {
+  if [[ ",${BRIDGE_TYPES}," == *",all,"* ]]; then
+    echo '^Bridge '
+    return
+  fi
+  local pat="" t
+  IFS=',' read -r -a _bt <<<"${BRIDGE_TYPES}"
+  for t in "${_bt[@]}"; do
+    t="${t// /}"
+    [[ -n "$t" ]] || continue
+    pat+="|${t}"
+  done
+  [[ -n "$pat" ]] || { echo '^Bridge webtunnel '; return; }
+  echo "^Bridge (${pat#|}) "
+}
+
+load_bridges_extra_urls() {
+  local -a urls=()
+  if [[ -n "${BRIDGES_EXTRA_URLS:-}" ]]; then
+    IFS=',' read -r -a urls <<<"${BRIDGES_EXTRA_URLS// /}"
+  fi
+  if [[ -f "$BRIDGES_EXTRA_URLS_FILE" ]]; then
+    local u
+    while IFS= read -r u || [[ -n "$u" ]]; do
+      u="${u%%#*}"
+      u="${u// /}"
+      [[ -n "$u" ]] && urls+=("$u")
+    done <"$BRIDGES_EXTRA_URLS_FILE"
+  fi
+  if ((${#urls[@]} == 0)); then
+    urls=(
+      "https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/webtunnel_tested.txt"
+      "https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/obfs4_tested.txt"
+    )
+  fi
+  BRIDGES_EXTRA_URLS="$(printf '%s,' "${urls[@]}" | sed 's/,$//')"
+}
+
+merge_user_bridge_lines() {
+  local -n _out=$1
+  [[ -f "$USER_BRIDGES_FILE" ]] || return 0
+  local line torline fp found
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    bridge_line_valid "$line" || continue
+    torline="$(bridge_to_torrc "$line")" || continue
+    fp="$(bridge_fingerprint "$torline")"
+    bridge_is_blacklisted "$fp" && continue
+    found=0
+    for a in "${_out[@]}"; do [[ "$a" == "$torline" ]] && found=1; done
+    [[ $found -eq 1 ]] && continue
+    _out+=("$torline")
+  done <"$USER_BRIDGES_FILE"
+}
+
+snowflake_client_path() {
+  command -v snowflake-client 2>/dev/null || echo /usr/bin/snowflake-client
+}
+
+append_snowflake_fallback_line() {
+  local -n _arr=$1
+  [[ "${OLCRTC_TOR_SNOWFLAKE_FALLBACK:-0}" == "1" ]] || bridge_type_enabled snowflake || return 0
+  [[ -x "$(snowflake_client_path)" ]] || return 0
+  local line="Bridge snowflake 192.0.2.3:80"
+  local a
+  for a in "${_arr[@]}"; do [[ "$a" == "$line" ]] && return 0; done
+  _arr+=("$line")
 }
 
 bridge_tunnel_url() {
@@ -106,7 +202,26 @@ pool_is_fresh() {
 
 fetch_bridges_raw() {
   local dest="$1"
-  curl -fsSL --max-time 120 "$BRIDGES_RAW_URL" -o "$dest"
+  local tmp merged url
+  load_bridges_extra_urls
+  tmp="$(mktemp)"
+  merged="$(mktemp)"
+  curl -fsSL --max-time 120 "$BRIDGES_RAW_URL" -o "$tmp"
+  cp "$tmp" "$merged"
+  if [[ -n "${BRIDGES_EXTRA_URLS:-}" ]]; then
+    IFS=',' read -r -a _extra <<<"${BRIDGES_EXTRA_URLS}"
+    for url in "${_extra[@]}"; do
+      [[ -n "$url" ]] || continue
+      if curl -fsSL --max-time 90 "$url" -o "$tmp" 2>/dev/null; then
+        cat "$tmp" >>"$merged"
+        bridge_log "merged extra pool: $url"
+      else
+        bridge_log "WARN: skip extra pool $url"
+      fi
+    done
+  fi
+  mv "$merged" "$dest"
+  rm -f "$tmp"
 }
 
 trim_pool_file() {
@@ -134,10 +249,18 @@ trim_pool_file() {
 
 record_good_bridge() {
   local line="$1"
+  local lock="${GOOD_BRIDGES}.lock"
   [[ -f "$GOOD_BRIDGES" ]] || touch "$GOOD_BRIDGES"
-  grep -qxF "$line" "$GOOD_BRIDGES" 2>/dev/null || echo "$line" >>"$GOOD_BRIDGES"
-  awk '!seen[$0]++' "$GOOD_BRIDGES" >"${GOOD_BRIDGES}.tmp" && mv "${GOOD_BRIDGES}.tmp" "$GOOD_BRIDGES"
-  tail -n 120 "$GOOD_BRIDGES" >"${GOOD_BRIDGES}.tmp" && mv "${GOOD_BRIDGES}.tmp" "$GOOD_BRIDGES"
+  # Concurrent probes can call this in parallel — guard with a lock + unique tmp files.
+  (
+    flock -w 2 9 || exit 0
+    grep -qxF "$line" "$GOOD_BRIDGES" 2>/dev/null || echo "$line" >>"$GOOD_BRIDGES"
+    local tmp
+    tmp="$(mktemp "${GOOD_BRIDGES}.tmp.XXXXXX")"
+    awk '!seen[$0]++' "$GOOD_BRIDGES" >"$tmp" && mv "$tmp" "$GOOD_BRIDGES"
+    tmp="$(mktemp "${GOOD_BRIDGES}.tmp.XXXXXX")"
+    tail -n 120 "$GOOD_BRIDGES" >"$tmp" && mv "$tmp" "$GOOD_BRIDGES"
+  ) 9>"$lock"
 }
 
 parse_bridges_file() {
@@ -185,8 +308,8 @@ health_record() {
     grep -v -F "$fp" "$HEALTH_DB" 2>/dev/null | grep -v '^fingerprint' || true
     echo -e "${fp}\t${ok}\t${fail}\t${streak}\t${last_ok}\t${last_fail}\t${status}"
   } >"$tmp"
-  install -m 0644 "$tmp" "$HEALTH_DB"
-  rm -f "$tmp"
+  mv "$tmp" "$HEALTH_DB"
+  chmod 0644 "$HEALTH_DB"
 }
 
 # 0 = should keep (not enough failures / recent success)
@@ -220,12 +343,16 @@ probe_url() {
   local url host
   url="$(bridge_tunnel_url "$line")"
   if [[ -z "$url" ]]; then
-    # vanilla/obfs4: TCP to bridge host
-    local hostport
-    hostport="$(sed -n 's/^Bridge[[:space:]]\+\([^ ]*\).*/\1/p' <<<"$line" | head -1)"
+    local hostport host port
+    [[ "$line" == *" snowflake "* ]] && return 0
+    hostport="$(bridge_probe_hostport "$line")"
+    [[ -n "$hostport" ]] || return 1
     host="${hostport%%:*}"
-    [[ -n "$host" ]] || return 1
-    timeout 5 bash -c "exec 3<>/dev/tcp/${host}/${hostport##*:}" 2>/dev/null && return 0
+    port="${hostport##*:}"
+    host="${host#[}"
+    host="${host%]}"
+    [[ -n "$host" && -n "$port" ]] || return 1
+    timeout 5 bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null && return 0
     return 1
   fi
   host="$(sed -E 's|https?://([^/:]+).*|\1|' <<<"$url")"
@@ -239,15 +366,47 @@ probe_url() {
 
 write_torrc_header() {
   local dest="$1"
+  shift
+  local -a lines=("$@")
+  local need_wt=0 need_obfs4=0 need_snow=0 line wt_bin
+  if ((${#lines[@]} == 0)); then
+    bridge_type_enabled webtunnel && need_wt=1
+    bridge_type_enabled obfs4 && need_obfs4=1
+    bridge_type_enabled snowflake && need_snow=1
+  else
+    for line in "${lines[@]}"; do
+      [[ "$line" == *" webtunnel "* ]] && need_wt=1
+      [[ "$line" == *" obfs4 "* ]] && need_obfs4=1
+      [[ "$line" == *" snowflake "* ]] && need_snow=1
+    done
+  fi
+  [[ "${OLCRTC_TOR_SNOWFLAKE_FALLBACK:-0}" == "1" ]] && need_snow=1
   {
     echo "# Active bridges — $(date -Iseconds)"
     echo "# Managed by Olc-cost-l tor-bridge-pool.sh"
     echo "UseBridges 1"
-    if bridge_type_enabled webtunnel; then
-      echo "ClientTransportPlugin webtunnel exec /usr/bin/webtunnel-client"
+    if (( need_wt )); then
+      wt_bin="/usr/bin/webtunnel-client"
+      [[ -x "$wt_bin" ]] || wt_bin="/usr/local/bin/webtunnel-client"
+      echo "ClientTransportPlugin webtunnel exec $wt_bin"
     fi
-    if bridge_type_enabled obfs4; then
+    if (( need_obfs4 )) && [[ -x /usr/bin/obfs4proxy ]]; then
       echo "ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy"
     fi
+    if (( need_snow )) && [[ -x "$(snowflake_client_path)" ]]; then
+      echo "ClientTransportPlugin snowflake exec $(snowflake_client_path)"
+    fi
   } >"$dest"
+}
+
+write_active_bridges_conf() {
+  local dest="$1"
+  shift
+  local -a active=("$@")
+  append_snowflake_fallback_line active
+  local tmp
+  tmp="$(mktemp)"
+  write_torrc_header "$tmp" "${active[@]}"
+  printf '%s\n' "${active[@]}" >>"$tmp"
+  mv "$tmp" "$dest"
 }

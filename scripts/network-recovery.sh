@@ -1,28 +1,35 @@
 #!/usr/bin/env bash
-# Restart Tor + OlcRTC after network/VPS restore (dynamic IP, intermittent link).
+# Restart Tor only when SOCKS exit is down (do not disturb working Tor).
 set -euo pipefail
 
-log() { echo "[$(date -Iseconds)] $*"; }
-
-log "network-recovery: rotate bridges + restart Tor"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG="${LOG_FILE:-/var/log/olcrtc-healthcheck.log}"
+
+log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
+
+tor_socks_ok() {
+  timeout 1 bash -lc ':</dev/tcp/127.0.0.1/9050' >/dev/null 2>&1 || return 1
+  curl -fsS --max-time 10 --socks5-hostname 127.0.0.1:9050 \
+    https://check.torproject.org/api/ip >/dev/null 2>&1
+}
+
+if tor_socks_ok; then
+  log "network-recovery: Tor already OK — skip"
+  exit 0
+fi
+
+log "network-recovery: Tor down — rotate bridges + restart Tor"
 "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart 2>/dev/null || true
 systemctl reset-failed tor@default 2>/dev/null || true
 systemctl restart tor@default.service || true
-sleep 3
 
 for i in $(seq 1 30); do
-  if curl -fsS --max-time 2 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip >/dev/null 2>&1; then
-    log "Tor SOCKS ready"
-    break
+  if tor_socks_ok; then
+    log "network-recovery: Tor SOCKS ready (${i})"
+    exit 0
   fi
   sleep 2
 done
 
-if curl -fsS --max-time 5 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip >/dev/null 2>&1; then
-  log "Tor OK — restarting olcrtc-manager (SOCKS exit enabled)"
-else
-  log "Tor not ready — restarting olcrtc-manager without waiting (Jitsi works, no Tor exit)"
-fi
-systemctl restart olcrtc-manager.service || true
-log "done"
+log "network-recovery: Tor still not ready after restart"
+exit 1

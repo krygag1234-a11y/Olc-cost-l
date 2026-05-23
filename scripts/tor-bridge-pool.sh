@@ -164,6 +164,9 @@ select_active_bridges() {
     drop=0
     health_should_drop "$fp" && drop=1
     score="$(health_score "$fp")"
+    if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]] && bridge_is_ipv6_heavy "$line"; then
+      score=$((score - 1000))
+    fi
     if [[ "$drop" -eq 1 && "$score" -lt 20 ]]; then
       continue
     fi
@@ -196,6 +199,36 @@ select_active_bridges() {
     done
   fi
 
+  # When multiple PTs enabled, keep a minimum of webtunnel (RU DPI primary path).
+  if [[ ",${BRIDGE_TYPES}," == *",webtunnel,"* ]] && [[ ",${BRIDGE_TYPES}," == *",obfs4,"* ]]; then
+    local min_wt="${MIN_WEBTUNNEL_ACTIVE:-6}" wt_count=0 line_wt fp_wt found_wt
+    for line_wt in "${active[@]}"; do [[ "$line_wt" == *" webtunnel "* ]] && wt_count=$((wt_count + 1)); done
+    if (( wt_count < min_wt )); then
+      mapfile -t wt_fill < <(
+        { grep -E '^Bridge webtunnel ' "$POOL_FILE" | grep -v '\[' || true
+          grep -E '^Bridge webtunnel ' "$POOL_FILE" || true
+        } | awk '!seen[$0]++' | head -n "$((min_wt * 4))"
+      )
+      for line_wt in "${wt_fill[@]}"; do
+        if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]] && bridge_is_ipv6_heavy "$line_wt"; then
+          continue
+        fi
+        fp_wt="$(bridge_fingerprint "$line_wt")"
+        bridge_is_blacklisted "$fp_wt" && continue
+        health_should_drop "$fp_wt" && continue
+        found_wt=0
+        for a in "${active[@]}"; do [[ "$a" == "$line_wt" ]] && found_wt=1; done
+        [[ $found_wt -eq 1 ]] && continue
+        active=("$line_wt" "${active[@]}")
+        wt_count=$((wt_count + 1))
+        [[ ${#active[@]} -ge $MAX_ACTIVE ]] && active=("${active[@]:0:$MAX_ACTIVE}")
+        (( wt_count >= min_wt )) && break
+      done
+    fi
+  fi
+
+  merge_user_bridge_lines active
+
   if (( ${#active[@]} == 0 )); then
     bridge_log "ERROR: no bridges to activate"
     return 1
@@ -203,12 +236,12 @@ select_active_bridges() {
 
   local tmp
   tmp="$(mktemp)"
-  write_torrc_header "$tmp"
-  printf '%s\n' "${active[@]}" >>"$tmp"
+  write_active_bridges_conf "$tmp" "${active[@]}"
   if [[ -f "$BRIDGES_OUT" ]] && cmp -s "$tmp" "$BRIDGES_OUT"; then
     bridge_log "bridges.conf unchanged (${#active[@]} bridges)"
     rm -f "$tmp"
-    return 1
+    # No need to rotate/restart Tor when active set is the same.
+    return 0
   fi
   safety_install_file "$tmp" "$BRIDGES_OUT" 0644
   rm -f "$tmp"
@@ -224,7 +257,6 @@ restart_tor_if_needed() {
   for i in $(seq 1 25); do
     if curl -fsS --max-time 3 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip >/dev/null 2>&1; then
       bridge_log "Tor SOCKS ready (${i}s)"
-      systemctl restart olcrtc-manager 2>/dev/null || true
       return 0
     fi
     sleep 1

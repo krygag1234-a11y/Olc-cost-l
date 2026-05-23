@@ -68,7 +68,7 @@ install_deps() {
   log "packages"
   apt-get update -qq
   apt-get install -y -qq git curl build-essential golang-go jq ca-certificates \
-    patch ${ENABLE_TOR:+tor obfs4proxy apparmor-utils}
+    patch ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils}
   if [[ "$ENABLE_TOR" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
     command -v go >/dev/null || apt-get install -y -qq golang-go
   fi
@@ -87,15 +87,12 @@ build_webtunnel() {
 setup_tor() {
   [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
   bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
+  bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
   log "Tor bridges pool"
+  bash "$SCRIPT_DIR/fetch-bridge-extra-sources.sh" 2>/dev/null || \
   BRIDGE_TYPES=webtunnel,obfs4 \
-  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types webtunnel || \
+    bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types webtunnel,obfs4 || \
     bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
-  mkdir -p /etc/apparmor.d/local
-  if ! grep -q webtunnel-client /etc/apparmor.d/local/system_tor 2>/dev/null; then
-    echo '/usr/bin/webtunnel-client Pix,' >>/etc/apparmor.d/local/system_tor
-    apparmor_parser -r /etc/apparmor.d/usr.bin.tor 2>/dev/null || true
-  fi
   systemctl enable tor@default.service
   systemctl restart tor@default.service || true
   systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer 2>/dev/null || true

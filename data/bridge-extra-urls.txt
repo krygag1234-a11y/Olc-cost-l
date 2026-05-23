@@ -1,0 +1,7 @@
+# Extra Tor bridge lists (one URL per line). Merged into tor-bridges-pool on fetch.
+# Tor-Bridges-Collector — https://github.com/Delta-Kronecker/Tor-Bridges-Collector
+https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/webtunnel_tested.txt
+https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/obfs4_tested.txt
+https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/webtunnel_72h.txt
+https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/obfs4_72h.txt
+https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/vanilla_tested.txt
