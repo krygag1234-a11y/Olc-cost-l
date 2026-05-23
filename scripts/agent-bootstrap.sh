@@ -95,7 +95,8 @@ setup_tor() {
     bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
   systemctl enable tor@default.service
   systemctl restart tor@default.service || true
-  systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer 2>/dev/null || true
+  systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
+    olcrtc-tor-bridge-deep.timer 2>/dev/null || true
   bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
 }
 

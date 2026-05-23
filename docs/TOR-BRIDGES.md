@@ -102,4 +102,4 @@ BOOTSTRAP_TIMEOUT=90              # deep-check
 - onionoo / Stem / симуляторы — мониторинг и исследования, не bootstrap
 - Mix-Tor — экспериментальный PT
 
-См. также [VPS-SETUP.md](VPS-SETUP.md), [SPLIT-ROUTING.md](SPLIT-ROUTING.md).
+См. также [VPS-SETUP.md](VPS-SETUP.md), [SPLIT-ROUTING.md](SPLIT-ROUTING.md), [PERFORMANCE.md](PERFORMANCE.md) (потолок скорости, параллельные потоки).

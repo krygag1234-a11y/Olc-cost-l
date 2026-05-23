@@ -1,6 +1,6 @@
 # OlcRTC VPS — полная документация
 
-**Обновлено:** 2026-05-22  
+**Обновлено:** 2026-05-23  
 **Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) (`refactor/universal-carrier` смержена, отдельной ветки нет)  
 **Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + **патчи** в `/opt/Olc-cost-l/patches/`  
 **Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) · [все релизы](https://github.com/alananisimov/olcbox/releases) · [репо](https://github.com/alananisimov/olcbox) — см. [CLIENT.md](CLIENT.md)
@@ -73,50 +73,43 @@ flowchart TB
 
 ## Tor: пул мостов
 
-### Источник
+Полное описание: [TOR-BRIDGES.md](TOR-BRIDGES.md) · лимиты скорости: [PERFORMANCE.md](PERFORMANCE.md)
 
-Прямая загрузка (без мусора в torrc):
+### Источники
 
-`https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt`
+| Источник | Файл / URL |
+|----------|------------|
+| igareck | `TOR_BRIDGES_ALL.txt` |
+| Tor-Bridges-Collector | `data/bridge-extra-urls.txt` (tested, 72h, vanilla) |
 
-Скрипт **отбрасывает**:
-- строки с `#` (profile-title, Date/Time, секции вроде `# VANILLA TOR BRIDGES:`)
-- `vless://`, `trojan://`, `ss://`
-- оставляет только `webtunnel`, `obfs4`, vanilla `IP:PORT FINGERPRINT`
+По умолчанию **`BRIDGE_TYPES=webtunnel,obfs4`**. В `bridges.conf` **сначала webtunnel** (быстрее), obfs4 — запас. Если в пуле нет IPv4 webtunnel — fallback на IPv6 webtunnel.
 
-### Мониторинг и «не удалять сразу»
+**Snowflake** на VPS не используется (bootstrap не проходит) — см. TOR-BRIDGES.md.
 
-| Файл | Назначение |
-|------|------------|
-| `/var/lib/olcrtc/tor-bridges-pool.txt` | Весь пул кандидатов |
-| `/var/lib/olcrtc/tor-bridge-health.tsv` | ok/fail/streak, last_ok |
-| `/etc/tor/bridges.conf` | Активные мосты (≈12 по умолчанию) |
+### Файлы и таймеры
 
-- Проба каждые **20 мин** (`olcrtc-tor-bridge-monitor.timer`) — только health, без рестарта Tor.
-- Полное обновление из репо каждые **6 ч** (`olcrtc-tor-bridge-pool.timer`).
-- Мост **удаляется из активных**, только если `fail_streak ≥ 8` и последний успех был **> 6 ч** назад.
-- Если активных < **target (12)** — добор из пула/репо.
+| Файл / unit | Назначение |
+|-------------|------------|
+| `tor-bridges-pool.txt` | Кандидаты (до 500 строк) |
+| `tor-bridge-health.tsv` | url_ok, bootstrap_ok, streak |
+| `tor-bridges-good.txt` | Удачные пробы |
+| `bridges.conf` | Активные мосты (~12–18) |
+| `olcrtc-tor-bridge-monitor.timer` | ~20 мин: лёгкая проба |
+| `olcrtc-tor-bridge-pool.timer` | ~6 ч: fetch + apply |
+| `olcrtc-tor-bridge-deep.timer` | ~1 раз/нед: **реальный** Tor bootstrap |
+| `/etc/cron.d/olcrtc-healthcheck` | */10: Tor только если SOCKS мёртв; панель — `/admin` |
 
 ### Команды
 
 ```bash
-# Скачать ALL.txt, распарсить, пополнить пул
-/opt/Olc-cost-l/scripts/tor-bridge-pool.sh --fetch
-
-# Проба + выбор лучших + рестарт Tor
-/opt/Olc-cost-l/scripts/tor-bridge-pool.sh --url-only --target 12 --types webtunnel
-
-# Только health (cron)
-/opt/Olc-cost-l/scripts/tor-bridge-monitor.sh
-
-# Срочная ротация окна мостов
+/opt/Olc-cost-l/scripts/install-tor-pluggable-transports.sh
+/opt/Olc-cost-l/scripts/fetch-bridge-extra-sources.sh
+BRIDGE_TYPES=webtunnel,obfs4 /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --apply
+/opt/Olc-cost-l/scripts/tor-bridge-deep-check.sh --from-pool --limit 10 --jobs 2
 /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
-
-# Типы: webtunnel | obfs4 | vanilla | webtunnel,obfs4
-BRIDGE_TYPES=webtunnel,obfs4 tor-bridge-pool.sh --fetch
 ```
 
-**Чёрный список:** `EDF46C5F...` (Tor 0.4.8.10 core-dump).
+**Чёрный список:** `EDF46C5F...` (Tor 0.4.8.10 ABRT).
 
 ### bridges.torproject.org (gist)
 
@@ -143,12 +136,16 @@ BRIDGE_TYPES=webtunnel,obfs4 tor-bridge-pool.sh --fetch
 | **agent-bootstrap.sh** | Главный деплой: `--full`, `--no-tor`, `--no-split`, `--rebuild-only` |
 | **apply-olcrtc-patches.sh** | Клон + патчи + сборка в `/usr/local/bin/` |
 | **tor-bridge-pool.sh** | Пул, health, `bridges.conf` |
-| **tor-bridge-monitor.sh** | Проба без рестарта Tor |
-| **tor-bridge-rotate.sh** | Сдвиг окна мостов |
-| **update-tor-bridges.sh** | Алиас `--fetch` + pool |
+| **tor-bridge-monitor.sh** | Проба; 3 fail → rotate |
+| **tor-bridge-rotate.sh** | Сдвиг окна без fetch |
+| **tor-bridge-deep-check.sh** | Bootstrap через временный tor |
+| **fetch-bridge-extra-sources.sh** | Collector + igareck |
+| **install-tor-pluggable-transports.sh** | obfs4, snowflake-client, webtunnel |
 | **fetch-ru-cidrs.sh** | RU IPv4 для direct |
-| **network-recovery.sh** | После обрыва сети |
-| **healthcheck.sh** | Cron */10 |
+| **setup-split-ru.sh** | Списки split + zapret domains |
+| **install-zapret-vps.sh** | Zapret на direct |
+| **network-recovery.sh** | Tor down → rotate + restart |
+| **healthcheck.sh** | Cron */10 (`/admin`) |
 
 ---
 
@@ -181,8 +178,9 @@ apparmor_parser -r /etc/apparmor.d/usr.bin.tor
 ### 4. Tor pool + timers
 
 ```bash
-systemctl enable --now olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer
-/opt/Olc-cost-l/scripts/tor-bridge-pool.sh --fetch --url-only --types webtunnel --target 12
+systemctl enable --now olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
+  olcrtc-tor-bridge-deep.timer
+/opt/Olc-cost-l/scripts/fetch-bridge-extra-sources.sh
 ```
 
 ### 5. manager
@@ -231,8 +229,10 @@ journalctl -u olcrtc-manager -n 20 --no-pager
 
 | Симптом | Действие |
 |---------|----------|
-| Jitsi падает, SOCKS refused | Tor мёртв; `tor-bridge-rotate.sh`; manager работает без SOCKS пока Tor down |
-| Tor core-dump | убрать мост `EDF46C5F`; `tor-bridge-pool.sh --fetch` |
+| Jitsi падает, SOCKS refused | Tor мёртв; `tor-bridge-rotate.sh`; manager без SOCKS пока Tor down |
+| Tor рестарт каждые 10 мин | healthcheck должен бить `/admin`, не `/` |
+| Медленный Tor | проверить порядок в `bridges.conf` (webtunnel сверху); `deep-check` |
+| Tor core-dump | мост `EDF46C5F`; `tor-bridge-pool.sh --fetch` |
 | Olcbox offline | DDNS вместо IP |
 | Логи 404 в панели | нужен **патченный** manager |
 | YouTube блок | проверить Tor exit через SOCKS |

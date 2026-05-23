@@ -1,97 +1,111 @@
 # Olc-cost-l
 
-Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на VPS (RU/foreign).
+Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
-## Upstream (актуально 2026-05)
+**Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
+
+## Upstream (2026-05)
 
 | Компонент | Ветка | Ссылка |
 |-----------|--------|--------|
 | olcrtc | **`master`** | https://github.com/openlibrecommunity/olcrtc |
 | manager panel | **`main`** | https://github.com/BigDaddy3334/olcrtc-manager-panel |
-| Olcbox клиент | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
+| Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
-`refactor/universal-carrier` **смержена в master** ([merge 85faadd](https://github.com/openlibrecommunity/olcrtc/commit/85faadd)).  
-Upstream install.sh панели уже ставит `OLCRTC_REF=master` ([коммит 6878fc8](https://github.com/BigDaddy3334/olcrtc-manager-panel/commits/main/)).
+**Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
 
-**Не используйте** голый `curl …/olcrtc-manager-panel/…/install.sh` на этом VPS — он без Tor/split/патчей. Только этот репо.
-
-### Olcbox — ссылки для пользователей
-
-- Стабильная (не ломается при смене тега): https://github.com/alananisimov/olcbox/releases  
-- Репозиторий: https://github.com/alananisimov/olcbox  
-- Конкретный nightly: https://github.com/alananisimov/olcbox/releases/tag/nightly  
-
-Подробнее: [docs/CLIENT.md](docs/CLIENT.md)
+Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.md](docs/CLIENT.md)
 
 ---
 
 ## Быстрая установка
 
 ```bash
-# Одна ссылка: чистая установка ИЛИ обновление (авто-детект)
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
-# Иностранный VPS:
+# Иностранный VPS (без Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-tor
-# Принудительно только обновление:
+# Только обновление:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
 
-См. [docs/UPDATE.md](docs/UPDATE.md)
-
-Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin`
+Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` · [UPDATE.md](docs/UPDATE.md)
 
 ---
 
-## Что внутри
+## Стек на RU VPS (текущее состояние)
 
-| Каталог | Содержимое |
-|---------|------------|
-| `scripts/` | bootstrap, патчи, Tor pool, RU/CDN direct |
-| `patches/` | olcrtc + manager ([PATCHES.md](patches/PATCHES.md)) |
-| [docs/VPS-SETUP.md](docs/VPS-SETUP.md) | Полная установка |
-| [docs/TOR-BRIDGES.md](docs/TOR-BRIDGES.md) | Мосты, скорость failover |
-| [docs/CLIENT.md](docs/CLIENT.md) | Olcbox |
-| [docs/SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат, что скрипты не трогают |
-| [docs/SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS/Tor/авторизация |
-| [docs/RU-VPS-ONLY.md](docs/RU-VPS-ONLY.md) | Split только на RU VPS |
-| [docs/SPLIT-ROUTING.md](docs/SPLIT-ROUTING.md) | Домены vs CDN /32, фикс 404 nginx |
-| [docs/RU-BLOCKED-TOR.md](docs/RU-BLOCKED-TOR.md) | Заблокированные в РФ `.ru` → Tor |
-| [docs/ZAPRET-OPTIONAL.md](docs/ZAPRET-OPTIONAL.md) | Zapret/DPI на VPS (опционально) |
-| [docs/WINDOWS-PLAYER-DISCOVER.md](docs/WINDOWS-PLAYER-DISCOVER.md) | Домены плеера с Windows (SSH + консоль) |
+| Слой | Что делает |
+|------|------------|
+| **olcrtc-manager** | Панель :8888, подписки Olcbox, `link: tor` по умолчанию |
+| **olcrtc** | Туннель к Jitsi/WebRTC; split: RU/CDN direct, остальное → Tor SOCKS |
+| **Tor** | `tor@default` + `bridges.conf` (webtunnel **первые**, obfs4 запас) |
+| **Пул мостов** | igareck + [Tor-Bridges-Collector](https://github.com/Delta-Kronecker/Tor-Bridges-Collector) (`data/bridge-extra-urls.txt`) |
+| **Мониторинг** | healthcheck */10, monitor */20, pool */6h, **deep check** раз в неделю |
+| **zapret** | DPI на direct egress для заблокированных `.ru` |
+| **Списки** | `*.ru`, CDN, `2ipcore`, force-tor (YouTube), geosite |
+
+```text
+Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
+```
 
 ---
 
-## Режимы (`agent-bootstrap.sh`)
+## Документация
+
+| Документ | Тема |
+|----------|------|
+| [VPS-SETUP.md](docs/VPS-SETUP.md) | Полная установка, таймеры, troubleshooting |
+| [TOR-BRIDGES.md](docs/TOR-BRIDGES.md) | Пул, ротация, deep check, snowflake |
+| [PERFORMANCE.md](docs/PERFORMANCE.md) | Потолок Tor, параллельные потоки vs WebRTC |
+| [SPLIT-ROUTING.md](docs/SPLIT-ROUTING.md) | Direct vs Tor по доменам |
+| [RU-BLOCKED-TOR.md](docs/RU-BLOCKED-TOR.md) | Заблокированные `.ru` + zapret |
+| [ZAPRET-OPTIONAL.md](docs/ZAPRET-OPTIONAL.md) | Zapret на VPS |
+| [SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS, авторизация |
+| [SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат |
+| [CLIENT.md](docs/CLIENT.md) | Olcbox |
+| [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
+
+---
+
+## Tor — основные команды
+
+```bash
+# Обновить пул (все источники)
+sudo /opt/Olc-cost-l/scripts/fetch-bridge-extra-sources.sh
+
+# Применить лучшие мосты + restart Tor
+sudo BRIDGE_TYPES=webtunnel,obfs4 /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --apply
+
+# Deep bootstrap (реальный tor на каждый мост)
+sudo /opt/Olc-cost-l/scripts/tor-bridge-deep-check.sh --from-pool --limit 10 --jobs 2
+
+# Быстрая ротация без скачивания
+sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
+```
+
+Таймеры: `olcrtc-tor-bridge-pool.timer`, `olcrtc-tor-bridge-monitor.timer`, `olcrtc-tor-bridge-deep.timer`
+
+---
+
+## Режимы bootstrap
 
 | Флаг | Результат |
 |------|-----------|
-| `--full` | Tor + split RU/CDN + патчи |
-| `--full --no-tor` / `--foreign` | Иностранный VPS: панель + olcrtc, **без Tor/split/мостов** |
-| `--no-split` | RU VPS: Tor на всё, без списков direct |
-| `--ru` | Явно RU: Tor + split (RU+CDN+плееры) |
-| `--rebuild-only` | Пересборка бинарников |
+| `--full` | Tor + split + zapret + патчи |
+| `--full --no-tor` | Иностранный VPS, без мостов |
+| `--no-split` | Tor на весь трафик |
+| `--update` | git pull, пересборка, списки, units |
 
-В `config.json` поле **`link`**: для подписок Olcbox (`tor` / `direct`). **Tor exit на сервере** включается через `OLCRTC_EXIT_PROXY` в systemd — все location получают SOCKS + split (RU/CDN direct, остальное через Tor). Отключить Tor на всём VPS: `--no-tor`.
+В `config.json`: **`link: tor`** (по умолчанию) или **`link: direct`** (без SOCKS для этой локации).
 
 ---
 
 ## Отличия от upstream panel
 
-- `/api/logs?client_id=` (без trailing slash)
-- `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
-- SOCKS + split для всех location, если Tor жив (`OLCRTC_EXIT_PROXY`)
-- Split: **все `*.ru` direct** + RU video CDN + geosite + `ru-domains-extra.txt` (2ipcore и т.п.); **заблокированные .ru** → direct + zapret на VPS; **YouTube/googlevideo** → Tor (`force-tor-domains.txt`); новые клиенты панели → `link: tor` (без Tor только `link: direct` на локации)
-- `fetch-geosite-ru-domains.sh` — [GrimbirdUsers/ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat)
-- Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
-
----
-
-## Tor bridges
-
-```bash
-/opt/Olc-cost-l/scripts/tor-bridge-pool.sh --fetch --url-only --target 12
-/opt/Olc-cost-l/scripts/tor-bridge-monitor.sh   # timer: fast rotate если Tor down
-```
+- API логов, HOST_NETWORK, EXIT_PROXY при живом Tor
+- Split: `*.ru` + CDN direct; blocked `.ru` + zapret; YouTube → Tor
+- Bridge pool: multi-source, webtunnel-first, health + deep bootstrap
+- Healthcheck по `/admin` (не `/`)
 
 ---
 

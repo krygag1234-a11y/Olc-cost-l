@@ -29,7 +29,8 @@
 | `/etc/sysctl.d/99-olcrtc-performance.conf` | BBR (удалить файл = откат) |
 | `/etc/apparmor.d/local/system_tor` | строка для `webtunnel-client` |
 | `/var/lib/olcrtc/` | списки CIDR/доменов, пул мостов |
-| `/var/log/olcrtc-*` | логи health/bridges |
+| `/var/log/olcrtc-*` | логи health/bridges/deep-check |
+| `/tmp/tor-deep.*` | временные tor для deep-check (удаляются) |
 | `/usr/local/bin/olcrtc*` | бинарники после сборки |
 | `/usr/bin/webtunnel-client` | PT Tor |
 | `/tmp/*`, `/var/tmp/*` | git clone для сборки |
