@@ -10,29 +10,38 @@ source "$SCRIPT_DIR/safety-lib.sh"
 
 MARK="# olcrtc: exit countries"
 CONF="${TOR_EXIT_CONF:-/etc/tor/torrc.d/olcrtc-exit.conf}"
-# Quoted defaults: unquoted {ru},{by} triggers bash brace expansion and breaks torrc.
-EXCLUDE="${OLCRTC_TOR_EXCLUDE_EXIT:-'{ru},{by},{ua},{kz},{cn},{ir},{sy}'}"
-EXIT="${OLCRTC_TOR_EXIT_NODES:-'{de},{nl},{fi},{pl},{se},{at},{ch}'}"
+# Defaults without ${var:-{a},{b}} — bash brace-expands that form.
+if [[ -n "${OLCRTC_TOR_EXCLUDE_EXIT:-}" ]]; then
+  EXCLUDE="$OLCRTC_TOR_EXCLUDE_EXIT"
+else
+  EXCLUDE='{ru},{by},{ua},{kz},{cn},{ir},{sy}'
+fi
+if [[ -n "${OLCRTC_TOR_EXIT_NODES:-}" ]]; then
+  EXIT="$OLCRTC_TOR_EXIT_NODES"
+else
+  EXIT='{de},{nl},{fi},{pl},{se},{at},{ch}'
+fi
 STRICT="${OLCRTC_TOR_STRICT_NODES:-1}"
 
 safety_path_allowed "$CONF" || exit 1
 mkdir -p "$(dirname "$CONF")"
 
-# Rewrite if missing or malformed (older broken `{de,{nl}}` syntax)
-if [[ -f "$CONF" ]] && grep -qF "$MARK" "$CONF" 2>/dev/null; then
-  if grep -qE 'ExitNodes \{[a-z]+\,\{' "$CONF" 2>/dev/null; then
-    echo "[tor-exit] fixing malformed ExitNodes in $CONF"
-  else
-    echo "[tor-exit] already configured in $CONF"
-    exit 0
-  fi
+# Rewrite if missing or malformed (quotes, nested braces)
+_needs_fix=0
+if [[ ! -f "$CONF" ]]; then
+  _needs_fix=1
+elif grep -qE "ExitNodes ['\"]|ExitNodes \{[a-z]+\,\{" "$CONF" 2>/dev/null; then
+  _needs_fix=1
+fi
+if [[ "$_needs_fix" -eq 0 ]] && grep -qF "$MARK" "$CONF" 2>/dev/null; then
+  echo "[tor-exit] already configured in $CONF"
+  exit 0
 fi
 
 safety_backup_file "$CONF"
 cat >"$CONF" <<EOF
 $MARK
-# Managed by Olc-cost-l — override via panel.env / env:
-#   OLCRTC_TOR_EXIT_NODES  OLCRTC_TOR_EXCLUDE_EXIT  OLCRTC_TOR_STRICT_NODES
+# Managed by Olc-cost-l — override: OLCRTC_TOR_EXIT_NODES OLCRTC_TOR_EXCLUDE_EXIT
 ExcludeExitNodes $EXCLUDE
 ExitNodes $EXIT
 StrictNodes $STRICT

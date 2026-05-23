@@ -105,7 +105,13 @@ safety_backup_file() {
   local f="$1"
   safety_path_allowed "$f" || return 1
   [[ -f "$f" ]] || return 0
-  cp -a "$f" "${f}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+  local dest="${f}.bak.$(date +%Y%m%d%H%M%S)"
+  # Never leave .bak inside /etc/tor/torrc.d — %include /etc/tor/torrc.d/* loads them.
+  if [[ "$f" == /etc/tor/torrc.d/* ]]; then
+    mkdir -p /var/lib/olcrtc/tor-backups
+    dest="/var/lib/olcrtc/tor-backups/$(basename "$f").bak.$(date +%Y%m%d%H%M%S)"
+  fi
+  cp -a "$f" "$dest" 2>/dev/null || true
 }
 
 # Append only; never truncate whole /etc/tor/torrc
