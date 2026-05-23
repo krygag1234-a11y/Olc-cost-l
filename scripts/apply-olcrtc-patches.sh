@@ -66,14 +66,14 @@ apply_olcrtc() {
 
 apply_manager() {
   log "manager patches in $MGR_REPO"
-  (cd "$MGR_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-manager-main.go.patch") || {
-    log "WARN: manager patch may be already applied — checking markers"
-    grep -q 'exitProxyReachable' "$MGR_REPO/cmd/olcrtc-manager/main.go" || {
-      echo "manager patch FAILED — main.go not patched" >&2
-      exit 1
-    }
-  }
+  if ! grep -q 'exitProxyReachable' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
+    (cd "$MGR_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-manager-main.go.patch") 2>/dev/null || \
+      bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  else
+    log "manager core patch markers present (skip main.go.patch)"
+  fi
   bash "$SCRIPT_DIR/patch-olcrtc-manager-domains.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
   # Admin UI: use prebuilt dist from clone if present; rebuild only when npm works.
   if [[ -f "$MGR_REPO/package.json" ]] && [[ ! -d "$MGR_REPO/admin/dist" ]]; then
     if command -v npm >/dev/null 2>&1; then
