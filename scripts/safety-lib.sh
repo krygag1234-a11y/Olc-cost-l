@@ -9,6 +9,7 @@ OLC_ALLOWED_WRITE_PREFIXES=(
   /etc/tor/bridges.conf
   /etc/tor/torrc
   /etc/tor/torrc.d
+  /etc/tor/torrc.d/olcrtc-exit.conf
   /etc/apparmor.d/local/system_tor
   /etc/systemd/system/olcrtc-
   /etc/cron.d/olcrtc-healthcheck
@@ -25,6 +26,7 @@ OLC_PANEL_ENV_KEYS=(
   OLCRTC_DIRECT_CIDRS
   OLCRTC_DIRECT_DOMAINS
   OLCRTC_BLOCKED_TOR_DOMAINS
+  OLCRTC_FORCE_TOR_DOMAINS
 )
 
 safety_require_root() {

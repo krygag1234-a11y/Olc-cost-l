@@ -17,11 +17,22 @@ OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 log() { echo "[apply-patches] $*"; }
 
 clone_repos() {
-  if [[ ! -d "$OLCRTC_REPO/.git" ]]; then
+  if [[ -d "$OLCRTC_REPO/.git" ]]; then
+    :
+  elif [[ -e "$OLCRTC_REPO" ]]; then
+    rm -rf "$OLCRTC_REPO"
+    git clone -b "$OLCRTC_BRANCH" --depth 1 \
+      https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
+  else
     git clone -b "$OLCRTC_BRANCH" --depth 1 \
       https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
   fi
-  if [[ ! -d "$MGR_REPO/.git" ]]; then
+  if [[ -d "$MGR_REPO/.git" ]]; then
+    :
+  elif [[ -e "$MGR_REPO" ]]; then
+    rm -rf "$MGR_REPO"
+    git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
+  else
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
   fi
 }
@@ -40,6 +51,10 @@ apply_olcrtc() {
   (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-domains-split.patch") 2>/dev/null || true
   bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-blocked-tor.sh" \
+    "$OLCRTC_REPO/internal/server/server.go" \
+    "$OLCRTC_REPO/internal/config/config.go" \
+    "$OLCRTC_REPO/internal/app/session/session.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-force-tor.sh" \
     "$OLCRTC_REPO/internal/server/server.go" \
     "$OLCRTC_REPO/internal/config/config.go" \
     "$OLCRTC_REPO/internal/app/session/session.go"

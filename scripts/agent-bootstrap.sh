@@ -9,6 +9,7 @@
 #   agent-bootstrap.sh --no-split          # RU VPS: Tor без списков direct (весь трафик через exit)
 #   agent-bootstrap.sh --foreign           # то же что --no-tor (явно не-RU)
 #   agent-bootstrap.sh --rebuild-only      # only apply patches + rebuild binaries
+#   agent-bootstrap.sh --update            # git pull path: lists + patches + tor exit (no apt)
 #   agent-bootstrap.sh --help
 #
 # Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_RU_VPS=0|1  OLCRTC_BRANCH=master
@@ -25,6 +26,7 @@ ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
 ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
 RU_VPS="${OLCRTC_RU_VPS:-1}"
 REBUILD_ONLY=0
+UPDATE=0
 
 log() { echo "==> $*"; }
 
@@ -51,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --no-split) ENABLE_SPLIT=0; RU_VPS=1 ;;
     --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
+    --update) UPDATE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage; exit 1 ;;
   esac
@@ -96,6 +99,7 @@ setup_tor() {
   systemctl enable tor@default.service
   systemctl restart tor@default.service || true
   systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer 2>/dev/null || true
+  bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
 }
 
 setup_split_routing() {
@@ -183,6 +187,18 @@ chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
 if [[ "$REBUILD_ONLY" -eq 1 ]]; then
   BUILD=1 bash "$PATCH_SCRIPT"
   systemctl restart olcrtc-manager
+  exit 0
+fi
+
+if [[ "$UPDATE" -eq 1 ]]; then
+  log "UPDATE: refresh lists, patches, tor exit, units"
+  BUILD=1 bash "$PATCH_SCRIPT"
+  setup_tor
+  setup_split_routing
+  setup_systemd
+  setup_cron
+  systemctl restart olcrtc-manager
+  log "Update done."
   exit 0
 fi
 

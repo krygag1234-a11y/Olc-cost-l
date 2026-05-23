@@ -62,6 +62,32 @@ func directCIDRsFileFromEnv() string {""",
         "\t\t\tDirectDomainsFile:       directDomainsFileFromEnv(),\n\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),\n\t\t}",
     )
 
+if "ForceTorDomainsFile" not in t:
+    t = t.replace(
+        "\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n}",
+        "\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n\tForceTorDomainsFile   string `yaml:\"force_tor_domains_file,omitempty\"`\n}",
+    )
+if "forceTorDomainsFileFromEnv" not in t:
+    t = t.replace(
+        "func blockedTorDomainsFileFromEnv() string {",
+        """func forceTorDomainsFileFromEnv() string {
+\tif p := strings.TrimSpace(os.Getenv("OLCRTC_FORCE_TOR_DOMAINS")); p != "" {
+\t\treturn p
+\t}
+\tconst defaultPath = "/var/lib/olcrtc/force-tor-domains.txt"
+\tif _, err := os.Stat(defaultPath); err == nil {
+\t\treturn defaultPath
+\t}
+\treturn ""
+}
+
+func blockedTorDomainsFileFromEnv() string {""",
+    )
+    t = t.replace(
+        "\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),\n\t\t}",
+        "\t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),\n\t\t\tForceTorDomainsFile:   forceTorDomainsFileFromEnv(),\n\t\t}",
+    )
+
 p.write_text(t)
 print("[patch-manager-domains] ok")
 PY

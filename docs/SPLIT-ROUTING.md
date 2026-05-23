@@ -13,7 +13,11 @@ CDN меняет edge, один IP = чужой nginx → **404** при пря�
 | **Домены (geosite)** | `ru-direct-domains.txt` | okko, vk, alloha, voidboost, … из [ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat) |
 | **GeoIP RU** | `ru-cidrs.txt` | Только если клиент подключается к **литеральному IP** (не по DNS→CIDR) |
 | **Embed CDN** | `data/ru-embed-balancers.txt` | kinobalancer: bhcesh, ortified, lumex, rewall, kodik, … |
+| **Force Tor** | `force-tor-domains.txt` | YouTube/googlevideo и др. → **всегда Tor** (даже если попали в geosite) |
+| **Заблокированные .ru** | `ru-blocked-tor-domains.txt` | → Tor (перебивает `*.ru` direct) |
 | **Остальное** | — | Tor exit (`127.0.0.1:9050`) |
+
+Порядок в `shouldDialDirect`: **force-tor → blocked-tor → *.ru → geosite/player → CIDR IP**.
 
 **Важно:** резолв чужого домена в RU IP и direct на этот IP давал **404 nginx** (чужой vhost на shared CDN). DNS→CIDR отключён с 2026-05-22.
 
@@ -37,6 +41,19 @@ sudo systemctl restart olcrtc-manager
 OLCRTC_DIRECT_CIDRS=/var/lib/olcrtc/ru-cidrs.txt
 OLCRTC_DIRECT_DOMAINS=/var/lib/olcrtc/ru-direct-domains.txt
 OLCRTC_BLOCKED_TOR_DOMAINS=/var/lib/olcrtc/ru-blocked-tor-domains.txt
+OLCRTC_FORCE_TOR_DOMAINS=/var/lib/olcrtc/force-tor-domains.txt
+```
+
+## YouTube «недоступно в регионе»
+
+Причина: `googlevideo.com` попал в **direct** (geosite/CDN), exit = RU IP VPS.
+
+Решение в репо: `force-tor-domains.txt` + `configure-tor-exit.sh` (ExitNodes `{de},{nl},{fi}`, без `{ru}`).
+
+```bash
+sudo /opt/Olc-cost-l/scripts/configure-tor-exit.sh
+sudo /opt/Olc-cost-l/scripts/setup-split-ru.sh
+sudo systemctl restart olcrtc-manager tor@default
 ```
 
 ## Добавить хосты с конкретной страницы (плеер)

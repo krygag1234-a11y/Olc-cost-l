@@ -9,7 +9,6 @@ source "$SCRIPT_DIR/safety-lib.sh"
 OUT="${CDN_CIDRS:-/var/lib/olcrtc/cdn-direct.txt}"
 safety_check_output_path OUT "$OUT"
 HOSTS=(
-  youtube.com www.youtube.com googlevideo.com ytimg.com
   vimeo.com player.vimeo.com
   rutube.ru static.rutube.ru
   vk.com vkvideo.ru

@@ -1,0 +1,28 @@
+# Always Tor exit (never direct) — overrides geosite/player lists and shared CDN IPs.
+# Fixes YouTube «недоступно в регионе» when googlevideo was in RU direct by mistake.
+
+# YouTube / Google video
+suffix:.youtube.com
+suffix:.youtu.be
+suffix:.googlevideo.com
+suffix:.ytimg.com
+suffix:.ggpht.com
+suffix:.gvt1.com
+suffix:.youtube-nocookie.com
+
+# Other global platforms (geo-block by RU IP)
+suffix:.netflix.com
+suffix:.twitch.tv
+suffix:.ttvnw.net
+suffix:.spotify.com
+suffix:.discord.com
+suffix:.discordapp.com
+suffix:.discordapp.net
+suffix:.fbcdn.net
+suffix:.facebook.com
+suffix:.instagram.com
+suffix:.cdninstagram.com
+
+# Common embed CDNs that check geo (not RU balancers)
+suffix:.vimeo.com
+suffix:.player.vimeo.com

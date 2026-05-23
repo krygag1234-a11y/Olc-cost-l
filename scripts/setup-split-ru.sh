@@ -15,6 +15,7 @@ echo "[setup-split-ru] RU CIDR (geoip)…"
 bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
 
 echo "[setup-split-ru] geosite RU domains (~10k from GrimbirdUsers) + builtins…"
+bash "$SCRIPT_DIR/fetch-force-tor-domains.sh"
 bash "$SCRIPT_DIR/fetch-ru-direct-domains.sh"
 bash "$SCRIPT_DIR/fetch-ru-blocked-tor-domains.sh"
 
@@ -40,6 +41,7 @@ safety_check_output_path DIRECT_CIDRS "$DIRECT_CIDRS"
 safety_panel_env_set "$ENV_FILE" OLCRTC_DIRECT_CIDRS "$DIRECT_CIDRS"
 safety_panel_env_set "$ENV_FILE" OLCRTC_DIRECT_DOMAINS /var/lib/olcrtc/ru-direct-domains.txt
 safety_panel_env_set "$ENV_FILE" OLCRTC_BLOCKED_TOR_DOMAINS /var/lib/olcrtc/ru-blocked-tor-domains.txt
+safety_panel_env_set "$ENV_FILE" OLCRTC_FORCE_TOR_DOMAINS /var/lib/olcrtc/force-tor-domains.txt
 
 # Panel hints (idempotent refresh)
 grep -q '^# Olc-cost-l split' "$ENV_FILE" 2>/dev/null || cat >>"$ENV_FILE" <<EOF

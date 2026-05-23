@@ -31,7 +31,6 @@ HOSTS=(
   amediateka.ru
   tvigle.ru
   pladform.ru
-  youtube.com www.youtube.com googlevideo.com ytimg.com
   vimeo.com player.vimeo.com
   twitch.tv static-cdn.jtvnw.net
 )

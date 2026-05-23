@@ -35,7 +35,10 @@
 | `fetch-geosite-ru-domains.sh` | ~20k правил из [ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat) |
 | `fetch-player-cdn-domains.sh` | RU video balancers (F6: Alloha, Rewall, Lumex, …) |
 | `fetch-ru-blocked-tor-domains.sh` | RF-blocked `.ru` → Tor override |
+| `fetch-force-tor-domains.sh` | YouTube/global → always Tor |
 | `patch-olcrtc-server-blocked-tor.sh` | `blocked_tor_domains_file` в olcrtc |
+| `patch-olcrtc-server-force-tor.sh` | `force_tor_domains_file` (перебивает direct geosite) |
+| `configure-tor-exit.sh` | `ExitNodes` EU, `ExcludeExitNodes` RU/CIS |
 | `olcrtc-dial-route-log.patch` + `patch-olcrtc-server-route-log.sh` | Лог `connect HOST route=direct\|tor` |
 | `discover-page-hosts.sh` | Домены со страницы плеера → `ru-domains-extra.txt` |
 
