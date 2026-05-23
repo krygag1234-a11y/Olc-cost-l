@@ -17,9 +17,14 @@ STRICT="${OLCRTC_TOR_STRICT_NODES:-1}"
 safety_path_allowed "$CONF" || exit 1
 mkdir -p "$(dirname "$CONF")"
 
+# Rewrite if missing or malformed (older broken `{de,{nl}}` syntax)
 if [[ -f "$CONF" ]] && grep -qF "$MARK" "$CONF" 2>/dev/null; then
-  echo "[tor-exit] already configured in $CONF"
-  exit 0
+  if grep -qE 'ExitNodes \{[a-z]+\,\{' "$CONF" 2>/dev/null; then
+    echo "[tor-exit] fixing malformed ExitNodes in $CONF"
+  else
+    echo "[tor-exit] already configured in $CONF"
+    exit 0
+  fi
 fi
 
 safety_backup_file "$CONF"
