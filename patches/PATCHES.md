@@ -50,6 +50,6 @@
 | `sync-zapret-hostlist.sh` | Hostlist для minimal zapret |
 | `data/ru-domains-extra.txt` | CDN вне `*.ru` (2ipcore, …) |
 
-Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`
+Применение: `apply-olcrtc-patches.sh` или `upstream-sync.sh --apply` — см. [UPSTREAM-SYNC.md](../docs/UPSTREAM-SYNC.md)
 
 Таймер `olcrtc-tor-bridge-pool.service`: `tor-bridge-pool.sh --url-only` (probe + apply, не только `--fetch`).

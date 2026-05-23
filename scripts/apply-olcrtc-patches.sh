@@ -18,7 +18,12 @@ log() { echo "[apply-patches] $*"; }
 
 clone_repos() {
   if [[ -d "$OLCRTC_REPO/.git" ]]; then
-    :
+    if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
+      log "refresh olcrtc $OLCRTC_BRANCH"
+      git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1 2>/dev/null || \
+        git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH"
+      git -C "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
+    fi
   elif [[ -e "$OLCRTC_REPO" ]]; then
     rm -rf "$OLCRTC_REPO"
     git clone -b "$OLCRTC_BRANCH" --depth 1 \
@@ -28,7 +33,12 @@ clone_repos() {
       https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
   fi
   if [[ -d "$MGR_REPO/.git" ]]; then
-    :
+    if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
+      log "refresh manager main"
+      git -C "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
+        git -C "$MGR_REPO" fetch origin main
+      git -C "$MGR_REPO" reset --hard origin/main
+    fi
   elif [[ -e "$MGR_REPO" ]]; then
     rm -rf "$MGR_REPO"
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"

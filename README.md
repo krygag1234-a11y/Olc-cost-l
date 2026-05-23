@@ -64,6 +64,7 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 | [SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат |
 | [CLIENT.md](docs/CLIENT.md) | Olcbox |
 | [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
+| [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |
 
 ---
 
@@ -109,6 +110,16 @@ sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
 
 ---
 
-## DDNS
+## Upstream sync
+
+```bash
+sudo /opt/Olc-cost-l/scripts/upstream-sync.sh --check
+sudo /opt/Olc-cost-l/scripts/upstream-sync.sh --apply
+sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --check
+```
+
+См. [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md)
+
+---
 
 `OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`

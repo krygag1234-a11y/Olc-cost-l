@@ -10,7 +10,7 @@ source "$SCRIPT_DIR/safety-lib.sh"
 
 ZAPRET_VER="${ZAPRET_VER:-72.12}"
 Z4R_SRC="${Z4R_SRC:-$REPO_ROOT/data/zapret4rocket}"
-Z4R_REPO_URL="${Z4R_REPO_URL:-}"
+Z4R_REPO_URL="${Z4R_REPO_URL:-https://github.com/IndeecFOX/zapret4rocket.git}"
 OPT="/opt/zapret"
 # Auto full on >=4G RAM unless overridden
 if [[ -z "${OLCRTC_ZAPRET_FULL:-}" ]]; then
@@ -45,7 +45,16 @@ fetch_zapret() {
 }
 
 ensure_z4r_src() {
-  [[ -f "$Z4R_SRC/config.default" ]] && return 0
+  if [[ -f "$Z4R_SRC/config.default" ]] && [[ "${OLCRTC_ZAPRET_SYNC:-1}" == "0" ]]; then
+    return 0
+  fi
+  if [[ -x "$SCRIPT_DIR/sync-zapret4rocket.sh" ]]; then
+  Z4R_REPO_URL="${Z4R_REPO_URL:-https://github.com/IndeecFOX/zapret4rocket.git}" \
+    bash "$SCRIPT_DIR/sync-zapret4rocket.sh" --apply 2>/dev/null || true
+  fi
+  if [[ -f "$Z4R_SRC/config.default" ]]; then
+    return 0
+  fi
   if [[ -n "$Z4R_REPO_URL" ]]; then
     log "clone zapret4rocket → $Z4R_SRC"
     rm -rf "$Z4R_SRC"

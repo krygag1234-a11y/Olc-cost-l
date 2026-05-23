@@ -1,0 +1,23 @@
+{
+  "olcrtc": {
+    "repo": "https://github.com/openlibrecommunity/olcrtc.git",
+    "branch": "master",
+    "pinned_sha": "931d304f95b5bb73cc17816552983f21d9257b7e",
+    "last_sync": "2026-05-23T23:23:21+00:00",
+    "last_apply_ok": false
+  },
+  "olcrtc-manager": {
+    "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
+    "branch": "main",
+    "pinned_sha": "6878fc8300f2499bd8e6316f94396631c125dca0",
+    "last_sync": "2026-05-23T23:23:21+00:00",
+    "last_apply_ok": false
+  },
+  "zapret4rocket": {
+    "repo": "https://github.com/IndeecFOX/zapret4rocket.git",
+    "branch": "master",
+    "pinned_sha": "",
+    "last_sync": "",
+    "last_apply_ok": null
+  }
+}

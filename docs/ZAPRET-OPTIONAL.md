@@ -8,9 +8,7 @@ Olcbox → VPS olcrtc → direct (*.ru + player CDN + ru-domains-extra)
 VPS host (опционально) → zapret nfqws для direct HTTPS (blocked-tor + DPI)
 ```
 
-## Установка из репозитория
-
-На RU VPS при `agent-bootstrap.sh --full` / `--update` (если `OLCRTC_ENABLE_ZAPRET=1`, по умолчанию на RU):
+## Установка
 
 ```bash
 sudo bash /opt/Olc-cost-l/scripts/install-zapret-vps.sh
@@ -18,31 +16,36 @@ sudo bash /opt/Olc-cost-l/scripts/install-zapret-vps.sh
 
 | Режим | Условие |
 |-------|---------|
-| **minimal** | `data/zapret-olcrtc.config` + hostlist из `ru-blocked-tor-domains.txt` |
-| **full** | `OLCRTC_ZAPRET_FULL=1` и `Z4R_SRC/config.default` (каталог zapret4rocket) |
+| **minimal** | `data/zapret-olcrtc.config` + hostlist |
+| **full** | `OLCRTC_ZAPRET_FULL=1` + `data/zapret4rocket/config.default` |
 
-Переменные:
+## Обновление zapret4rocket
+
+Upstream: [IndeecFOX/zapret4rocket](https://github.com/IndeecFOX/zapret4rocket)
+
+```bash
+# Проверить новый коммит на GitHub vs data/zapret4rocket
+sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --check
+
+# Скачать lists/strats/config.default в репо (data/zapret4rocket)
+sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --apply
+
+# Ещё и перезаписать /opt/zapret/config + restart (осторожно, есть бэкап)
+sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --apply --config
+```
+
+**Важно:** `agent-bootstrap.sh --update` **не** перезаписывает `/opt/zapret/config`, если zapret уже установлен. Бинарники bol-van zapret v72.12 тоже не обновляются повторно — только при отсутствии `/opt/zapret/nfq/nfqws`.
+
+При `install-zapret-vps.sh` по умолчанию клонируется `https://github.com/IndeecFOX/zapret4rocket.git` в `data/zapret4rocket`.
 
 | Переменная | Назначение |
 |------------|------------|
-| `OLCRTC_ENABLE_ZAPRET` | `0` — не ставить zapret |
-| `OLCRTC_ZAPRET_FULL` | `1` — полный config zapret4rocket |
-| `Z4R_SRC` | Путь к zapret4rocket (по умолчанию `data/zapret4rocket` в репо) |
-| `Z4R_REPO_URL` | `git clone` если нет `config.default` локально |
+| `OLCRTC_ENABLE_ZAPRET` | `0` — не ставить |
+| `OLCRTC_ZAPRET_FULL` | `1` — config.default zapret4rocket |
+| `Z4R_SRC` | каталог assets (default: `data/zapret4rocket`) |
+| `Z4R_REPO_URL` | git URL (default: IndeecFOX) |
+| `OLCRTC_ZAPRET_SYNC` | `0` — не pull z4r в install |
 
-Полный конфиг: скопируйте zapret4rocket в `data/zapret4rocket` или задайте `Z4R_SRC=/path/to/zapret4rocket`.
+Hostlist (minimal): `scripts/sync-zapret-hostlist.sh`.
 
-```bash
-sudo OLCRTC_ZAPRET_FULL=1 Z4R_SRC=/path/to/zapret4rocket \
-  bash /opt/Olc-cost-l/scripts/install-zapret-vps.sh
-```
-
-Hostlist (minimal): `scripts/sync-zapret-hostlist.sh` → `/var/lib/olcrtc/zapret-direct-hostlist.txt`.
-
-**Не смешивать** с `OLCRTC_INCLUDE_CDN_IPS=1` (CDN /32 → 404 nginx).
-
-## Без zapret
-
-Split и Tor работают. Заблокированные `.ru` на direct без nfqws могут не открываться с VPS.
-
-См. также [RU-BLOCKED-TOR.md](RU-BLOCKED-TOR.md), [SPLIT-ROUTING.md](SPLIT-ROUTING.md).
+См. [UPSTREAM-SYNC.md](UPSTREAM-SYNC.md), [RU-BLOCKED-TOR.md](RU-BLOCKED-TOR.md).
