@@ -27,7 +27,9 @@ BRIDGE_TYPES="${BRIDGE_TYPES:-webtunnel,obfs4}"
 USER_BRIDGES_FILE="${USER_BRIDGES_FILE:-/var/lib/olcrtc/tor-user-bridges.txt}"
 OLCRTC_BRIDGE_IPV4_ONLY="${OLCRTC_BRIDGE_IPV4_ONLY:-1}"
 
-bridge_log() { echo "[$(date -Iseconds)] $*" | tee -a "${LOG_FILE:-/var/log/olcrtc-bridge-pool.log}"; }
+bridge_log() {
+  echo "[$(date -Iseconds)] $*" >>"${LOG_FILE:-/var/log/olcrtc-bridge-pool.log}"
+}
 
 bridge_is_blacklisted() {
   local fp="$1"
@@ -177,6 +179,47 @@ snowflake_client_path() {
   command -v snowflake-client 2>/dev/null || echo /usr/bin/snowflake-client
 }
 
+# Tor tries bridges top-to-bottom: webtunnel (faster) before obfs4 (fallback).
+pick_webtunnel_pool_lines() {
+  local n="${1:-24}"
+  local -a v4=()
+  mapfile -t v4 < <(grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep -v '\[' || true)
+  if ((${#v4[@]} > 0)); then
+    printf '%s\n' "${v4[@]}" | awk '!seen[$0]++' | head -n "$n"
+    return
+  fi
+  if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]]; then
+    bridge_log "WARN: no IPv4 webtunnel in pool — using IPv6 webtunnel fallback"
+  fi
+  grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | awk '!seen[$0]++' | head -n "$n" || true
+}
+
+reorder_bridges_for_speed() {
+  local -n _lines=$1
+  local -a wt=() ob=() other=() scored=() line fp score
+  for line in "${_lines[@]}"; do
+    fp="$(bridge_fingerprint "$line")"
+    score="$(health_score "$fp")"
+    if [[ "$line" == *" webtunnel "* ]]; then
+      wt+=("$score"$'\t'"$line")
+    elif [[ "$line" == *" obfs4 "* ]]; then
+      ob+=("$score"$'\t'"$line")
+    else
+      other+=("$line")
+    fi
+  done
+  _lines=()
+  if ((${#wt[@]})); then
+    mapfile -t scored < <(printf '%s\n' "${wt[@]}" | sort -t$'\t' -k1 -nr | cut -f2-)
+    _lines+=("${scored[@]}")
+  fi
+  if ((${#ob[@]})); then
+    mapfile -t scored < <(printf '%s\n' "${ob[@]}" | sort -t$'\t' -k1 -nr | cut -f2-)
+    _lines+=("${scored[@]}")
+  fi
+  _lines+=("${other[@]}")
+}
+
 append_snowflake_fallback_line() {
   local -n _arr=$1
   # VPS probe 2026-05-23: snowflake-only bootstrap stuck at 10% (client exit 512).
@@ -294,10 +337,15 @@ health_record() {
   if line="$(grep -F "$fp" "$HEALTH_DB" 2>/dev/null | head -1)"; then
     IFS=$'\t' read -r _ ok fail streak last_ok last_fail _ <<<"$line"
   fi
+  local record_status="$status"
   if [[ "$status" == "ok" || "$status" == "url_ok" ]]; then
     ok=$((ok + 1))
     streak=0
     last_ok=$now
+    # Light probes must not erase a successful deep bootstrap result.
+    if [[ "$status" == "url_ok" && "${last_status:-}" == "bootstrap_ok" ]]; then
+      record_status="bootstrap_ok"
+    fi
   else
     fail=$((fail + 1))
     streak=$((streak + 1))
@@ -308,7 +356,7 @@ health_record() {
   {
     echo -e "fingerprint\tok_total\tfail_total\tfail_streak\tlast_ok\tlast_fail\tlast_status"
     grep -v -F "$fp" "$HEALTH_DB" 2>/dev/null | grep -v '^fingerprint' || true
-    echo -e "${fp}\t${ok}\t${fail}\t${streak}\t${last_ok}\t${last_fail}\t${status}"
+    echo -e "${fp}\t${ok}\t${fail}\t${streak}\t${last_ok}\t${last_fail}\t${record_status}"
   } >"$tmp"
   mv "$tmp" "$HEALTH_DB"
   chmod 0644 "$HEALTH_DB"

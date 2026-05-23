@@ -43,6 +43,7 @@ for ((i = 0; i < WINDOW; i++)); do
   active+=("${pool[$(( (idx + i) % n ))]}")
 done
 merge_user_bridge_lines active
+reorder_bridges_for_speed active
 
 tmp="$(mktemp)"
 write_active_bridges_conf "$tmp" "${active[@]}"

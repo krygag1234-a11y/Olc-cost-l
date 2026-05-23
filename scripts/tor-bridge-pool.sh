@@ -204,13 +204,13 @@ select_active_bridges() {
     local min_wt="${MIN_WEBTUNNEL_ACTIVE:-6}" wt_count=0 line_wt fp_wt found_wt
     for line_wt in "${active[@]}"; do [[ "$line_wt" == *" webtunnel "* ]] && wt_count=$((wt_count + 1)); done
     if (( wt_count < min_wt )); then
-      mapfile -t wt_fill < <(
-        { grep -E '^Bridge webtunnel ' "$POOL_FILE" | grep -v '\[' || true
-          grep -E '^Bridge webtunnel ' "$POOL_FILE" || true
-        } | awk '!seen[$0]++' | head -n "$((min_wt * 4))"
-      )
+      local wt_allow_v6=0
+      if ! grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep -qv '\['; then
+        wt_allow_v6=1
+      fi
+      mapfile -t wt_fill < <(pick_webtunnel_pool_lines "$((min_wt * 4))")
       for line_wt in "${wt_fill[@]}"; do
-        if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]] && bridge_is_ipv6_heavy "$line_wt"; then
+        if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]] && [[ "$wt_allow_v6" -eq 0 ]] && bridge_is_ipv6_heavy "$line_wt"; then
           continue
         fi
         fp_wt="$(bridge_fingerprint "$line_wt")"
@@ -228,6 +228,7 @@ select_active_bridges() {
   fi
 
   merge_user_bridge_lines active
+  reorder_bridges_for_speed active
 
   if (( ${#active[@]} == 0 )); then
     bridge_log "ERROR: no bridges to activate"
