@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Non-RU Tor exit nodes (YouTube geo). Append-only torrc.d — does not remove user torrc.
+# Non-RU Tor exit nodes for YouTube geo. Appends to /etc/tor/torrc (AppArmor blocks torrc.d on Ubuntu).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,8 +9,8 @@ source "$SCRIPT_DIR/safety-lib.sh"
 [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]] || exit 0
 
 MARK="# olcrtc: exit countries"
-CONF="${TOR_EXIT_CONF:-/etc/tor/torrc.d/olcrtc-exit.conf}"
-# Defaults without ${var:-{a},{b}} — bash brace-expands that form.
+TORRC="${TORRC:-/etc/tor/torrc}"
+
 if [[ -n "${OLCRTC_TOR_EXCLUDE_EXIT:-}" ]]; then
   EXCLUDE="$OLCRTC_TOR_EXCLUDE_EXIT"
 else
@@ -21,44 +21,37 @@ if [[ -n "${OLCRTC_TOR_EXIT_NODES:-}" ]]; then
 else
   EXIT='{de},{nl},{fi},{pl},{se},{at},{ch}'
 fi
-STRICT="${OLCRTC_TOR_STRICT_NODES:-1}"
+STRICT="${OLCRTC_TOR_STRICT_NODES:-0}"
 
-safety_path_allowed "$CONF" || exit 1
-mkdir -p "$(dirname "$CONF")"
+safety_path_allowed "$TORRC" || exit 1
 
-# Rewrite if missing or malformed (quotes, nested braces)
-_needs_fix=0
-if [[ ! -f "$CONF" ]]; then
-  _needs_fix=1
-elif grep -qE "ExitNodes ['\"]|ExitNodes \{[a-z]+\,\{" "$CONF" 2>/dev/null; then
-  _needs_fix=1
-fi
-if [[ "$_needs_fix" -eq 0 ]] && grep -qF "$MARK" "$CONF" 2>/dev/null; then
-  echo "[tor-exit] already configured in $CONF"
-  exit 0
-fi
+# Drop broken includes from older deploys
+sed -i '\|%include /etc/tor/torrc.d/\*|d' "$TORRC" 2>/dev/null || true
+sed -i '\|%include /etc/tor/torrc.d/olcrtc-exit.conf|d' "$TORRC" 2>/dev/null || true
 
-safety_backup_file "$CONF"
-cat >"$CONF" <<EOF
+if grep -qF "$MARK" "$TORRC" 2>/dev/null; then
+  # Update block in place
+  safety_backup_file "$TORRC"
+  awk -v mark="$MARK" -v ex="$EXCLUDE" -v en="$EXIT" -v st="$STRICT" '
+    $0 == mark { print; print "ExcludeExitNodes " ex; print "ExitNodes " en; print "StrictNodes " st; skip=1; next }
+    skip && /^StrictNodes/ { next }
+    skip && /^ExitNodes/ { next }
+    skip && /^ExcludeExitNodes/ { next }
+    skip && /^#/ { skip=0 }
+    skip && /^$/ { skip=0 }
+    { print }
+  ' "$TORRC" >"${TORRC}.tmp" && mv "${TORRC}.tmp" "$TORRC"
+  echo "[tor-exit] updated in $TORRC"
+else
+  safety_backup_file "$TORRC"
+  cat >>"$TORRC" <<EOF
+
 $MARK
-# Managed by Olc-cost-l — override: OLCRTC_TOR_EXIT_NODES OLCRTC_TOR_EXCLUDE_EXIT
 ExcludeExitNodes $EXCLUDE
 ExitNodes $EXIT
 StrictNodes $STRICT
 EOF
-chmod 0644 "$CONF"
-
-# Debian/Ubuntu tor: include torrc.d snippets
-TORRC="${TORRC:-/etc/tor/torrc}"
-if [[ -f "$TORRC" ]] && ! grep -qE '^\s*%include\s+/etc/tor/torrc\.d/\*' "$TORRC" 2>/dev/null; then
-  if ! grep -qF 'olcrtc-torrc.d' "$TORRC" 2>/dev/null; then
-    safety_backup_file "$TORRC"
-    cat >>"$TORRC" <<'EOF'
-
-# olcrtc-torrc.d
-%include /etc/tor/torrc.d/*
-EOF
-  fi
+  echo "[tor-exit] appended to $TORRC"
 fi
 
 systemctl restart tor@default 2>/dev/null || true
