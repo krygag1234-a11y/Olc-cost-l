@@ -4,34 +4,34 @@ MAIN="${1:-/tmp/olcrtc-manager-panel/cmd/olcrtc-manager/main.go}"
 [[ -f "$MAIN" ]] || exit 1
 
 python3 - "$MAIN" <<'PY'
-import sys, re
+import sys
 from pathlib import Path
 
 p = Path(sys.argv[1])
 t = p.read_text()
 
-# --- struct olcrtcSocksConfig ---
-if "DirectDomainsFile" not in t:
-    t = re.sub(
-        r"(type olcrtcSocksConfig struct \{[\s\S]*?DirectCIDRsFile string `yaml:\"direct_cidrs_file,omitempty\"`)\n(\})",
-        r"\1\n\tDirectDomainsFile       string `yaml:\"direct_domains_file,omitempty\"`\n\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`\n\tForceTorDomainsFile   string `yaml:\"force_tor_domains_file,omitempty\"`\n\2",
-        t,
-        count=1,
-    )
+old_struct = """type olcrtcSocksConfig struct {
+\tProxyAddr       string `yaml:\"proxy_addr,omitempty\"`
+\tProxyPort       int    `yaml:\"proxy_port,omitempty\"`
+\tDirectCIDRsFile string `yaml:\"direct_cidrs_file,omitempty\"`
+}"""
 
-def insert_before_direct_cidrs_env(name, body):
-    global t
-    if f"func {name}(" in t:
-        return
+new_struct = """type olcrtcSocksConfig struct {
+\tProxyAddr             string `yaml:\"proxy_addr,omitempty\"`
+\tProxyPort             int    `yaml:\"proxy_port,omitempty\"`
+\tDirectCIDRsFile       string `yaml:\"direct_cidrs_file,omitempty\"`
+\tDirectDomainsFile     string `yaml:\"direct_domains_file,omitempty\"`
+\tBlockedTorDomainsFile string `yaml:\"blocked_tor_domains_file,omitempty\"`
+\tForceTorDomainsFile   string `yaml:\"force_tor_domains_file,omitempty\"`
+}"""
+
+if old_struct in t:
+    t = t.replace(old_struct, new_struct, 1)
+
+if "func directDomainsFileFromEnv()" not in t:
     t = t.replace(
         "func directCIDRsFileFromEnv() string {",
-        body + "func directCIDRsFileFromEnv() string {",
-        1,
-    )
-
-insert_before_direct_cidrs_env(
-    "directDomainsFileFromEnv",
-    '''func directDomainsFileFromEnv() string {
+        '''func directDomainsFileFromEnv() string {
 \tif p := strings.TrimSpace(os.Getenv("OLCRTC_DIRECT_DOMAINS")); p != "" {
 \t\treturn p
 \t}
@@ -42,12 +42,7 @@ insert_before_direct_cidrs_env(
 \treturn ""
 }
 
-''',
-)
-
-insert_before_direct_cidrs_env(
-    "blockedTorDomainsFileFromEnv",
-    '''func blockedTorDomainsFileFromEnv() string {
+func blockedTorDomainsFileFromEnv() string {
 \tif p := strings.TrimSpace(os.Getenv("OLCRTC_BLOCKED_TOR_DOMAINS")); p != "" {
 \t\treturn p
 \t}
@@ -58,12 +53,7 @@ insert_before_direct_cidrs_env(
 \treturn ""
 }
 
-''',
-)
-
-insert_before_direct_cidrs_env(
-    "forceTorDomainsFileFromEnv",
-    '''func forceTorDomainsFileFromEnv() string {
+func forceTorDomainsFileFromEnv() string {
 \tif p := strings.TrimSpace(os.Getenv("OLCRTC_FORCE_TOR_DOMAINS")); p != "" {
 \t\treturn p
 \t}
@@ -74,29 +64,30 @@ insert_before_direct_cidrs_env(
 \treturn ""
 }
 
-''',
-)
+func directCIDRsFileFromEnv() string {''',
+        1,
+    )
 
-# --- serverConfig SOCKS block ---
-socks_new = """\tif proxyAddr, proxyPort := exitProxyFromEnv(); proxyAddr != "" {
-\t\tcfg.SOCKS = olcrtcSocksConfig{
+old_socks = """\t\tcfg.SOCKS = olcrtcSocksConfig{
+\t\t\tProxyAddr:       proxyAddr,
+\t\t\tProxyPort:       proxyPort,
+\t\t\tDirectCIDRsFile: directCIDRsFileFromEnv(),
+\t\t}"""
+
+new_socks = """\t\tcfg.SOCKS = olcrtcSocksConfig{
 \t\t\tProxyAddr:             proxyAddr,
 \t\t\tProxyPort:             proxyPort,
 \t\t\tDirectCIDRsFile:       directCIDRsFileFromEnv(),
 \t\t\tDirectDomainsFile:     directDomainsFileFromEnv(),
 \t\t\tBlockedTorDomainsFile: blockedTorDomainsFileFromEnv(),
 \t\t\tForceTorDomainsFile:   forceTorDomainsFileFromEnv(),
-\t\t}
-\t}"""
+\t\t}"""
 
-if "ForceTorDomainsFile:" not in t:
-    t = re.sub(
-        r"\tif proxyAddr, proxyPort := exitProxyFromEnv\(\); proxyAddr != \"\" \{[\s\S]*?\n\t\}",
-        socks_new,
-        t,
-        count=1,
-    )
+if old_socks in t:
+    t = t.replace(old_socks, new_socks, 1)
 
 p.write_text(t)
+if "ForceTorDomainsFile" not in p.read_text():
+    raise SystemExit("patch-manager-domains: ForceTorDomainsFile missing after patch")
 print("[patch-manager-domains] ok")
 PY
