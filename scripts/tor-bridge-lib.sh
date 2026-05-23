@@ -179,6 +179,8 @@ snowflake_client_path() {
 
 append_snowflake_fallback_line() {
   local -n _arr=$1
+  # VPS probe 2026-05-23: snowflake-only bootstrap stuck at 10% (client exit 512).
+  [[ -f "${POOL_DIR}/tor-snowflake-viable" ]] || return 0
   [[ "${OLCRTC_TOR_SNOWFLAKE_FALLBACK:-0}" == "1" ]] || bridge_type_enabled snowflake || return 0
   [[ -x "$(snowflake_client_path)" ]] || return 0
   local line="Bridge snowflake 192.0.2.3:80"
@@ -332,10 +334,13 @@ health_should_drop() {
 
 health_score() {
   local fp="$1"
-  local line ok fail streak
+  local line ok fail streak last_status
   line="$(grep -F "$fp" "$HEALTH_DB" 2>/dev/null | head -1)" || { echo 0; return; }
-  IFS=$'\t' read -r _ ok fail streak _ <<<"$line"
-  echo $((ok * 10 - fail * 3 - streak * 5))
+  IFS=$'\t' read -r _ ok fail streak _ _ last_status <<<"$line"
+  local bonus=0
+  [[ "${last_status:-}" == "bootstrap_ok" ]] && bonus=50
+  [[ "${last_status:-}" == "bootstrap_fail" ]] && bonus=-30
+  echo $((ok * 10 - fail * 3 - streak * 5 + bonus))
 }
 
 probe_url() {
@@ -380,7 +385,7 @@ write_torrc_header() {
       [[ "$line" == *" snowflake "* ]] && need_snow=1
     done
   fi
-  [[ "${OLCRTC_TOR_SNOWFLAKE_FALLBACK:-0}" == "1" ]] && need_snow=1
+  [[ -f "${POOL_DIR}/tor-snowflake-viable" ]] && [[ "${OLCRTC_TOR_SNOWFLAKE_FALLBACK:-0}" == "1" ]] && need_snow=1
   {
     echo "# Active bridges — $(date -Iseconds)"
     echo "# Managed by Olc-cost-l tor-bridge-pool.sh"

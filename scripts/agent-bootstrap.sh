@@ -137,7 +137,7 @@ install_systemd_units() {
       /etc/systemd/system/olcrtc-manager.service
   fi
 
-  for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor; do
+  for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
     [[ "$ENABLE_TOR" -eq 1 ]] || continue
     sed "s|@OLC_SCRIPTS@|${scripts}|g" \
       "$REPO_ROOT/packaging/systemd/${u}.service" \

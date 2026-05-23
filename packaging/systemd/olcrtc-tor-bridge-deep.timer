@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly deep Tor bridge bootstrap validation
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

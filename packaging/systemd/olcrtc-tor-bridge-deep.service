@@ -1,0 +1,12 @@
+[Unit]
+Description=Deep Tor bootstrap check for top bridge candidates
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=idle
+ExecStart=@OLC_SCRIPTS@/tor-bridge-deep-check.sh --from-pool --limit 8 --jobs 2 --timeout 90
+
+[Install]
+WantedBy=multi-user.target
