@@ -60,7 +60,7 @@ new_should = """func (s *Server) shouldDialDirect(host string) bool {
 \t\treturn false
 \t}
 \tif s.blockedTorDomains != nil && s.blockedTorDomains.MatchHostOnly(host) {
-\t\treturn false
+\t\treturn true
 \t}
 \tif routing.MatchBuiltinRU(host) {
 \t\treturn true

@@ -14,6 +14,15 @@ source "$SCRIPT_DIR/safety-lib.sh"
 echo "[setup-split-ru] RU CIDR (geoip)…"
 bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
 
+REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+EXTRA_DST="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
+SEED="$REPO_ROOT/data/ru-domains-extra.txt"
+if [[ -f "$SEED" ]]; then
+  install -d "$(dirname "$EXTRA_DST")"
+  install -m 0644 "$SEED" "$EXTRA_DST"
+  echo "[setup-split-ru] seeded $EXTRA_DST from repo"
+fi
+
 echo "[setup-split-ru] geosite RU domains (~10k from GrimbirdUsers) + builtins…"
 bash "$SCRIPT_DIR/fetch-force-tor-domains.sh"
 bash "$SCRIPT_DIR/fetch-ru-direct-domains.sh"

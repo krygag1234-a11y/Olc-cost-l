@@ -1,0 +1,4 @@
+# RU sites whose speedtest/CDN hostnames are NOT *.ru (would otherwise exit via Tor).
+suffix:.2ipcore.com
+exact:2ipcore.com
+exact:2ip.ru

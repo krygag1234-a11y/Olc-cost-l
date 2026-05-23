@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent: blocked_tor_domains_file + shouldDialDirect Tor override for RF-blocked .ru
+# Idempotent: blocked_tor_domains_file → direct on VPS (DPI via zapret nfqws, not Tor)
 set -euo pipefail
 SERVER_GO="${1:-/tmp/olcrtc-src/internal/server/server.go}"
 CONFIG_GO="${2:-/tmp/olcrtc-src/internal/config/config.go}"
@@ -56,7 +56,7 @@ if "load blocked-tor domains" not in t:
 
 new_should = """func (s *Server) shouldDialDirect(host string) bool {
 \tif s.blockedTorDomains != nil && s.blockedTorDomains.MatchHostOnly(host) {
-\t\treturn false
+\t\treturn true
 \t}
 \tif routing.MatchBuiltinRU(host) {
 \t\treturn true

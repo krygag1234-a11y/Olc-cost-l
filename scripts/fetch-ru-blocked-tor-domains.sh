@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Domains blocked in RF → route via Tor from RU VPS (override builtin *.ru direct).
+# Domains blocked in RF → direct on VPS (zapret nfqws); NOT Tor (players/CDN break in Tor).
 # Sources: Refilter oref list + local seed. Not a full zapret replacement.
 set -euo pipefail
 
@@ -22,8 +22,8 @@ curl -fsSL --max-time 120 "$REFILTER" -o "$TMP/refilter.lst" 2>/dev/null || true
 curl -fsSL --max-time 120 "$ANTIFILTER" -o "$TMP/antifilter.lst" 2>/dev/null || true
 
 {
-  echo "# Auto: RF-blocked → Tor override — $(date -Iseconds)"
-  echo "# seed + refilter/antifilter (.ru/.su/.рф only → Tor on RU VPS)"
+  echo "# Auto: RF-blocked → direct+zapret — $(date -Iseconds)"
+  echo "# seed + refilter/antifilter (.ru/.su/.рф — DPI bypass on VPS, not Tor)"
   [[ -f "$SEED" ]] && grep -v '^#' "$SEED" | awk 'NF'
   for lst in "$TMP/refilter.lst" "$TMP/antifilter.lst"; do
     [[ -f "$lst" ]] || continue

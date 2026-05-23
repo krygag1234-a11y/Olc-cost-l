@@ -80,7 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 - `/api/logs?client_id=` (без trailing slash)
 - `OLCRTC_HOST_NETWORK=1` — host network + Tor `127.0.0.1:9050`
 - SOCKS + split для всех location, если Tor жив (`OLCRTC_EXIT_PROXY`)
-- Split: **все `*.ru` direct** + RU video CDN (Alloha/Rewall/Kodik/HDVB/…) + geosite; **заблокированные .ru** → Tor; **YouTube/googlevideo** → всегда Tor (`force-tor-domains.txt`); Tor exit без RU (`configure-tor-exit.sh`)
+- Split: **все `*.ru` direct** + RU video CDN + geosite + `ru-domains-extra.txt` (2ipcore и т.п.); **заблокированные .ru** → direct + zapret на VPS; **YouTube/googlevideo** → Tor (`force-tor-domains.txt`); новые клиенты панели → `link: tor` (без Tor только `link: direct` на локации)
 - `fetch-geosite-ru-domains.sh` — [GrimbirdUsers/ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat)
 - Bridge pool с fast rotate ([TOR-BRIDGES.md](docs/TOR-BRIDGES.md))
 

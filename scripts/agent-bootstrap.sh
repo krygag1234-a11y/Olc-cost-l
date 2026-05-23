@@ -116,10 +116,17 @@ setup_sysctl() {
   cat >"$f" <<'EOF'
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-net.ipv4.tcp_rmem=4096 87380 16777216
-net.ipv4.tcp_wmem=4096 65536 16777216
+net.core.rmem_max=33554432
+net.core.wmem_max=33554432
+net.core.rmem_default=2097152
+net.core.wmem_default=2097152
+net.ipv4.tcp_rmem=4096 1048576 33554432
+net.ipv4.tcp_wmem=4096 1048576 33554432
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+net.core.netdev_max_backlog=250000
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_mtu_probing=1
 EOF
   # Only our drop-in — do not reload unrelated sysctl.d on shared hosts
   sysctl -p "$f" >/dev/null 2>&1 || true
@@ -190,13 +197,26 @@ if [[ "$REBUILD_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+setup_zapret() {
+  [[ "${OLCRTC_ENABLE_ZAPRET:-1}" -eq 1 ]] || return 0
+  [[ "$RU_VPS" -eq 1 ]] || return 0
+  log "zapret (direct egress DPI)"
+  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 2>/dev/null || true
+  systemctl restart tor@default 2>/dev/null || true
+  export OLCRTC_ZAPRET_FULL="${OLCRTC_ZAPRET_FULL:-1}"
+  bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
+}
+
 if [[ "$UPDATE" -eq 1 ]]; then
-  log "UPDATE: refresh lists, patches, tor exit, units"
+  log "UPDATE: refresh lists, patches, tor exit, zapret, units"
   BUILD=1 bash "$PATCH_SCRIPT"
+  setup_sysctl
   setup_tor
   setup_split_routing
+  setup_zapret
   setup_systemd
   setup_cron
+  find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
   systemctl restart olcrtc-manager
   log "Update done."
   exit 0
@@ -218,6 +238,7 @@ fi
 
 setup_tor
 setup_split_routing
+setup_zapret
 setup_systemd
 setup_cron
 systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager
@@ -229,7 +250,7 @@ if [[ "$ENABLE_TOR" -eq 0 ]]; then
 else
   log "Mode: Tor + bridge pool (RU VPS)"
   if [[ "$RU_VPS" -eq 1 && "$ENABLE_SPLIT" -eq 1 ]]; then
-    log "Split: *.ru builtin + geosite/player CDN + ru-cidrs → direct; RF-blocked .ru → Tor; rest → Tor"
+    log "Split: *.ru + players + RF-blocked → direct (zapret DPI); force-tor (YT) + rest → Tor"
   elif [[ "$ENABLE_SPLIT" -eq 0 ]]; then
     log "Split: disabled (--no-split), all via Tor exit"
   fi

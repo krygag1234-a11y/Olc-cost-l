@@ -34,12 +34,22 @@
 | `patch-olcrtc-manager-domains.sh` | `direct_domains_file` в YAML менеджера |
 | `fetch-geosite-ru-domains.sh` | ~20k правил из [ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat) |
 | `fetch-player-cdn-domains.sh` | RU video balancers (F6: Alloha, Rewall, Lumex, …) |
-| `fetch-ru-blocked-tor-domains.sh` | RF-blocked `.ru` → Tor override |
+| `fetch-ru-blocked-tor-domains.sh` | RF-blocked `.ru` → direct + zapret на VPS |
 | `fetch-force-tor-domains.sh` | YouTube/global → always Tor |
 | `patch-olcrtc-server-blocked-tor.sh` | `blocked_tor_domains_file` в olcrtc |
 | `patch-olcrtc-server-force-tor.sh` | `force_tor_domains_file` (перебивает direct geosite) |
 | `configure-tor-exit.sh` | `ExitNodes` EU, `ExcludeExitNodes` RU/CIS |
 | `olcrtc-dial-route-log.patch` + `patch-olcrtc-server-route-log.sh` | Лог `connect HOST route=direct\|tor` |
 | `discover-page-hosts.sh` | Домены со страницы плеера → `ru-domains-extra.txt` |
+| `patch-olcrtc-manager-link-direct.sh` | `link: direct` на локации → без SOCKS |
+| `patch-olcrtc-manager-default-link-tor.sh` | Новые локации из панели → `link: tor` |
+| `patch-olcrtc-manager-panel-link.sh` | UI шлёт `link` в API |
+| `patch-olcrtc-manager-sessions.sh` | Сессии панели на диск (`/var/lib/olcrtc/manager-sessions.json`) |
+| `patch-olcrtc-manager-runtime-dir.sh` | YAML рантайма в `/var/lib/olcrtc/manager-run` |
+| `install-zapret-vps.sh` | Zapret nfqws для direct egress |
+| `sync-zapret-hostlist.sh` | Hostlist для minimal zapret |
+| `data/ru-domains-extra.txt` | CDN вне `*.ru` (2ipcore, …) |
 
 Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`
+
+Таймер `olcrtc-tor-bridge-pool.service`: `tor-bridge-pool.sh --url-only` (probe + apply, не только `--fetch`).

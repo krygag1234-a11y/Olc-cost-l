@@ -73,12 +73,16 @@ apply_manager() {
     log "manager core patch markers present (skip main.go.patch)"
   fi
   bash "$SCRIPT_DIR/patch-olcrtc-manager-domains.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-link-direct.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-default-link-tor.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-runtime-dir.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
-  # Admin UI: use prebuilt dist from clone if present; rebuild only when npm works.
-  if [[ -f "$MGR_REPO/package.json" ]] && [[ ! -d "$MGR_REPO/admin/dist" ]]; then
-    if command -v npm >/dev/null 2>&1; then
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-link.sh" "$MGR_REPO/src/main.tsx"
+  if [[ -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
+    if [[ ! -f "$MGR_REPO/admin/dist/index.html" ]] || grep -q 'link: "tor"' "$MGR_REPO/src/main.tsx" 2>/dev/null; then
       (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install) && (cd "$MGR_REPO" && npm run build) || \
-        log "WARN: admin UI build failed — manager will embed whatever is in admin/dist"
+        log "WARN: admin UI build failed — using existing admin/dist if any"
     fi
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already

@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=@OLC_SCRIPTS@/tor-bridge-pool.sh --fetch --url-only --jobs 6 --target 12
+ExecStart=@OLC_SCRIPTS@/tor-bridge-pool.sh --url-only --jobs 8 --target 12
 Nice=10
 IOSchedulingClass=idle
 

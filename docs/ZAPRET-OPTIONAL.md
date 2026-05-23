@@ -1,37 +1,48 @@
-# Zapret / DPI (опционально, вне туннеля Olcbox)
+# Zapret / DPI на RU VPS
 
-[Zensey/split-tunnel](https://github.com/Zensey/split-tunnel) и [ChiefGyk3D/split_tunnel_switch](https://github.com/ChiefGyk3D/split_tunnel_switch) — **маршрутизация на Windows/Linux у клиента**, не замена split на VPS.
+## Схема
 
-## Что даёт Olc-cost-l без zapret
+```
+Olcbox → VPS olcrtc → direct (*.ru + player CDN + ru-domains-extra)
+                    → tor (force-tor + остальной мир)
+VPS host (опционально) → zapret nfqws для direct HTTPS (blocked-tor + DPI)
+```
 
-| Механизм | Назначение |
-|----------|------------|
-| `*.ru` builtin | Страницы RU direct |
-| `ru-direct-domains.txt` | Плееры/CDN direct (RU IP) |
-| `ru-blocked-tor-domains.txt` | Заблокированные .ru → **Tor** |
+## Установка из репозитория
 
-## Когда нужен zapret4rocket / zapret
+На RU VPS при `agent-bootstrap.sh --full` / `--update` (если `OLCRTC_ENABLE_ZAPRET=1`, по умолчанию на RU):
 
-- Провайдер режет **TLS/DPI** по сигнатурам, а не только по IP.
-- **Tor** не поднимается (блок сети Tor) — список `blocked-tor` бесполезен без мостов.
-- Нужен обход **на самом VPS** для исходящих direct-подключений olcrtc.
+```bash
+sudo bash /opt/Olc-cost-l/scripts/install-zapret-vps.sh
+```
 
-Zapret на VPS — **отдельная установка** (nfqueue, `iptables`, обновление списков). В репозиторий **не входит** автоматически: слишком хрупко для общего install.sh.
+| Режим | Условие |
+|-------|---------|
+| **minimal** | `data/zapret-olcrtc.config` + hostlist из `ru-blocked-tor-domains.txt` |
+| **full** | `OLCRTC_ZAPRET_FULL=1` и `Z4R_SRC/config.default` (каталог zapret4rocket) |
 
-Ориентиры (ставить вручную на RU VPS под root):
+Переменные:
 
-1. Клонировать актуальный форк zapret / [zapret4rocket](https://github.com/search?q=zapret4rocket&type=repositories) по README форка.
-2. Запускать в режиме **nfqws** для исходящего трафика с хоста (olcrtc уже в host network).
-3. Списки доменов синхронизировать с теми же, что в `ru-blocked-tor` / antifilter.
+| Переменная | Назначение |
+|------------|------------|
+| `OLCRTC_ENABLE_ZAPRET` | `0` — не ставить zapret |
+| `OLCRTC_ZAPRET_FULL` | `1` — полный config zapret4rocket |
+| `Z4R_SRC` | Путь к zapret4rocket (по умолчанию `data/zapret4rocket` в репо) |
+| `Z4R_REPO_URL` | `git clone` если нет `config.default` локально |
+
+Полный конфиг: скопируйте zapret4rocket в `data/zapret4rocket` или задайте `Z4R_SRC=/path/to/zapret4rocket`.
+
+```bash
+sudo OLCRTC_ZAPRET_FULL=1 Z4R_SRC=/path/to/zapret4rocket \
+  bash /opt/Olc-cost-l/scripts/install-zapret-vps.sh
+```
+
+Hostlist (minimal): `scripts/sync-zapret-hostlist.sh` → `/var/lib/olcrtc/zapret-direct-hostlist.txt`.
 
 **Не смешивать** с `OLCRTC_INCLUDE_CDN_IPS=1` (CDN /32 → 404 nginx).
 
-## Практическая схема
+## Без zapret
 
-```
-Olcbox → VPS olcrtc → direct (*.ru + player CDN)
-                    → tor (зарубежное + ru-blocked-tor list)
-VPS host (опционально) → zapret nfqws для direct HTTPS к DPI-блокам
-```
+Split и Tor работают. Заблокированные `.ru` на direct без nfqws могут не открываться с VPS.
 
-После установки zapret проверьте с VPS: `curl -I https://заблокированный.ru` без туннеля.
+См. также [RU-BLOCKED-TOR.md](RU-BLOCKED-TOR.md), [SPLIT-ROUTING.md](SPLIT-ROUTING.md).
