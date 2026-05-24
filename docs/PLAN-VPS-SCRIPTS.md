@@ -19,7 +19,7 @@
 - [x] `patch-olcrtc-manager-domains.sh`: partial struct после main.go.patch
 - [x] `install-go-toolchain.sh` + `GOTOOLCHAIN=auto` для go.mod 1.26
 - [x] `agent-bootstrap.sh`: webtunnel clone/build не роняет install (WARN + skip)
-- [ ] **Push на GitHub `main`** — коммит `5207b62` локально; push нужен с машины с токеном/gh
+- [x] **Push на GitHub `main`** — `43eedf0` (токен: `/root/.config/olc-cost-l/github-token`, не в git)
 - [x] Локальный / VPS rsync: `apply-olcrtc-patches.sh` + `go build` OK
 
 ## Фаза 2 — Скрипт полного удаления
@@ -34,7 +34,7 @@
 ## Фаза 3 — Тест на чистой VPS
 
 - [x] `agent-bootstrap.sh --full` после rsync — **olcrtc-manager active**, `:8888/admin` → **200**
-- [ ] `curl | bash` install **с GitHub после push**
+- [x] `curl | bash` install **с GitHub после push** — manager active, `/admin` 200
 - [x] Повторный `uninstall.sh --purge-repo` — manager inactive, бинарии/репо удалены
 - [x] Полный цикл: purge → rsync/bootstrap → manager **200** (без GitHub push)
 
@@ -63,7 +63,8 @@
 | 2026-05-24 | Фиксы в репо + rsync на VPS | Патчи idempotent; Go 1.23.6; `olc-purge.sh` / `uninstall.sh` |
 | 2026-05-24 | `agent-bootstrap.sh --full` | manager **active**, HTTP **200** на `/admin`; webtunnel skip при ошибке SSL |
 | 2026-05-24 | `uninstall.sh --purge-repo` | VPS чистая; повторный bootstrap → снова **200** |
-| 2026-05-24 | git commit `5207b62` | push с этой VM не удался (нет gh/credentials) |
+| 2026-05-24 | git push `43eedf0` | GitHub main обновлён; токен в `/root/.config/olc-cost-l/github-token` |
+| 2026-05-24 | `curl \| bash` install с GitHub | purge → install OK, `/admin` **200** |
 
 ### Корневые причины (кратко)
 
