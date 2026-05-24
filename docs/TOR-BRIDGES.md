@@ -43,7 +43,7 @@ sudo touch /var/lib/olcrtc/tor-snowflake-viable
 
 Ручные мосты (капча, свои строки): `/var/lib/olcrtc/tor-user-bridges.txt` — подмешиваются при apply/rotate.
 
-**IPv4:** на RU VPS часто режут IPv6-подсети провайдера Tor — `OLCRTC_BRIDGE_IPV4_ONLY=1` (по умолчанию) **Без IPv4 webtunnel** в пуле скрипт **не** заполняет `bridges.conf` IPv6 webtunnel — используется **obfs4-first** (см. `tor-bridge-lib.sh` → `pick_webtunnel_pool_lines`).
+**IPv4:** на RU VPS часто режут IPv6-подсети провайдера Tor — `OLCRTC_BRIDGE_IPV4_ONLY=1` (по умолчанию). **Без IPv4 webtunnel** в пуле скрипт **не** заполняет `bridges.conf` IPv6 webtunnel — используется **obfs4-first** (см. `tor-bridge-lib.sh` → `pick_webtunnel_pool_lines`).
 
 ## Healthcheck (важно)
 
