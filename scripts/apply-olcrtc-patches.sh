@@ -17,6 +17,10 @@ OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 log() { echo "[apply-patches] $*"; }
 
 clone_repos() {
+  if [[ -x /usr/local/go/bin/go ]]; then
+    export PATH="/usr/local/go/bin:$PATH"
+  fi
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   if [[ -d "$OLCRTC_REPO/.git" ]]; then
     if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
       log "refresh olcrtc $OLCRTC_BRANCH"
@@ -50,15 +54,11 @@ clone_repos() {
 apply_olcrtc() {
   log "olcrtc patches in $OLCRTC_REPO"
   (cd "$OLCRTC_REPO" && git checkout -f "$OLCRTC_BRANCH" 2>/dev/null || true)
-  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-core.patch") || {
-    log "WARN: olcrtc-core.patch may be already applied"
-  }
+  find "$OLCRTC_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
   install -d "$OLCRTC_REPO/internal/routing"
   install -m 0644 "$PATCH_DIR/olcrtc-routing-cidr.go" "$OLCRTC_REPO/internal/routing/cidr.go"
   install -m 0644 "$PATCH_DIR/olcrtc-routing-domains.go" "$OLCRTC_REPO/internal/routing/domains.go"
-  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-direct-cidrs.patch") 2>/dev/null || true
-  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-session-domains.patch") 2>/dev/null || true
-  (cd "$OLCRTC_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-domains-split.patch") 2>/dev/null || true
+  bash "$SCRIPT_DIR/patch-olcrtc-core.sh" "$OLCRTC_REPO"
   bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-blocked-tor.sh" \
     "$OLCRTC_REPO/internal/server/server.go" \
@@ -69,6 +69,9 @@ apply_olcrtc() {
     "$OLCRTC_REPO/internal/config/config.go" \
     "$OLCRTC_REPO/internal/app/session/session.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-route-log.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-reconnect-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-stable.sh" "$OLCRTC_REPO/internal/engine/goolom"
+  bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-no-early-callback.sh" "$OLCRTC_REPO/internal/engine/goolom/lifecycle.go"
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true
@@ -76,30 +79,42 @@ apply_olcrtc() {
 
 apply_manager() {
   log "manager patches in $MGR_REPO"
+  find "$MGR_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
+  # Always run idempotent core patch (upstream main may already have logs API partial)
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
   if ! grep -q 'exitProxyReachable' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
-    (cd "$MGR_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-manager-main.go.patch") 2>/dev/null || \
-      bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  else
-    log "manager core patch markers present (skip main.go.patch)"
+    (cd "$MGR_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-manager-main.go.patch") 2>/dev/null || true
+    bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   fi
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-socks.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-domains.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-link-direct.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-default-link-tor.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-host-network.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-vps-extras.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-room-binding.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-runtime-dir.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-link.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-transports.sh" \
+    "$MGR_REPO/src/main.tsx" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-vp8-defaults.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
-    if [[ ! -f "$MGR_REPO/admin/dist/index.html" ]] || grep -q 'link: "tor"' "$MGR_REPO/src/main.tsx" 2>/dev/null; then
-      (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install) && (cd "$MGR_REPO" && npm run build) || \
-        log "WARN: admin UI build failed — using existing admin/dist if any"
-    fi
+    log "build manager admin UI (web/dist)"
+    (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install) && (cd "$MGR_REPO" && npm run build) || \
+      log "WARN: admin UI build failed — using existing web/dist if any"
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already
 }
 
 build_binaries() {
-  log "build olcrtc"
+  if [[ -x /usr/local/go/bin/go ]]; then
+    export PATH="/usr/local/go/bin:$PATH"
+  fi
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
+  log "build olcrtc ($(go version))"
   (cd "$OLCRTC_REPO" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc)
   log "build olcrtc-manager"
   (cd "$MGR_REPO" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager)
@@ -109,6 +124,7 @@ clone_repos
 apply_olcrtc
 apply_manager
 if [[ "${BUILD:-1}" == "1" ]]; then
+  bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>/dev/null || true
   build_binaries
 fi
 log "done"

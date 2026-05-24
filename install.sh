@@ -14,7 +14,12 @@ BRANCH="${OLC_REPO_BRANCH:-main}"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# curl | bash: BASH_SOURCE[0] is unset under set -u
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR=""
+fi
 # shellcheck source=scripts/safety-lib.sh
 if [[ -f "$SCRIPT_DIR/scripts/safety-lib.sh" ]]; then
   source "$SCRIPT_DIR/scripts/safety-lib.sh"

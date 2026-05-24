@@ -68,7 +68,10 @@ install_deps() {
   log "packages"
   apt-get update -qq
   apt-get install -y -qq git curl build-essential golang-go jq ca-certificates \
-    patch ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils}
+    patch ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils ffmpeg}
+  bash "$SCRIPT_DIR/install-go-toolchain.sh"
+  export PATH="/usr/local/go/bin:${PATH:-}"
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   if [[ "$ENABLE_TOR" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
     command -v go >/dev/null || apt-get install -y -qq golang-go
   fi
@@ -77,11 +80,17 @@ install_deps() {
 build_webtunnel() {
   [[ "$ENABLE_TOR" -eq 1 ]] || return 0
   [[ -x /usr/bin/webtunnel-client ]] && return 0
-  log "webtunnel-client"
+  log "webtunnel-client (optional — obfs4/snowflake still work)"
   local wt="/tmp/webtunnel"
   rm -rf "$wt"
-  git clone --depth 1 https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel.git "$wt"
-  (cd "$wt/client" && go build -o /usr/bin/webtunnel-client .)
+  if ! git clone --depth 1 https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel.git "$wt"; then
+    log "WARN: webtunnel clone failed — skipping (retry: install-tor-pluggable-transports.sh)"
+    return 0
+  fi
+  if ! (cd "$wt/client" && go build -o /usr/bin/webtunnel-client .); then
+    log "WARN: webtunnel build failed — skipping"
+    return 0
+  fi
 }
 
 setup_tor() {
