@@ -48,7 +48,7 @@
 - [x] `install-zapret-vps.sh` + `sync-zapret4rocket.sh --check` (RU full)
 - [x] `healthcheck.sh` — exit 0, Tor/panel OK
 - [x] Tor fix: без IPv4 webtunnel → obfs4-first (не IPv6 webtunnel на VPS без v6)
-- [ ] Документация: PATCHES.md, VPS-SETUP.md — косметика (не блокер)
+- [x] Документация: PATCHES.md, VPS-SETUP.md, TOR-BRIDGES.md актуальны
 
 ## Фаза 5 — Закрытие
 
