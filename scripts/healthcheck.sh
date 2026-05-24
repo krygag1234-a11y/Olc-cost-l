@@ -32,8 +32,9 @@ if [[ "$TOR_OK" -eq 0 ]] && systemctl is-enabled tor@default &>/dev/null; then
   log "healthcheck: Tor down — rotate + apply"
   FAST_WINDOW=6 "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart >>"$LOG" 2>&1 || true
   if ! tor_socks_ok; then
-    MAX_PROBE=48 PARALLEL_JOBS=6 RESTART_TOR=1 \
-      "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --url-only --jobs 6 --target 10 >>"$LOG" 2>&1 || true
+    timeout 120 env MAX_PROBE=48 PARALLEL_JOBS=6 RESTART_TOR=1 OLCRTC_BRIDGE_IPV4_ONLY=1 \
+      "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --url-only --jobs 6 --target 10 --types obfs4,webtunnel \
+      >>"$LOG" 2>&1 || true
   fi
   if ! tor_socks_ok; then
     log "healthcheck: Tor still down — network-recovery"

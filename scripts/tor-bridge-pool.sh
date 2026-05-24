@@ -204,11 +204,20 @@ select_active_bridges() {
     local min_wt="${MIN_WEBTUNNEL_ACTIVE:-6}" wt_count=0 line_wt fp_wt found_wt
     for line_wt in "${active[@]}"; do [[ "$line_wt" == *" webtunnel "* ]] && wt_count=$((wt_count + 1)); done
     if (( wt_count < min_wt )); then
-      local wt_allow_v6=0
-      if ! grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep -qv '\['; then
-        wt_allow_v6=1
+      local wt_allow_v6=0 has_v4_wt=0
+      if grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep -qv '\['; then
+        has_v4_wt=1
       fi
-      mapfile -t wt_fill < <(pick_webtunnel_pool_lines "$((min_wt * 4))")
+      if [[ "$has_v4_wt" -eq 0 ]] && [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]]; then
+        bridge_log "skip min webtunnel (no IPv4 webtunnel; obfs4-first)"
+        min_wt=0
+        wt_count="$min_wt"
+      fi
+      if (( wt_count < min_wt )); then
+        if ! grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep -qv '\['; then
+          wt_allow_v6=1
+        fi
+        mapfile -t wt_fill < <(pick_webtunnel_pool_lines "$((min_wt * 4))")
       for line_wt in "${wt_fill[@]}"; do
         if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]] && [[ "$wt_allow_v6" -eq 0 ]] && bridge_is_ipv6_heavy "$line_wt"; then
           continue
@@ -224,6 +233,7 @@ select_active_bridges() {
         [[ ${#active[@]} -ge $MAX_ACTIVE ]] && active=("${active[@]:0:$MAX_ACTIVE}")
         (( wt_count >= min_wt )) && break
       done
+      fi
     fi
   fi
 

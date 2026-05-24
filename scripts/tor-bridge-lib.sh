@@ -189,8 +189,10 @@ pick_webtunnel_pool_lines() {
     return
   fi
   if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]]; then
-    bridge_log "WARN: no IPv4 webtunnel in pool — using IPv6 webtunnel fallback"
+    bridge_log "WARN: no IPv4 webtunnel in pool — skip webtunnel (obfs4/snowflake only)"
+    return 0
   fi
+  bridge_log "WARN: no IPv4 webtunnel in pool — using IPv6 webtunnel fallback"
   grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | awk '!seen[$0]++' | head -n "$n" || true
 }
 
