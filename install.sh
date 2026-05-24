@@ -48,7 +48,14 @@ if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   git clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 else
   echo "[install] git pull $INSTALL_DIR"
-  git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH" || git -C "$INSTALL_DIR" pull --ff-only || true
+  git -C "$INSTALL_DIR" fetch origin "$BRANCH" 2>/dev/null || true
+  if git -C "$INSTALL_DIR" diff --quiet 2>/dev/null && git -C "$INSTALL_DIR" diff --cached --quiet 2>/dev/null; then
+    git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH" || git -C "$INSTALL_DIR" pull --ff-only || true
+  else
+    echo "[install] local changes on VPS — reset to origin/$BRANCH"
+    git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null || \
+      git -C "$INSTALL_DIR" reset --hard "$BRANCH" 2>/dev/null || true
+  fi
 fi
 
 export OLC_REPO_ROOT="$INSTALL_DIR"
