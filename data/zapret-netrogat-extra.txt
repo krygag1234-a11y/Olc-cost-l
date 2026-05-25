@@ -4,3 +4,9 @@ meet.cryptopro.ru
 cryptopro.ru
 meet.jit.si
 jitsi.net
+stream.wb.ru
+suffix:.wb.ru
+cloud-api.yandex.ru
+telemost.yandex.ru
+exact:vk.com
+suffix:.vk.com

@@ -10,8 +10,11 @@ log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 
 tor_socks_ok() {
   timeout 1 bash -lc ':</dev/tcp/127.0.0.1/9050' >/dev/null 2>&1 || return 1
-  curl -fsS --max-time 10 --socks5-hostname 127.0.0.1:9050 \
-    https://check.torproject.org/api/ip >/dev/null 2>&1
+  # Deep check often false-negatives on RU VPS (zapret/slow exit) and triggers needless bridge rotation.
+  if [[ "${OLCRTC_TOR_DEEP_CHECK:-0}" == "1" ]]; then
+    curl -fsS --max-time 20 --socks5-hostname 127.0.0.1:9050 \
+      https://check.torproject.org/api/ip >/dev/null 2>&1
+  fi
 }
 
 panel_ok() {

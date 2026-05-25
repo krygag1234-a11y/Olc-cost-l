@@ -64,7 +64,7 @@ ensure_z4r_src() {
 }
 
 merge_netrogat_excludes() {
-  bash "$SCRIPT_DIR/zapret-merge-netrogat.sh" 2>/dev/null || true
+  bash "$SCRIPT_DIR/zapret-sync-excludes.sh" 2>/dev/null || true
 }
 
 apply_z4r_assets() {

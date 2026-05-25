@@ -185,6 +185,8 @@ setup_cron() {
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 */10 * * * * root ${REPO_ROOT}/scripts/healthcheck.sh >>/var/log/olcrtc-healthcheck.log 2>&1
+# After split list refresh (Sun 04:10) — sync zapret exclusions without full reinstall
+10 4 * * 0 root ${REPO_ROOT}/scripts/setup-split-ru.sh >>/var/log/olcrtc-zapret-sync.log 2>&1
 EOF
   chmod 0644 "$cronf"
   # Remove legacy line from /etc/crontab if present (older deploys)
@@ -208,9 +210,8 @@ setup_zapret() {
   [[ "${OLCRTC_ENABLE_ZAPRET:-1}" -eq 1 ]] || return 0
   [[ "$RU_VPS" -eq 1 ]] || return 0
   if [[ "${OLCRTC_ZAPRET_REINSTALL:-0}" != "1" ]] && [[ -x /opt/zapret/nfq/nfqws ]] && pidof nfqws >/dev/null 2>&1; then
-    log "zapret: refresh netrogat excludes only (set OLCRTC_ZAPRET_REINSTALL=1 for full reinstall)"
-    bash "$SCRIPT_DIR/zapret-merge-netrogat.sh" || true
-    timeout 90 /opt/zapret/init.d/sysv/zapret restart 2>/dev/null || systemctl restart zapret.service 2>/dev/null || true
+    log "zapret: sync excludes from split lists + carriers (set OLCRTC_ZAPRET_REINSTALL=1 for full reinstall)"
+    bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret || true
     return 0
   fi
   log "zapret (direct egress DPI)"

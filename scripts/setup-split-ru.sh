@@ -65,3 +65,7 @@ sed -i 's|^# RU IP → direct.*|# Olc-cost-l split (см. setup-split-ru.sh в �
 
 dom_n="$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
 echo "[setup-split-ru] done: CIDR=$(wc -l <"$DIRECT_CIDRS") domains=${dom_n} (+ builtin *.ru in olcrtc)"
+
+if [[ -x /opt/zapret/nfq/nfqws ]] && [[ "${OLCRTC_ENABLE_ZAPRET:-1}" == "1" ]]; then
+  bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret 2>/dev/null || true
+fi

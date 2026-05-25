@@ -151,7 +151,8 @@ BRIDGE_TYPES=webtunnel,obfs4 /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --apply
 | **fetch-bridge-extra-sources.sh** | Collector + igareck |
 | **install-tor-pluggable-transports.sh** | obfs4, snowflake-client, webtunnel |
 | **fetch-ru-cidrs.sh** | RU IPv4 для direct |
-| **setup-split-ru.sh** | Списки split + zapret domains |
+| **setup-split-ru.sh** | Списки split + zapret sync |
+| **zapret-sync-excludes.sh** | netrogat: direct RU − blocked; carriers (VK/WB/Telemost/Jitsi) |
 | **install-zapret-vps.sh** | Zapret на direct |
 | **network-recovery.sh** | Tor down → rotate + restart |
 | **healthcheck.sh** | Cron */10 (`/admin`) |
