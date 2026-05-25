@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
-# Install obfs4proxy, snowflake-client; ensure webtunnel-client exists.
+# Install obfs4proxy, snowflake-client; try webtunnel-client (optional).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+# shellcheck source=lib-webtunnel-build.sh
+source "$SCRIPT_DIR/lib-webtunnel-build.sh"
 
 apt-get update -qq
-apt-get install -y -qq obfs4proxy snowflake-client apparmor-utils 2>/dev/null || \
-  apt-get install -y -qq obfs4proxy apparmor-utils
+apt-get install -y -qq obfs4proxy snowflake-client apparmor-utils curl 2>/dev/null || \
+  apt-get install -y -qq obfs4proxy apparmor-utils curl
 
-if [[ ! -x /usr/bin/webtunnel-client ]] && [[ ! -x /usr/local/bin/webtunnel-client ]]; then
-  command -v go >/dev/null || apt-get install -y -qq golang-go
-  wt=/tmp/webtunnel-build
-  rm -rf "$wt"
-  git clone --depth 1 https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel.git "$wt"
-  (cd "$wt/client" && go build -o /usr/bin/webtunnel-client .)
-fi
+build_webtunnel_client echo || true
 
 mkdir -p /etc/apparmor.d/local
 for bin in webtunnel-client snowflake-client obfs4proxy; do
@@ -28,4 +25,7 @@ apparmor_parser -r /etc/apparmor.d/usr.bin.tor 2>/dev/null || true
 
 echo "[tor-pt] obfs4proxy=$(command -v obfs4proxy 2>/dev/null || echo missing)"
 echo "[tor-pt] snowflake-client=$(command -v snowflake-client 2>/dev/null || echo missing)"
-echo "[tor-pt] webtunnel-client=$(command -v webtunnel-client 2>/dev/null || ls /usr/local/bin/webtunnel-client 2>/dev/null || echo missing)"
+echo "[tor-pt] webtunnel-client=$(webtunnel_client_path 2>/dev/null || echo missing)"
+if ! webtunnel_client_ready; then
+  echo "[tor-pt] hint: BRIDGE_TYPES=obfs4 or retry when gitlab.torproject.org is reachable"
+fi

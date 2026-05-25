@@ -32,6 +32,8 @@ log() { echo "==> $*"; }
 
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh"
+# shellcheck source=lib-webtunnel-build.sh
+source "$SCRIPT_DIR/lib-webtunnel-build.sh"
 
 ensure_install_symlink() {
   safety_ensure_olcrtc_symlink "$REPO_ROOT"
@@ -79,29 +81,26 @@ install_deps() {
 
 build_webtunnel() {
   [[ "$ENABLE_TOR" -eq 1 ]] || return 0
-  [[ -x /usr/bin/webtunnel-client ]] && return 0
-  log "webtunnel-client (optional — obfs4/snowflake still work)"
-  local wt="/tmp/webtunnel"
-  rm -rf "$wt"
-  if ! git clone --depth 1 https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel.git "$wt"; then
-    log "WARN: webtunnel clone failed — skipping (retry: install-tor-pluggable-transports.sh)"
-    return 0
-  fi
-  if ! (cd "$wt/client" && go build -o /usr/bin/webtunnel-client .); then
-    log "WARN: webtunnel build failed — skipping"
-    return 0
-  fi
+  log "webtunnel-client (optional — obfs4/snowflake work without it)"
+  build_webtunnel_client log || true
 }
 
 setup_tor() {
   [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
   bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
   bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
-  log "Tor bridges pool"
+  local btypes
+  btypes="$(effective_bridge_types "${BRIDGE_TYPES:-webtunnel,obfs4}")"
+  if ! webtunnel_client_ready; then
+    log "Tor bridges: obfs4-only (webtunnel-client not built — gitlab often times out from RU)"
+  else
+    log "Tor bridges pool ($btypes)"
+  fi
+  export BRIDGE_TYPES="$btypes"
   bash "$SCRIPT_DIR/fetch-bridge-extra-sources.sh" 2>/dev/null || \
-  BRIDGE_TYPES=webtunnel,obfs4 \
-    bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types webtunnel,obfs4 || \
+    bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types "$btypes" || \
     bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
+  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --types "$btypes" 2>/dev/null || true
   systemctl enable tor@default.service
   systemctl restart tor@default.service || true
   systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \

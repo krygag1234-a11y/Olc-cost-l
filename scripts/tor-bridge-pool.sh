@@ -159,6 +159,9 @@ select_active_bridges() {
   local -a scored=()
   local line fp score drop
   for line in "${candidates[@]}"; do
+    if [[ "$line" == *" webtunnel "* ]] && declare -f webtunnel_client_ready >/dev/null 2>&1 && ! webtunnel_client_ready; then
+      continue
+    fi
     fp="$(bridge_fingerprint "$line")"
     bridge_is_blacklisted "$fp" && continue
     drop=0

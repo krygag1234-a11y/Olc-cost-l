@@ -5,6 +5,8 @@ _TOR_BRIDGE_LIB_LOADED=1
 
 BRIDGES_RAW_URL="${BRIDGES_RAW_URL:-https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt}"
 _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-webtunnel-build.sh
+[[ -f "$_lib_dir/lib-webtunnel-build.sh" ]] && source "$_lib_dir/lib-webtunnel-build.sh"
 OLC_REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$_lib_dir/.." && pwd)}"
 BRIDGES_EXTRA_URLS_FILE="${BRIDGES_EXTRA_URLS_FILE:-$OLC_REPO_ROOT/data/bridge-extra-urls.txt}"
 # Extra pools: env BRIDGES_EXTRA_URLS and/or data/bridge-extra-urls.txt
@@ -443,7 +445,9 @@ write_torrc_header() {
     if (( need_wt )); then
       wt_bin="/usr/bin/webtunnel-client"
       [[ -x "$wt_bin" ]] || wt_bin="/usr/local/bin/webtunnel-client"
-      echo "ClientTransportPlugin webtunnel exec $wt_bin"
+      if [[ -x "$wt_bin" ]]; then
+        echo "ClientTransportPlugin webtunnel exec $wt_bin"
+      fi
     fi
     if (( need_obfs4 )) && [[ -x /usr/bin/obfs4proxy ]]; then
       echo "ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy"

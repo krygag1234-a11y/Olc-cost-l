@@ -24,9 +24,16 @@ sudo systemctl restart tor@default
 sudo /opt/Olc-cost-l/scripts/install-tor-pluggable-transports.sh
 ```
 
+Если `gitlab.torproject.org` недоступен (SSL timeout), `install.sh` **не падает**: Tor поднимается на **obfs4**. Повторить webtunnel позже:
+
+```bash
+sudo /opt/Olc-cost-l/scripts/install-tor-pluggable-transports.sh
+# или: OLCRTC_SKIP_WEBTUNNEL=1 curl ... | sudo bash   # явно без webtunnel
+```
+
 | PT | Пакет / бинарник | Назначение |
 |----|------------------|------------|
-| webtunnel | `webtunnel-client` (сборка из gitlab.torproject.org) | основной обход DPI |
+| webtunnel | `webtunnel-client` (сборка из gitlab.torproject.org) | основной обход DPI; при недоступности gitlab install продолжается с **obfs4** |
 | obfs4 | `obfs4proxy` (apt) | запасной PT ([форум Tor](https://forum.torproject.org/t/tor/21439/9)) |
 | snowflake | `snowflake-client` (apt) | **не используем на VPS** — см. ниже |
 
