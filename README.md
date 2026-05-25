@@ -136,3 +136,5 @@ sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --check
 ---
 
 `OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`
+
+я рот ебал запрета4рокет
