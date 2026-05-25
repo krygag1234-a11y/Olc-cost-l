@@ -60,6 +60,7 @@ Upstream has **no** Tor split, **no** RU CIDR lists, **no** zapret. We ship:
 1. Zapret must bypass `meet.cryptopro.ru` in **netrogat** and **nozapret** ipset.
 2. Do not reinstall smux on Jitsi carrier reconnect (our patch) — otherwise Olcbox sees `control: read hdr: EOF`.
 3. Use **one** subscription room at a time if client opens multiple Jitsi URLs.
+4. **`xmpp dial: bind: ... EOF`** — often Prosody on `meet.cryptopro.ru` returns `Error loading roster` (server-side, intermittent). Retry; keep **one** active Jitsi client in the panel. Our `patch-j-xmpp-bind-fastfail` surfaces the real IQ error instead of a 60s timeout.
 
 ## Update procedure
 

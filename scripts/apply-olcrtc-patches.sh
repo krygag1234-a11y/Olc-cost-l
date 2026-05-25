@@ -89,6 +89,8 @@ apply_olcrtc() {
   # Ensure datachannel payload (fallback if patch hunk failed)
   sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
     "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true
+  (cd "$OLCRTC_REPO" && go mod download github.com/zarazaex69/j 2>/dev/null || go mod download)
+  bash "$SCRIPT_DIR/patch-j-xmpp-bind-fastfail.sh" "$OLCRTC_REPO"
 }
 
 apply_manager() {
