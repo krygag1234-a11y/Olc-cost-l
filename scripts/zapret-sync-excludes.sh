@@ -47,6 +47,7 @@ collect_sources() {
     "$REPO_ROOT/data/zapret-netrogat-extra.txt" \
     "$REPO_ROOT/data/zapret-carrier-hosts.txt" \
     "$REPO_ROOT/data/zapret-community-excludes/flowseal-list-exclude.txt" \
+    "$REPO_ROOT/data/zapret-vk-cdn-extra.txt" \
     "$REPO_ROOT/data/ru-domains-extra.txt" \
     "$REPO_ROOT/data/ru-embed-balancers.txt" \
     "$REPO_ROOT/data/ru-video-balancers-full.txt"; do

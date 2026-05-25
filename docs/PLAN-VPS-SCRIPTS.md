@@ -19,7 +19,7 @@
 - [x] `patch-olcrtc-manager-domains.sh`: partial struct после main.go.patch
 - [x] `install-go-toolchain.sh` + `GOTOOLCHAIN=auto` для go.mod 1.26
 - [x] `agent-bootstrap.sh`: webtunnel clone/build не роняет install (WARN + skip)
-- [x] **Push на GitHub `main`** — `e935dfa` (токен: `/root/.config/olc-cost-l/github-token`, не в git)
+- [x] **Push на GitHub `main`** — `e935dfa` (PAT только на VPS оператора, не в git)
 - [x] Локальный / VPS rsync: `apply-olcrtc-patches.sh` + `go build` OK
 - [x] `install.sh`: dirty tree на VPS → `reset --hard origin/main` (не ломает update)
 
@@ -66,7 +66,7 @@
 | 2026-05-24 | Фиксы в репо + rsync на VPS | Патчи idempotent; Go 1.23.6; `olc-purge.sh` / `uninstall.sh` |
 | 2026-05-24 | `agent-bootstrap.sh --full` | manager **active**, HTTP **200** на `/admin`; webtunnel skip при ошибке SSL |
 | 2026-05-24 | `uninstall.sh --purge-repo` | VPS чистая; повторный bootstrap → снова **200** |
-| 2026-05-24 | git push | GitHub main обновлён; токен в `/root/.config/olc-cost-l/github-token` |
+| 2026-05-24 | git push | GitHub main обновлён |
 | 2026-05-24 | `curl \| bash` install с GitHub | purge → install OK, `/admin` **200** |
 | 2026-05-24 | Tor bridges fix | obfs4-first без IPv4 webtunnel; Tor `IsTor:true` |
 | 2026-05-24 | `install.sh` update path | detect=installed → `--update`, zapret+panel OK |

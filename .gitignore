@@ -6,6 +6,11 @@ panel.env
 *secret*
 .DS_Store
 
+# Operator-only state (IPs, VPS layout) — never commit
+docs/PROJECT-STATE.md
+docs/PROJECT-STATE*.md
+*.local.md
+
 # zapret4rocket is cloned by sync-zapret4rocket.sh (large vendor tree)
 data/zapret4rocket/*
 !data/zapret4rocket/README.md

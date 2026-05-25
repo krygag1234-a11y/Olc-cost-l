@@ -62,10 +62,6 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 
 ---
 
-## Состояние проекта
-
-Полный снимок репо, VPS и upstream: [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md)
-
 ## Документация
 
 | Документ | Тема |
@@ -80,6 +76,8 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 | [SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат |
 | [CLIENT.md](docs/CLIENT.md) | Olcbox |
 | [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
+| [UPSTREAM-OLCRTC.md](docs/UPSTREAM-OLCRTC.md) | Upstream olcrtc: carriers, обновления, WB/Telemost/Jitsi |
+| [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | Отличия Olc-cost-l от upstream |
 | [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |
 
 ---

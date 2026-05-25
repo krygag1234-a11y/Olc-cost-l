@@ -2,28 +2,28 @@
   "olcrtc": {
     "repo": "https://github.com/openlibrecommunity/olcrtc.git",
     "branch": "master",
-    "pinned_sha": "933fb158e2d1091ab731f78961cd1af1354a5d63",
-    "upstream_head": "933fb158e2d1091ab731f78961cd1af1354a5d63",
-    "last_sync": "2026-05-25T12:45:00+00:00",
+    "pinned_sha": "af9eeea74029c3f924d19c8adfe60975e9def6af",
+    "upstream_head": "af9eeea74029c3f924d19c8adfe60975e9def6af",
+    "last_sync": "2026-05-25T13:30:00+00:00",
     "last_apply_ok": null,
-    "notes": "2026-05-25: Jitsi RTCP keepalive, SCTP colibri fallback, zarazaex69/j bumps"
+    "notes": "Jitsi RTCP+SCTP; vp8 epoch latch (WB/Telemost); meet.cryptopro docs"
   },
   "olcrtc-manager": {
     "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
     "branch": "main",
     "pinned_sha": "ad8ec6f6f84c9869230dd06d85724c9808ebec6b",
     "upstream_head": "ad8ec6f6f84c9869230dd06d85724c9808ebec6b",
-    "last_sync": "2026-05-25T12:45:00+00:00",
+    "last_sync": "2026-05-25T13:30:00+00:00",
     "last_apply_ok": null,
-    "notes": "2026-05-24: subscription refresh settings (PR #28)"
+    "notes": "subscription refresh PR #28"
   },
   "zapret4rocket": {
     "repo": "https://github.com/IndeecFOX/zapret4rocket.git",
     "branch": "master",
     "pinned_sha": "bf8eafefa4273fa4017da086346a55beb5def05a",
     "upstream_head": "bf8eafefa4273fa4017da086346a55beb5def05a",
-    "last_sync": "2026-05-25T12:45:00+00:00",
+    "last_sync": "2026-05-25T13:30:00+00:00",
     "last_apply_ok": true,
-    "notes": "Vendored via sync-zapret4rocket.sh — do not commit full tree to git"
+    "notes": "sync via sync-zapret4rocket.sh only"
   }
 }

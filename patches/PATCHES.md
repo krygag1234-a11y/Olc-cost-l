@@ -32,6 +32,7 @@
 | `patch-olcrtc-server-force-tor.sh` | YouTube/global → always Tor |
 | `patch-olcrtc-server-route-log.sh` | Лог `connect HOST route=direct\|tor` |
 | `patch-olcrtc-server-reconnect-debounce.sh` | Debounce smux reconnect (**5s**) |
+| `patch-olcrtc-server-jitsi-no-smux-reconnect.sh` | Jitsi bridge reconnect **без** smux tear-down |
 | `patch-olcrtc-goolom-reconnect-stable.sh` | Стабильный reconnect carrier |
 | `patch-olcrtc-goolom-reconnect-no-early-callback.sh` | Без раннего `onReconnect(nil)` |
 | `olcrtc-session-direct-cidrs.patch` | (legacy) проброс `direct_cidrs_file` в session |

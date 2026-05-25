@@ -15,7 +15,7 @@ sudo bash /opt/Olc-cost-l/scripts/zapret-sync-excludes.sh --reload-zapret
 sudo bash /opt/Olc-cost-l/scripts/fetch-zapret-community-excludes.sh  # Flowseal lists
 ```
 
-См. [PROJECT-STATE.md](PROJECT-STATE.md).
+См. [INTEGRATION-GAP.md](INTEGRATION-GAP.md).
 
 ## Установка
 
