@@ -1,7 +1,5 @@
 # Olc-cost-l
 
-# ПОКА ЧТО ПРОЕКТ БАЗИРУЕТСЯ И БУДЕТ РАБОТАТЬ ТОЛЬКО С ССЫЛКАМИ И ID ОТ JITSU(только meet.cryptopro.ru/), WB STREEM (ID), TELEMOST. (в силу недопиленной функции добавления в exclude zapret своих кастомных ссылок инстансов/отключения zapret черех ui <<хотя не кто не запрешал вам разобраться через терминал с этим)>>)
-
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
 **Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
@@ -76,6 +74,7 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 | [SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат |
 | [CLIENT.md](docs/CLIENT.md) | Olcbox |
 | [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
+| [UPSTREAM-AUDIT.md](docs/UPSTREAM-AUDIT.md) | Сверка Olc-cost-l с upstream olcrtc + manager |
 | [UPSTREAM-OLCRTC.md](docs/UPSTREAM-OLCRTC.md) | Upstream olcrtc: carriers, обновления, WB/Telemost/Jitsi |
 | [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | Отличия Olc-cost-l от upstream |
 | [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |

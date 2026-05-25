@@ -35,11 +35,11 @@ if "func defaultLivenessForTransport(" not in t:
 func defaultLivenessForTransport(transport string) *olcrtcLivenessConfig {
 \tswitch transport {
 \tcase "datachannel":
-\t\treturn &olcrtcLivenessConfig{Interval: "45s", Timeout: "25s", Failures: 12}
+\t\treturn &olcrtcLivenessConfig{Interval: "10s", Timeout: "5s", Failures: 3}
 \tcase "vp8channel", "seichannel", "videochannel":
-\t\treturn &olcrtcLivenessConfig{Interval: "40s", Timeout: "25s", Failures: 12}
+\t\treturn &olcrtcLivenessConfig{Interval: "10s", Timeout: "5s", Failures: 3}
 \tdefault:
-\t\treturn &olcrtcLivenessConfig{Interval: "15s", Timeout: "10s", Failures: 6}
+\t\treturn &olcrtcLivenessConfig{Interval: "10s", Timeout: "5s", Failures: 3}
 \t}
 }
 
