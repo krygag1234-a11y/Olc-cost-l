@@ -16,17 +16,30 @@ OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 
 log() { echo "[apply-patches] $*"; }
 
+pin_olcrtc_sha() {
+  local pins="${UPSTREAM_PINS:-$REPO_ROOT/data/upstream-pins.json}"
+  [[ -f "$pins" ]] || return 0
+  jq -r '.olcrtc.pinned_sha // empty' "$pins" 2>/dev/null || true
+}
+
 clone_repos() {
   if [[ -x /usr/local/go/bin/go ]]; then
     export PATH="/usr/local/go/bin:$PATH"
   fi
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
+  local pin_sha
+  pin_sha="$(pin_olcrtc_sha)"
   if [[ -d "$OLCRTC_REPO/.git" ]]; then
     if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
       log "refresh olcrtc $OLCRTC_BRANCH"
       git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1 2>/dev/null || \
         git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH"
       git -C "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
+    elif [[ -n "$pin_sha" ]]; then
+      log "checkout pinned olcrtc ${pin_sha:0:12}"
+      git -C "$OLCRTC_REPO" fetch origin "$pin_sha" --depth 1 2>/dev/null || \
+        git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 50
+      git -C "$OLCRTC_REPO" reset --hard "$pin_sha" 2>/dev/null || true
     fi
   elif [[ -e "$OLCRTC_REPO" ]]; then
     rm -rf "$OLCRTC_REPO"

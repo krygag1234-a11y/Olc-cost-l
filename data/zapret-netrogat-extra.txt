@@ -1,0 +1,6 @@
+# Domains that must bypass zapret DPI (WebSocket / Jitsi XMPP / carriers).
+# Merged into /opt/zapret/lists/netrogat.txt on install/update.
+meet.cryptopro.ru
+cryptopro.ru
+meet.jit.si
+jitsi.net

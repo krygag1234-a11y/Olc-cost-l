@@ -63,6 +63,10 @@ ensure_z4r_src() {
   [[ -f "$Z4R_SRC/config.default" ]]
 }
 
+merge_netrogat_excludes() {
+  bash "$SCRIPT_DIR/zapret-merge-netrogat.sh" 2>/dev/null || true
+}
+
 apply_z4r_assets() {
   ensure_z4r_src || return 1
   mkdir -p "$OPT/lists" "$OPT/ipset" "$OPT/files/fake"
@@ -71,6 +75,7 @@ apply_z4r_assets() {
   [[ -d "$Z4R_SRC/extra_strats" ]] && cp -a "$Z4R_SRC/extra_strats" "$OPT/"
   touch "$OPT/lists/russia-youtube-rtmps.txt" "$OPT/lists/russia-youtubeQ.txt" \
     "$OPT/lists/russia-youtube.txt" "$OPT/lists/autohostlist.txt" 2>/dev/null || true
+  merge_netrogat_excludes
 }
 
 apply_config() {

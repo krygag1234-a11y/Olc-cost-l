@@ -207,6 +207,12 @@ fi
 setup_zapret() {
   [[ "${OLCRTC_ENABLE_ZAPRET:-1}" -eq 1 ]] || return 0
   [[ "$RU_VPS" -eq 1 ]] || return 0
+  if [[ "${OLCRTC_ZAPRET_REINSTALL:-0}" != "1" ]] && [[ -x /opt/zapret/nfq/nfqws ]] && pidof nfqws >/dev/null 2>&1; then
+    log "zapret: refresh netrogat excludes only (set OLCRTC_ZAPRET_REINSTALL=1 for full reinstall)"
+    bash "$SCRIPT_DIR/zapret-merge-netrogat.sh" || true
+    timeout 90 /opt/zapret/init.d/sysv/zapret restart 2>/dev/null || systemctl restart zapret.service 2>/dev/null || true
+    return 0
+  fi
   log "zapret (direct egress DPI)"
   bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 2>/dev/null || true
   systemctl restart tor@default 2>/dev/null || true
