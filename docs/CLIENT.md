@@ -28,4 +28,10 @@ OLCRTC_PUBLIC_URL=http://ВАШ-DDNS:8888
 
 - **Jitsi** + transport `datachannel` — основной стабильный режим.
 - **WB Stream** — `vp8channel` (datachannel на WB часто нестабилен).
+
+--
+
 - DNS в location: `8.8.8.8:53` или `1.1.1.1:53`.
+
+--
+телемост шавка(вб в принцепе, тоже)
