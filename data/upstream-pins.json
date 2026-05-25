@@ -2,22 +2,28 @@
   "olcrtc": {
     "repo": "https://github.com/openlibrecommunity/olcrtc.git",
     "branch": "master",
-    "pinned_sha": "931d304f95b5bb73cc17816552983f21d9257b7e",
-    "last_sync": "2026-05-23T23:23:21+00:00",
-    "last_apply_ok": false
+    "pinned_sha": "933fb158e2d1091ab731f78961cd1af1354a5d63",
+    "upstream_head": "933fb158e2d1091ab731f78961cd1af1354a5d63",
+    "last_sync": "2026-05-25T12:45:00+00:00",
+    "last_apply_ok": null,
+    "notes": "2026-05-25: Jitsi RTCP keepalive, SCTP colibri fallback, zarazaex69/j bumps"
   },
   "olcrtc-manager": {
     "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
     "branch": "main",
-    "pinned_sha": "6878fc8300f2499bd8e6316f94396631c125dca0",
-    "last_sync": "2026-05-23T23:23:21+00:00",
-    "last_apply_ok": false
+    "pinned_sha": "ad8ec6f6f84c9869230dd06d85724c9808ebec6b",
+    "upstream_head": "ad8ec6f6f84c9869230dd06d85724c9808ebec6b",
+    "last_sync": "2026-05-25T12:45:00+00:00",
+    "last_apply_ok": null,
+    "notes": "2026-05-24: subscription refresh settings (PR #28)"
   },
   "zapret4rocket": {
     "repo": "https://github.com/IndeecFOX/zapret4rocket.git",
     "branch": "master",
-    "pinned_sha": "",
-    "last_sync": "",
-    "last_apply_ok": null
+    "pinned_sha": "bf8eafefa4273fa4017da086346a55beb5def05a",
+    "upstream_head": "bf8eafefa4273fa4017da086346a55beb5def05a",
+    "last_sync": "2026-05-25T12:45:00+00:00",
+    "last_apply_ok": true,
+    "notes": "Vendored via sync-zapret4rocket.sh — do not commit full tree to git"
   }
 }

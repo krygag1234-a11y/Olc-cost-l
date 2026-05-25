@@ -46,6 +46,7 @@ collect_sources() {
   for f in \
     "$REPO_ROOT/data/zapret-netrogat-extra.txt" \
     "$REPO_ROOT/data/zapret-carrier-hosts.txt" \
+    "$REPO_ROOT/data/zapret-community-excludes/flowseal-list-exclude.txt" \
     "$REPO_ROOT/data/ru-domains-extra.txt" \
     "$REPO_ROOT/data/ru-embed-balancers.txt" \
     "$REPO_ROOT/data/ru-video-balancers-full.txt"; do
@@ -197,6 +198,9 @@ build_hosts_exclude() {
     echo "# olcrtc zapret IP exclude — $(date -Iseconds)"
     echo "# Private nets (zapret default)"
     grep -vE '^[[:space:]]*#' "$OPT/ipset/zapret-hosts-user-exclude.txt" 2>/dev/null |
+      grep -E '^[0-9./:]+' || true
+    [[ -f "$REPO_ROOT/data/zapret-community-excludes/flowseal-ipset-exclude.txt" ]] &&
+      grep -vE '^[[:space:]]*#' "$REPO_ROOT/data/zapret-community-excludes/flowseal-ipset-exclude.txt" |
       grep -E '^[0-9./:]+' || true
     # Carrier + extra: resolve via zapret filedigger
     for f in \

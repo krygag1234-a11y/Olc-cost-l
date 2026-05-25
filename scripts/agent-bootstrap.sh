@@ -227,6 +227,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   setup_sysctl
   setup_tor
   setup_split_routing
+  bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true
   setup_zapret
   setup_systemd
   setup_cron
@@ -252,6 +253,7 @@ fi
 
 setup_tor
 setup_split_routing
+bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true
 setup_zapret
 setup_systemd
 setup_cron
