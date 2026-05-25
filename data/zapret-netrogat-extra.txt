@@ -2,6 +2,7 @@
 # Merged into /opt/zapret/lists/netrogat.txt on install/update.
 meet.cryptopro.ru
 cryptopro.ru
+193.37.157.0/24
 meet.jit.si
 jitsi.net
 stream.wb.ru

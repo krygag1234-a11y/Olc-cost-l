@@ -216,27 +216,50 @@ build_hosts_exclude() {
   log "hosts-user-exclude: $(wc -l <"$HOSTS_EXCLUDE") lines"
 }
 
+inject_carrier_ips() {
+  command -v ipset >/dev/null || return 0
+  ipset list nozapret &>/dev/null || return 0
+  local dom ip cidr added=0
+  while IFS= read -r dom; do
+    [[ -z "$dom" ]] && continue
+    if [[ "$dom" =~ ^[0-9]+(\.[0-9]+){3}(/[0-9]+)?$ ]]; then
+      ipset add nozapret "$dom" 2>/dev/null || true
+      continue
+    fi
+    [[ "$dom" =~ ^suffix:|^exact: ]] && continue
+    getent ahostsv4 "$dom" 2>/dev/null | awk '{print $1}' | sort -u | while read -r ip; do
+      ipset add nozapret "$ip" 2>/dev/null || true
+    done
+    # Jitsi/crypto VPS often one /24 — bypass iptables NFQUEUE when hostlist misses early packets
+    if [[ "$dom" == *cryptopro* || "$dom" == *jitsi* ]]; then
+      while read -r cidr; do
+        [[ -n "$cidr" ]] && ipset add nozapret "$cidr" 2>/dev/null || true
+      done < <(getent ahostsv4 "$dom" 2>/dev/null | awk '{print $1}' | head -1 | awk -F. '{print $1"."$2"."$3".0/24"}')
+    fi
+  done < <(
+    {
+      grep -vE '^[[:space:]]*#' "$REPO_ROOT/data/zapret-carrier-hosts.txt" 2>/dev/null
+      grep -vE '^[[:space:]]*#' "$REPO_ROOT/data/zapret-netrogat-extra.txt" 2>/dev/null
+      grep -hoE 'meet\.[a-z0-9.-]+|stream\.wb\.ru|telemost\.yandex\.ru|cloud-api\.yandex\.ru' \
+        /var/lib/olcrtc/manager-run/*.yaml 2>/dev/null || true
+    } | flatten_domains | awk 'NF && !/^suffix:/ && !/^exact:/'
+  )
+  log "nozapret carrier IPs injected (ipset entries: $(ipset list nozapret 2>/dev/null | grep -cE '^[0-9]' || echo 0))"
+}
+
 refresh_ipset() {
   if [[ ! -x "$OPT/ipset/get_exclude.sh" ]]; then
     log "skip ipset: no get_exclude.sh"
+    inject_carrier_ips
     return 0
   fi
   log "rebuilding nozapret ipset (DNS resolve, may take 1-3 min)…"
-  bash "$OPT/ipset/get_exclude.sh" 2>/dev/null || {
-    log "WARN: get_exclude.sh failed — falling back to manual carrier resolve"
-    if command -v ipset >/dev/null && ipset list nozapret &>/dev/null; then
-      while IFS= read -r dom; do
-        [[ "$dom" =~ ^[0-9./:]+$ ]] && { ipset add nozapret "$dom" 2>/dev/null || true; continue; }
-        [[ -n "$dom" ]] || continue
-        getent ahostsv4 "$dom" 2>/dev/null | awk '{print $1}' | sort -u | while read -r ip; do
-          ipset add nozapret "$ip" 2>/dev/null || true
-        done
-      done < <(
-        grep -vE '^[[:space:]]*#|^$' "$REPO_ROOT/data/zapret-carrier-hosts.txt" \
-          "$REPO_ROOT/data/zapret-netrogat-extra.txt" 2>/dev/null | flatten_domains
-      )
-    fi
-  }
+  if bash "$OPT/ipset/get_exclude.sh" 2>/dev/null; then
+    inject_carrier_ips
+  else
+    log "WARN: get_exclude.sh failed — manual carrier resolve"
+    inject_carrier_ips
+  fi
 }
 
 reload_zapret() {
