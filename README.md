@@ -1,5 +1,7 @@
 # Olc-cost-l
 
+ПОКА ЧТО ПРОЕКТ БАЗИРУЕТСЯ И БУДЕТ РАБОТАТЬ ТОЛЬКО С ССЫЛКАМИ И ID ОТ JITSU, WB STREEM (ID), TELEMOST.
+
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
 **Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
