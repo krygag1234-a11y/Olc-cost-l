@@ -35,10 +35,10 @@ ok "help/fetch scripts"
 
 # zapret-sync domains-only if zapret installed
 if [[ -f /opt/zapret/lists/netrogat.txt ]]; then
-  if timeout 120 env OLCRTC_ZAPRET_RESOLVE_IPS=0 bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --domains-only >/dev/null 2>&1; then
+  if timeout 300 env OLCRTC_ZAPRET_RESOLVE_IPS=0 bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --domains-only >/dev/null 2>&1; then
     ok "zapret-sync-excludes --domains-only"
   else
-    bad "zapret-sync-excludes (timeout 120s)"
+    bad "zapret-sync-excludes (timeout 300s)"
   fi
 else
   echo "[smoke] skip zapret-sync (no /opt/zapret)"

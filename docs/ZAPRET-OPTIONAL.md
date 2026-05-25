@@ -8,6 +8,15 @@ Olcbox → VPS olcrtc → direct (*.ru + player CDN + ru-domains-extra)
 VPS host (опционально) → zapret nfqws для direct HTTPS (blocked-tor + DPI)
 ```
 
+## Исключения (RU whitelist + carriers)
+
+```bash
+sudo bash /opt/Olc-cost-l/scripts/zapret-sync-excludes.sh --reload-zapret
+sudo bash /opt/Olc-cost-l/scripts/fetch-zapret-community-excludes.sh  # Flowseal lists
+```
+
+См. [PROJECT-STATE.md](PROJECT-STATE.md).
+
 ## Установка
 
 ```bash

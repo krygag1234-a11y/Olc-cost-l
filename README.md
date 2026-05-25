@@ -60,6 +60,10 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 
 ---
 
+## Состояние проекта
+
+Полный снимок репо, VPS и upstream: [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md)
+
 ## Документация
 
 | Документ | Тема |
