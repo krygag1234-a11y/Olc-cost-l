@@ -1,6 +1,6 @@
 # Olc-cost-l
 
-ПОКА ЧТО ПРОЕКТ БАЗИРУЕТСЯ И БУДЕТ РАБОТАТЬ ТОЛЬКО С ССЫЛКАМИ И ID ОТ JITSU, WB STREEM (ID), TELEMOST.
+ПОКА ЧТО ПРОЕКТ БАЗИРУЕТСЯ И БУДЕТ РАБОТАТЬ ТОЛЬКО С ССЫЛКАМИ И ID ОТ JITSU(только meet.cryptopro.ru/), WB STREEM (ID), TELEMOST. (в силу недопиленной функции добавления в exclude zapret своих кастомных ссылок инстансов/отключения zapret черех ui <<хотя не кто не запрешал вам разобраться через терминал с этим)>>)
 
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
