@@ -213,7 +213,7 @@ setup_zapret() {
     bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret || true
     return 0
   fi
-  log "zapret (direct egress DPI)"
+  log "zapret (direct egress DPI — may take several minutes on first install)"
   bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 2>/dev/null || true
   systemctl restart tor@default 2>/dev/null || true
   export OLCRTC_ZAPRET_FULL="${OLCRTC_ZAPRET_FULL:-1}"
