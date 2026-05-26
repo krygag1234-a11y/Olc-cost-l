@@ -8,6 +8,8 @@ VERSION_FILE="${VERSION_FILE:-$REPO_ROOT/version.json}"
 
 [[ -f "$VERSION_FILE" ]] || { echo "missing $VERSION_FILE" >&2; exit 1; }
 
+bash "$SCRIPT_DIR/generate-version-stack.sh"
+
 PANEL_VER="$(jq -r '.panel // empty' "$VERSION_FILE")"
 REPO_SLUG="$(jq -r '.repo // "https://github.com/krygag1234-a11y/Olc-cost-l"' "$VERSION_FILE" | sed -E 's#^https?://github.com/##; s#/$##')"
 TAG="v${PANEL_VER#v}"
@@ -26,6 +28,7 @@ BODY="$(cat <<EOF
 ${DESC}
 
 - Канал: **${CHANNEL}**
+- Состав стека: см. \`version.json\` → \`stack\` (olcrtc, manager, zapret4rocket, mirror-cry, olcbox)
 - Установка: \`curl -fsSL https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh | sudo bash -s --\`
 - Обновление с панели: «Обновить с GitHub» или \`sudo olc-update\`
 
@@ -64,5 +67,16 @@ if [[ -n "$upload_url" && "$upload_url" != "null" ]]; then
     "${upload_url}?name=version.json" \
     --data-binary @"$VERSION_FILE" >/dev/null
   echo "Attached version.json"
+  for extra in "$REPO_ROOT/data/upstream-pins.json"; do
+    [[ -f "$extra" ]] || continue
+    base=$(basename "$extra")
+    curl -sS -X POST \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "Content-Type: application/json" \
+      "${upload_url}?name=${base}" \
+      --data-binary @"$extra" >/dev/null
+    echo "Attached $base"
+  done
 fi
 echo "Release created: https://github.com/${REPO_SLUG}/releases/tag/${TAG}"

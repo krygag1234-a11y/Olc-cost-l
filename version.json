@@ -1,6 +1,42 @@
 {
-  "panel": "0.9.0-alpha.3",
-  "channel": "alpha",
-  "description": "Olc-cost-l panel + VPS stack (pre-alpha)",
-  "repo": "https://github.com/krygag1234-a11y/Olc-cost-l"
+  "panel": "0.9.0-pre-alpha.1",
+  "channel": "pre-alpha",
+  "description": "Olc-cost-l VPS stack: olcrtc + manager panel + optional Zapret/Tor/Split/Мосты/WARP",
+  "repo": "https://github.com/krygag1234-a11y/Olc-cost-l",
+  "release": {
+    "tag": "v0.9.0-pre-alpha.1",
+    "olc_cost_l_sha": "a23b02685766a05527573689d434b04e2ae61e93"
+  },
+  "stack": {
+    "olc-cost-l": {
+      "repo": "https://github.com/krygag1234-a11y/Olc-cost-l",
+      "sha": "a23b02685766a05527573689d434b04e2ae61e93"
+    },
+    "olcrtc": {
+      "repo": "https://github.com/openlibrecommunity/olcrtc.git",
+      "branch": "fix/all",
+      "ref": "d7c813265b016892fc8da225125840961e14ecde"
+    },
+    "olcrtc-manager": {
+      "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
+      "branch": "main",
+      "ref": "ad8ec6f6f84c9869230dd06d85724c9808ebec6b"
+    },
+    "zapret4rocket": {
+      "repo": "https://github.com/IndeecFOX/zapret4rocket.git",
+      "branch": "master",
+      "ref": "bf8eafefa4273fa4017da086346a55beb5def05a"
+    },
+    "webtunnel-client": {
+      "source": "mirror-cry",
+      "repo": "https://github.com/krygag1234-a11y/mirror-cry",
+      "download": "https://github.com/krygag1234-a11y/mirror-cry/releases/latest/download",
+      "note": "prebuilt binary; NOT gitlab.torproject.org"
+    },
+    "olcbox": {
+      "source": "alananisimov/olcbox",
+      "channel": "nightly",
+      "url": "https://github.com/alananisimov/olcbox/releases/tag/nightly"
+    }
+  }
 }

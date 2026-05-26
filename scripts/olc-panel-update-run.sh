@@ -13,7 +13,6 @@ LOG=/var/log/olcrtc-panel-update.log
 JOBS_DIR=/var/lib/olcrtc/panel-jobs
 
 install -d /var/lib/olcrtc "$JOBS_DIR"
-echo "$$" >"$LOCK"
 
 write_status() {
   local st="$1" ec="${2:-0}" err="${3:-}"
@@ -29,6 +28,18 @@ write_status() {
   cp -f "$STATUS" "$JOBS_DIR/${JOB_ID}.json"
 }
 
+if [[ ! -d "$REPO_ROOT/.git" ]]; then
+  write_status failed 1 "repo missing: $REPO_ROOT"
+  exit 1
+fi
+
+# Stale job from killed process (lock gone, status still running)
+if [[ -f "$STATUS" ]] && [[ ! -f "$LOCK" ]] && [[ "$(jq -r '.status // empty' "$STATUS" 2>/dev/null)" == "running" ]]; then
+  jq '.status = "failed" | .error = "прервано (lock отсутствует)" | .exit_code = 1' "$STATUS" >"${STATUS}.tmp" && mv "${STATUS}.tmp" "$STATUS"
+fi
+
+echo "$$" >"$LOCK"
+
 cleanup() {
   rm -f "$LOCK"
 }
@@ -37,10 +48,12 @@ trap cleanup EXIT
 write_status running 0 ""
 {
   echo "=== panel update $JOB_ID $(date -u -Iseconds) ==="
+  cd "$REPO_ROOT"
   olc_git_safe_register "$REPO_ROOT"
-  olc_git "$REPO_ROOT" fetch origin main --depth 1 2>/dev/null || olc_git "$REPO_ROOT" fetch origin main
-  olc_git "$REPO_ROOT" pull --ff-only origin main
-  BUILD=1 bash scripts/apply-olcrtc-patches.sh
+  olc_git "$REPO_ROOT" fetch origin main 2>/dev/null || olc_git "$REPO_ROOT" fetch origin main
+  olc_git "$REPO_ROOT" reset --hard origin/main
+  olc_git "$REPO_ROOT" clean -fd
+  BUILD=1 bash "$REPO_ROOT/scripts/apply-olcrtc-patches.sh"
   systemctl restart olcrtc-manager
   echo "=== done $(date -u -Iseconds) ==="
 } >>"$LOG" 2>&1 && write_status done 0 "" || write_status failed "$?" "update failed — see $LOG"
