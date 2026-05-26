@@ -39,4 +39,11 @@ sudo ln -sf /opt/Olc-cost-l/scripts/olc-feature.sh /usr/local/bin/olc-feature
 
 ## Через панель
 
-Пока — CLI. Когда добавится UI-страница «Network features», она будет вызывать тот же `olc-feature.sh` через `sudoers` whitelist.
+В админке (`/admin`) появилась карточка **Network features** под заголовком: показывает текущие toggle + live-состояние сервисов, кнопки `Enable/Disable` для каждого. Реализовано как:
+
+- `GET /api/features` — возвращает `{flags, live, script}`
+- `POST /api/features/{name}` — body `{"enabled": true|false}`, вызывает `olc-feature.sh <name> on|off`
+
+Whitelist имён жёсткий (`zapret/tor/split/webtunnel`), shell-injection невозможен — manager не подставляет имя в shell-строку, а передаёт его как отдельный argv. Manager уже бежит от root, дополнительный sudo не нужен.
+
+Откатить UI (если что-то не нравится) — `olc-feature off` в CLI работает независимо.

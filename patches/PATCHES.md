@@ -62,6 +62,8 @@ Legacy `.patch` в `patches/` — справочно; при конфликте 
 | `patch-olcrtc-manager-room-binding.sh` | Room ID без лишнего URL |
 | `patch-olcrtc-manager-runtime-dir.sh` | YAML в `/var/lib/olcrtc/manager-run` |
 | `patch-olcrtc-manager-postcss.sh` | PostCSS для сборки UI |
+| `patch-olcrtc-manager-features.sh` | `/api/features` + `/api/features/{name}` для toggle zapret/tor/split/webtunnel |
+| `patch-olcrtc-manager-panel-features.sh` | UI-карточка «Network features» в `/admin` |
 
 ---
 
