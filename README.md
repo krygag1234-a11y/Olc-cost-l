@@ -8,7 +8,7 @@
 
 | Компонент | Ветка | Ссылка |
 |-----------|--------|--------|
-| olcrtc | **`master`**+**`fix/all`** | https://github.com/openlibrecommunity/olcrtc, https://github.com/openlibrecommunity/olcrtc/tree/fix/all |
+| olcrtc | **`master`** | https://github.com/openlibrecommunity/olcrtc |
 | manager panel | **`main`** | https://github.com/BigDaddy3334/olcrtc-manager-panel |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
@@ -59,6 +59,10 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 ```
 
 ---
+
+## Roadmap
+
+Мастер-план задач (настройки Zp/Tor/Split/Мосты, update из UI, уведомления, баги): **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 
 ## Документация
 
