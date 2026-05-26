@@ -34,7 +34,7 @@
 | `patch-olcrtc-server-reconnect-debounce.sh` | Debounce smux reconnect (**5s**) |
 | `patch-olcrtc-server-jitsi-no-smux-reconnect.sh` | Jitsi bridge reconnect **без** smux tear-down |
 | `patch-j-xmpp-bind-fastfail.sh` | Быстрый fail при Prosody `bind` error (не ждать 60s EOF) |
-| `patch-olcrtc-jitsi-join-retry.sh` v2 | 6 ретраев с jitter, варьируется nick между попытками (избегает Prosody session-ghost), per-attempt timeout 14s |
+| `patch-olcrtc-jitsi-join-retry.sh` v3 | 6 ретраев с jitter, варьируется nick (избегает session-ghost), per-attempt timeout 14s; **cap=3 при подряд WS-dial-timeout** (хост недоступен — не жжём весь бюджет) |
 | `patch-olcrtc-goolom-reconnect-stable.sh` | Стабильный reconnect carrier |
 | `patch-olcrtc-goolom-reconnect-no-early-callback.sh` | Без раннего `onReconnect(nil)` |
 | `olcrtc-session-direct-cidrs.patch` | (legacy) проброс `direct_cidrs_file` в session |

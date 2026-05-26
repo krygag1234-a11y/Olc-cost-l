@@ -16,8 +16,9 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-MARKER = "joinRetryAttempts"          # in our new code
-LEGACY = "joinAndOpenBridgeWithRetry"  # from previous version (we'll replace it)
+MARKER = "joinDialMaxAttempts"         # v3 marker (cap on WS-dial timeouts)
+V2_MARKER = "joinRetryAttempts"        # v2 marker (we'll rewrite v2 → v3)
+LEGACY = "joinAndOpenBridgeWithRetry"  # from v1 (legacy, replaced too)
 
 # Original upstream block
 ORIG = """\tjSess, err := j.Join(ctx, j.Config{
@@ -31,11 +32,13 @@ ORIG = """\tjSess, err := j.Join(ctx, j.Config{
 \t}"""
 
 NEW = """\tconst joinRetryAttempts = 6
+\tconst joinDialMaxAttempts = 3 // cap retries when host is unreachable (WS dial timeout)
 \tconst joinPerAttemptTimeout = 14 * time.Second
 \tconst joinRetryBase = 1500 * time.Millisecond
 \tconst joinRetryMax = 10 * time.Second
 \tvar jSess *j.Session
 \tvar err error
+\tdialTimeoutStreak := 0
 \tfor attempt := 1; attempt <= joinRetryAttempts; attempt++ {
 \t\tactx, acancel := context.WithTimeout(ctx, joinPerAttemptTimeout)
 \t\tnick := s.name
@@ -59,6 +62,19 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\t\tbreak
 \t\t}
 \t\tmsg := err.Error()
+\t\t// Classify: WS dial timeout means the host is unreachable. No point
+\t\t// burning the full 6-attempt budget while the manager's liveness
+\t\t// timer kills us — bail after joinDialMaxAttempts in that case.
+\t\tisDialTimeout := strings.Contains(msg, \"xmpp dial\") &&
+\t\t\t(strings.Contains(msg, \"context deadline exceeded\") ||
+\t\t\t\tstrings.Contains(msg, \"failed to send handshake request\") ||
+\t\t\t\tstrings.Contains(msg, \"i/o timeout\") ||
+\t\t\t\tstrings.Contains(msg, \"connection refused\"))
+\t\tif isDialTimeout {
+\t\t\tdialTimeoutStreak++
+\t\t} else {
+\t\t\tdialTimeoutStreak = 0
+\t\t}
 \t\tretriable := strings.Contains(msg, \"bind\") ||
 \t\t\tstrings.Contains(msg, \"xmpp dial\") ||
 \t\t\tstrings.Contains(msg, \"discover services\") ||
@@ -66,7 +82,12 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\t\tstrings.Contains(msg, \"join muc\") ||
 \t\t\tstrings.Contains(msg, \"wait jingle\") ||
 \t\t\tstrings.Contains(msg, \"context deadline exceeded\")
-\t\tif attempt >= joinRetryAttempts || !retriable {
+\t\tbudgetExhausted := attempt >= joinRetryAttempts ||
+\t\t\t(isDialTimeout && dialTimeoutStreak >= joinDialMaxAttempts)
+\t\tif budgetExhausted || !retriable {
+\t\t\tif isDialTimeout && dialTimeoutStreak >= joinDialMaxAttempts {
+\t\t\t\treturn nil, fmt.Errorf(\"jitsi join: host %s unreachable after %d attempts: %w\", s.host, attempt, err)
+\t\t\t}
 \t\t\treturn nil, fmt.Errorf(\"jitsi join: %w\", err)
 \t\t}
 \t\td := time.Duration(attempt) * joinRetryBase
@@ -92,9 +113,8 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\treturn nil, fmt.Errorf(\"jitsi join: %w\", err)
 \t}"""
 
-# Pattern to match older patched version: a `for attempt := 1; attempt <= 4`
-# block we previously inserted.
-LEGACY_RE = re.compile(
+# Pattern for v1 (4 attempts hardcoded)
+V1_RE = re.compile(
     r"\tvar jSess \*j\.Session\n"
     r"\tvar err error\n"
     r"\tfor attempt := 1; attempt <= 4; attempt\+\+ \{\n"
@@ -105,17 +125,31 @@ LEGACY_RE = re.compile(
     re.MULTILINE,
 )
 
+# Pattern for v2 (6 attempts with joinRetryAttempts const but no dial-streak cap)
+V2_RE = re.compile(
+    r"\tconst joinRetryAttempts = 6\n"
+    r"\tconst joinPerAttemptTimeout[^\n]*\n"
+    r"(?:.*\n)*?"
+    r"\tif err != nil \{\n"
+    r"\t\treturn nil, fmt\.Errorf\(\"jitsi join: %w\", err\)\n"
+    r"\t\}",
+    re.MULTILINE,
+)
+
 if MARKER in t:
-    print("[patch-jitsi-retry] already at v2 (marker present) — nothing to do")
+    print("[patch-jitsi-retry] already at v3 (marker present) — nothing to do")
     sys.exit(0)
 
-# Replace either original block or legacy patched block
+# Replace original / v1 / v2 block
 if ORIG in t:
     t = t.replace(ORIG, NEW, 1)
     src = "upstream"
-elif LEGACY_RE.search(t):
-    t = LEGACY_RE.sub(NEW.replace("\\", "\\\\"), t, count=1)
-    src = "legacy v1"
+elif V2_RE.search(t):
+    t = V2_RE.sub(NEW.replace("\\", "\\\\"), t, count=1)
+    src = "v2"
+elif V1_RE.search(t):
+    t = V1_RE.sub(NEW.replace("\\", "\\\\"), t, count=1)
+    src = "v1"
 else:
     raise SystemExit("[patch-jitsi-retry] j.Join block not found in expected form")
 
@@ -137,5 +171,5 @@ if '"time"' not in t:
     raise SystemExit("[patch-jitsi-retry] time import missing")
 
 p.write_text(t)
-print(f"[patch-jitsi-retry] applied v2 (from {src})")
+print(f"[patch-jitsi-retry] applied v3 (from {src})")
 PY
