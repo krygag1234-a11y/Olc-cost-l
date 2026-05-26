@@ -49,6 +49,16 @@ export OLCRTC_SOFT_STEPS="webtunnel,zapret,cron,sysctl,split,bridges,fetch-commu
 
 ensure_install_symlink() {
   safety_ensure_olcrtc_symlink "$REPO_ROOT"
+  install -m 0755 "$SCRIPT_DIR/olc-update.sh" /usr/local/bin/olc-update 2>/dev/null || true
+}
+
+ensure_ui_build_deps() {
+  if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    return 0
+  fi
+  log "install nodejs/npm (needed to rebuild manager UI)"
+  apt-get update -qq
+  apt-get install -y -qq nodejs npm
 }
 
 usage() {
@@ -235,6 +245,7 @@ ensure_panel_jitsi_tls() {
 }
 
 run_patches() {
+  ensure_ui_build_deps
   BUILD=1 bash "$PATCH_SCRIPT"
   ensure_panel_jitsi_tls
 }

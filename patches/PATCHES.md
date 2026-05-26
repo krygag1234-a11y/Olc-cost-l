@@ -38,6 +38,8 @@
 | `patch-olcrtc-jitsi-extras.sh` | `jitsiJoinInsecureTLS()`, `bridgeOpenTimeout` 60s (SCTP / hyperia) |
 | `patch-olcrtc-manager-features-split-tolerant.sh` | Split toggle не отдаёт 500, если флаг уже записан |
 | `patch-olcrtc-manager-panel-features-v2.sh` | RU UI + подсказка Logs / panel.env |
+| `patch-olcrtc-manager-stop-action.sh` | API `/api/actions/stop` (остановка инстанса без удаления) |
+| `patch-olcrtc-manager-panel-stop-button.sh` | Кнопка `Stop` в действиях локации |
 | `patch-olcrtc-goolom-reconnect-stable.sh` | Стабильный reconnect carrier |
 | `patch-olcrtc-goolom-reconnect-no-early-callback.sh` | Без раннего `onReconnect(nil)` |
 | `olcrtc-session-direct-cidrs.patch` | (legacy) проброс `direct_cidrs_file` в session |
