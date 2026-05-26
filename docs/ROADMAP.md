@@ -31,8 +31,8 @@
 |----|--------|--------|-----------------|
 | 0.1 | **Копировать** в логах инстансов не работает | `[x]` | `copyLogs` теперь с `navigator.clipboard` + textarea/`execCommand` fallback (работает на http) |
 | 0.2 | В логах **патчей** (Zp/Tor/Sp/Мосты): кнопки **Копировать** + **Обновить** (не live stream) | `[x]` | `FeatureLogsModal`: кнопки «Обновить» и «Копировать» с fallback |
-| 0.3 | **Некорректный client_id** ломает всю панель (белый экран) | `[x]` | Backend: strict-валидация `client_id` (`a-zA-Z0-9_-`, до 64) для create/update/location |
-| 0.4 | **Jitsi URL** без `https://` — автодобавление схемы; не ругаться на полный URL | `[x]` | Backend: `normalizeRoomID` добавляет `https://` для доменов без схемы |
+| 0.3 | **Некорректный client_id** ломает всю панель (белый экран) | `[x]` | strict `client_id` + `normalizePanelState` + `PanelErrorBoundary` |
+| 0.4 | **Jitsi URL** без `https://` / мусор (`аыпвпв`) | `[x]` | `validateRoomIDStrict` + `sanitizeConfigInvalidLocations` на load |
 | 0.5 | Синхронизация header ↔ «Сеть и обход» | `[x]` | `olc-features-changed` (v3) |
 | 0.6 | Split только при включённом Tor | `[x]` | UI + `olc-feature.sh` |
 | 0.7 | Удаление локации не блокирует всю панель | `[x]` | `pendingLocations` + async reload |
