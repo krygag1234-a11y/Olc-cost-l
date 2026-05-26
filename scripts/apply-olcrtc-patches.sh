@@ -86,11 +86,12 @@ apply_olcrtc() {
   bash "$SCRIPT_DIR/patch-olcrtc-server-jitsi-no-smux-reconnect.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-join-retry.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-extras.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
+  # goolom: fix/all already has correct backoff (2s) and maxReconnects (10).
+  # Our old patches that changed those values are now noops / skip automatically.
   bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-stable.sh" "$OLCRTC_REPO/internal/engine/goolom"
   bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-no-early-callback.sh" "$OLCRTC_REPO/internal/engine/goolom/lifecycle.go"
-  # Ensure datachannel payload (fallback if patch hunk failed)
-  sed -i 's/defaultMaxPayloadSize = .*/defaultMaxPayloadSize = 16*1024 - 12/' \
-    "$OLCRTC_REPO/internal/transport/datachannel/transport.go" 2>/dev/null || true
+  # datachannel payload: fix/all uses 12*1024 (conservative), keep it as-is
+  : # no override needed — fix/all already has 12*1024
   (cd "$OLCRTC_REPO" && go mod download github.com/zarazaex69/j 2>/dev/null || go mod download)
   bash "$SCRIPT_DIR/patch-j-xmpp-bind-fastfail.sh" "$OLCRTC_REPO"
 }

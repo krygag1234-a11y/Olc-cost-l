@@ -1,12 +1,12 @@
 {
   "olcrtc": {
     "repo": "https://github.com/openlibrecommunity/olcrtc.git",
-    "branch": "master",
-    "pinned_sha": "af9eeea74029c3f924d19c8adfe60975e9def6af",
-    "upstream_head": "af9eeea74029c3f924d19c8adfe60975e9def6af",
-    "last_sync": "2026-05-25T13:30:00+00:00",
+    "branch": "fix/all",
+    "pinned_sha": "d7c813265b016892fc8da225125840961e14ecde",
+    "upstream_head": "d7c813265b016892fc8da225125840961e14ecde",
+    "last_sync": "2026-05-26T14:43:00+00:00",
     "last_apply_ok": null,
-    "notes": "Jitsi RTCP+SCTP; vp8 epoch latch (WB/Telemost); meet.cryptopro docs"
+    "notes": "vp8 epoch rotate on KCP reset; seichannel 60fps/batch64/smart-ack; goolom 2s backoff/10 maxReconnects"
   },
   "olcrtc-manager": {
     "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
