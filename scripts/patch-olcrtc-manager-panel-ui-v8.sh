@@ -102,7 +102,6 @@ t = t.replace(
 t = t.replace(
     '            <MainSettingsAutodetectLink />',
     '            <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />',
-    1,
 )
 
 t = t.replace(

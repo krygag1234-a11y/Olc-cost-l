@@ -54,29 +54,30 @@ function MainSettingsAutodetectLink() {
 '''
     t = t.replace('function NotificationBell()', MAIN_SETTINGS_AUTODETECT_LINK + '\nfunction NotificationBell()', 1)
 
-# Collapse duplicate JSX blocks from stacked patches.
-t = re.sub(
-    rf'(\s*{re.escape(AUTODETECT_JSX)}\s*\n){{2,}}',
-    '\n            ' + AUTODETECT_JSX + '\n',
-    t,
-)
+# Collapse duplicate JSX blocks (multiline + single-line from stacked v7/v8 patches).
+def dedupe_autodetect_settings_jsx(src: str) -> str:
+    canon = '\n            ' + AUTODETECT_JSX + '\n'
+    pwd = '<div className="text-sm font-medium text-foreground">Пароль администратора</div>'
+    idx_pwd = src.find(pwd)
+    if idx_pwd < 0:
+        return src
+    head = src[:idx_pwd]
+    tail = src[idx_pwd:]
+    head = re.sub(r'\s*<MainSettingsAutodetectLink[\s\S]*?/>', '', head)
+    insert_at = head.rfind('</button>')
+    if insert_at < 0:
+        return src
+    insert_at = head.find('\n', insert_at)
+    if insert_at < 0:
+        return src
+    # Close surrounding save-actions div, then one autodetect block.
+    head = head[: insert_at + 1] + '\n' + canon + head[insert_at + 1 :]
+    head = re.sub(r'\n{4,}', '\n\n\n', head)
+    return head + tail
 
-# Drop duplicate MainSettingsAutodetectLink with props (keep first).
-t = re.sub(
-    r'(function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)(?:\n*function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)+',
-    r'\1',
-    t,
-    count=1,
-)
-# Drop duplicate no-props copies when stacked.
-while t.count('function MainSettingsAutodetectLink()') > 1:
-    t = re.sub(
-        r'\nfunction MainSettingsAutodetectLink\(\) \{\n(?:.*\n)*?\}\n(?=\nfunction MainSettingsAutodetectLink)',
-        '\n',
-        t,
-        count=1,
-    )
-# Drop duplicate MainSettingsAutodetectLink with props (keep first).
+t = dedupe_autodetect_settings_jsx(t)
+
+# Drop duplicate MainSettingsAutodetectLink with props (keep first function).
 t = re.sub(
     r'(function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)(?:\n*function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)+',
     r'\1',
