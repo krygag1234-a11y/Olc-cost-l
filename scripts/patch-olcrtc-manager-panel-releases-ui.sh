@@ -3,7 +3,7 @@
 set -euo pipefail
 MAIN_TSX="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/src/main.tsx}"
 [[ -f "$MAIN_TSX" ]] || exit 0
-grep -q 'olc-releases-ui' "$MAIN_TSX" && { echo "[patch-panel-releases-ui] already applied"; exit 0; }
+grep -q 'olc-releases-ui' "$MAIN_TSX" && grep -q 'Релиз стека' "$MAIN_TSX" && { echo "[patch-panel-releases-ui] already applied"; exit 0; }
 
 python3 - "$MAIN_TSX" <<'PY'
 import sys
