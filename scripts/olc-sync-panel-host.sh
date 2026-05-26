@@ -42,6 +42,9 @@ merge_hosts() {
       echo "[panel-host] added to direct list: $h"
     fi
   done <"$PANEL_HOSTS"
+  if [[ "${OLC_SKIP_ZAPRET_SYNC:-0}" == "1" ]]; then
+    return 0
+  fi
   if [[ -x "$REPO_ROOT/scripts/zapret-sync-excludes.sh" ]] \
     && [[ "${OLCRTC_ENABLE_ZAPRET:-1}" == "1" ]]; then
     bash "$REPO_ROOT/scripts/zapret-sync-excludes.sh" --reload-zapret 2>/dev/null \
@@ -70,7 +73,7 @@ remove_host() {
     mv "${DIRECT_LIST}.tmp" "$DIRECT_LIST"
     echo "[panel-host] removed from direct list: $h"
   fi
-  merge_hosts
+  OLC_SKIP_ZAPRET_SYNC=1 merge_hosts
 }
 
 sync_config() {

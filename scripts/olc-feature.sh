@@ -130,6 +130,11 @@ tor_off() {
 
 # ---------- SPLIT (direct lists for olcrtc) ----------
 split_on() {
+  _load
+  if [[ "${OLCRTC_ENABLE_TOR:-1}" != "1" ]]; then
+    echo "[split] ERROR: сначала включите Tor (split: *.ru direct, остальное через Tor exit)" >&2
+    return 1
+  fi
   _save OLCRTC_ENABLE_SPLIT 1
   local d=/var/lib/olcrtc/lists
   install -d "$d"
