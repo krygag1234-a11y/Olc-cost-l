@@ -192,7 +192,14 @@ EOF
   systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
 }
 
+install_olc_feature_symlink() {
+  if [[ -f "$SCRIPT_DIR/olc-feature.sh" ]] && [[ ! -L /usr/local/bin/olc-feature ]]; then
+    ln -sfn "$SCRIPT_DIR/olc-feature.sh" /usr/local/bin/olc-feature 2>/dev/null || true
+  fi
+}
+
 setup_cron() {
+  install_olc_feature_symlink
   local cronf=/etc/cron.d/olcrtc-healthcheck
   safety_path_allowed "$cronf" || return 1
   cat >"$cronf" <<EOF
