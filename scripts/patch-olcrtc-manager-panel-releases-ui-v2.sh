@@ -55,6 +55,17 @@ blocks = [
     ),
     (
         '''              <div className="mt-1 text-muted-foreground">
+                GitHub release:{" "}
+                {status?.latest_release_tag ? (
+                  <code>{String(status.latest_release_tag)}</code>
+                ) : (
+                  <span className="text-amber-400">ещё нет — проверка по origin/main</span>
+                )}
+              </div>''',
+        release_block,
+    ),
+    (
+        '''              <div className="mt-1 text-muted-foreground">
                 Релиз стека:{" "}
                 {status?.latest_release_tag ? (
                   <code>{String(status.latest_release_tag)}</code>
