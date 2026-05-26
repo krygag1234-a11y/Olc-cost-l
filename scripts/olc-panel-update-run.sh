@@ -3,6 +3,9 @@
 set -euo pipefail
 
 REPO_ROOT="${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-git-safe.sh
+source "$SCRIPT_DIR/lib-git-safe.sh"
 JOB_ID="${1:-update-$(date -u +%Y%m%dT%H%M%SZ)}"
 LOCK=/var/lib/olcrtc/panel-update.lock
 STATUS=/var/lib/olcrtc/panel-update-status.json
@@ -34,9 +37,9 @@ trap cleanup EXIT
 write_status running 0 ""
 {
   echo "=== panel update $JOB_ID $(date -u -Iseconds) ==="
-  cd "$REPO_ROOT"
-  git fetch origin main --depth 1 2>/dev/null || git fetch origin main
-  git pull --ff-only origin main
+  olc_git_safe_register "$REPO_ROOT"
+  olc_git "$REPO_ROOT" fetch origin main --depth 1 2>/dev/null || olc_git "$REPO_ROOT" fetch origin main
+  olc_git "$REPO_ROOT" pull --ff-only origin main
   BUILD=1 bash scripts/apply-olcrtc-patches.sh
   systemctl restart olcrtc-manager
   echo "=== done $(date -u -Iseconds) ==="

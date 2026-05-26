@@ -15,6 +15,7 @@ Usage:
   olc-profile list                 # available template ids
   olc-profile set <profile-id>     # install template (ru-full, foreign-minimal, …)
   olc-profile write              # save profile from current env/flags
+  olc-profile sync               # rebuild profile from installed packages (UI ±)
 
 File: $OLCRTC_DEPLOY_PROFILE
 EOF
@@ -41,7 +42,13 @@ case "$cmd" in
     [[ -n "$id" ]] || { echo "usage: olc-profile set <id>" >&2; exit 1; }
     profile_install_template "$id"
     profile_apply_env
-  profile_show
+    profile_show
+    ;;
+  sync)
+    need_root
+    profile_sync_from_installed
+    profile_apply_env
+    profile_show
     ;;
   write)
     need_root

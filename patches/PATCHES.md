@@ -1,6 +1,6 @@
 # Патчи относительно upstream (обязательны для Jitsi + панель + RU VPS)
 
-**Обновлено:** 2026-05-24  
+**Обновлено:** 2026-05-26  
 **Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master)  
 **Панель:** [`main`](https://github.com/BigDaddy3334/olcrtc-manager-panel)  
 **Применение:** `scripts/apply-olcrtc-patches.sh` или `upstream-sync.sh --apply`
@@ -68,7 +68,22 @@ Legacy `.patch` в `patches/` — справочно; при конфликте 
 | `patch-olcrtc-manager-runtime-dir.sh` | YAML в `/var/lib/olcrtc/manager-run` |
 | `patch-olcrtc-manager-postcss.sh` | PostCSS для сборки UI |
 | `patch-olcrtc-manager-features.sh` | `/api/features` + `/api/features/{name}` для toggle zapret/tor/split/webtunnel |
-| `patch-olcrtc-manager-panel-features.sh` | UI-карточка «Network features» в `/admin` |
+| `patch-olcrtc-manager-panel-backend-v4.sh` | Updates API, jobs, notifications |
+| `patch-olcrtc-manager-git-safe-dir.sh` | `runGitShort`: `git -c safe.directory=…` (root manager + deploy-user repo) |
+| `patch-olcrtc-manager-project-status*.sh` | `GET /api/project/status` — Git SHA, stack, patch counters |
+| `patch-olcrtc-manager-panel-project-ui-fix.sh` | Модалка «Проект»: стек + Git (идемпотентно после ui-v7) |
+| `lib-git-safe.sh` | `olc_git` / `olc_git_safe_register` для shell-скриптов (`install`, `olc-update`, bootstrap) |
+| `patch-olcrtc-manager-warp-settings-v2.sh` | Расширенные поля WARP (proxy, autoconnect, plus) |
+| `patch-olcrtc-manager-components-jobs-v2.sh` | `GET /api/components/jobs` — статус install/uninstall jobs |
+| `patch-olcrtc-manager-panel-ui-warp.sh` / `*-v2.sh` | UI: WARP toggle, настройки, сеть и обход |
+| `patch-olcrtc-manager-panel-components-jobs-v2.sh` | Inline job log в drawer «Компоненты VPS» |
+| `patch-olcrtc-manager-panel-ui-v8.sh` … `v10.sh` | Проект/графики, rename профиля, collapsible network |
+| `patch-olcrtc-manager-panel-ui-fixes.sh` | Dedupe legacy patch stacking (JSX, hints, join) |
+| `patch-olcrtc-manager-bridge-profiles*.sh` | Профили мостов → `bridges.conf` при save |
+| `patch-olcrtc-manager-olcrtc-settings*.sh` | Carrier/transport/socks в настройках olcrtc |
+| `patch-olcrtc-manager-project-status*.sh` | Модалка «Проект» + метрики |
+| `patch-olcrtc-manager-go-fixes.sh` | Go string/build fixes после stacked patches |
+| `install-warp.sh` | Установка `cloudflare-warp` (proxy only, SSH guards) |
 
 ---
 
@@ -83,6 +98,7 @@ Legacy `.patch` в `patches/` — справочно; при конфликте 
 | `configure-tor-exit.sh` | ExitNodes EU, exclude RU/CIS |
 | `discover-page-hosts.sh` | Домены со страницы плеера |
 | `install-zapret-vps.sh` | Zapret nfqws на direct |
+| `install-warp.sh` | Cloudflare WARP (proxy mode, SSH route guard) |
 | `sync-zapret-hostlist.sh` | Hostlist zapret |
 | `data/ru-domains-extra.txt` | CDN вне `*.ru` |
 

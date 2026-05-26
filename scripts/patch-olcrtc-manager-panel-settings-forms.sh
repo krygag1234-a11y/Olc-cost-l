@@ -97,6 +97,7 @@ function ComponentSettingsModal({
   };
 
   const setStr = (key: string, value: string) => setSettings((s) => ({ ...s, [key]: value }));
+  const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));
 
   return (
     <Modal title={`Настройки: ${title}`} onClose={onClose}>
@@ -107,6 +108,14 @@ function ComponentSettingsModal({
           <>
             {feature === "zapret" && (
               <>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.auto_sync)}
+                    onChange={(e) => setBool("auto_sync", e.target.checked)}
+                  />
+                  Еженедельный auto-sync exclude списков
+                </label>
                 <label className="grid gap-1 text-muted-foreground">
                   Домены-исключения (direct, по строке)
                   <textarea
@@ -131,9 +140,26 @@ function ComponentSettingsModal({
             {feature === "tor" && (
               <>
                 <p className="text-xs text-muted-foreground">SOCKS порт: {String(settings.socks_port ?? "9050")}</p>
-                <p className="text-xs text-muted-foreground">ExitNodes: {String(settings.exit_nodes ?? "—")}</p>
+                <label className="grid gap-1 text-muted-foreground">
+                  ExitNodes
+                  <input
+                    className="h-9 rounded-md border border-border bg-background px-2 font-mono text-xs"
+                    value={String(settings.exit_nodes ?? "")}
+                    onChange={(e) => setStr("exit_nodes", e.target.value)}
+                    placeholder="{de},{nl},{fi}"
+                  />
+                </label>
+                <label className="grid gap-1 text-muted-foreground">
+                  ExcludeExitNodes
+                  <input
+                    className="h-9 rounded-md border border-border bg-background px-2 font-mono text-xs"
+                    value={String(settings.exclude_exit_nodes ?? "")}
+                    onChange={(e) => setStr("exclude_exit_nodes", e.target.value)}
+                    placeholder="{ru},{by},{ua}"
+                  />
+                </label>
                 <p className="text-xs text-muted-foreground">
-                  Смена torrc — через olc-update / вручную /etc/tor/torrc (перезапуск инстансов).
+                  После сохранения применяется configure-tor-exit (может потребоваться перезапуск инстансов).
                 </p>
               </>
             )}
@@ -145,6 +171,14 @@ function ComponentSettingsModal({
                     className="min-h-[100px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.custom_direct_domains ?? "")}
                     onChange={(e) => setStr("custom_direct_domains", e.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-muted-foreground">
+                  Список panel/carrier hosts
+                  <textarea
+                    className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
+                    value={String(settings.panel_hosts ?? "")}
+                    onChange={(e) => setStr("panel_hosts", e.target.value)}
                   />
                 </label>
                 <p className="text-xs text-muted-foreground">

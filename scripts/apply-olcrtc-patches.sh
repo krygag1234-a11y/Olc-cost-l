@@ -7,6 +7,9 @@ REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh"
+# shellcheck source=lib-git-safe.sh
+source "$SCRIPT_DIR/lib-git-safe.sh"
+olc_git_safe_register "$REPO_ROOT"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
@@ -29,38 +32,44 @@ clone_repos() {
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   local pin_sha
   pin_sha="$(pin_olcrtc_sha)"
+  olc_git_safe_register "$OLCRTC_REPO"
+  olc_git_safe_register "$MGR_REPO"
   if [[ -d "$OLCRTC_REPO/.git" ]]; then
     if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
       log "refresh olcrtc $OLCRTC_BRANCH"
-      git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1 2>/dev/null || \
-        git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH"
-      git -C "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
+      olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1 2>/dev/null || \
+        olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH"
+      olc_git "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
     elif [[ -n "$pin_sha" ]]; then
       log "checkout pinned olcrtc ${pin_sha:0:12}"
-      git -C "$OLCRTC_REPO" fetch origin "$pin_sha" --depth 1 2>/dev/null || \
-        git -C "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 50
-      git -C "$OLCRTC_REPO" reset --hard "$pin_sha" 2>/dev/null || true
+      olc_git "$OLCRTC_REPO" fetch origin "$pin_sha" --depth 1 2>/dev/null || \
+        olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 50
+      olc_git "$OLCRTC_REPO" reset --hard "$pin_sha" 2>/dev/null || true
     fi
   elif [[ -e "$OLCRTC_REPO" ]]; then
     rm -rf "$OLCRTC_REPO"
     git clone -b "$OLCRTC_BRANCH" --depth 1 \
       https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
+    olc_git_safe_register "$OLCRTC_REPO"
   else
     git clone -b "$OLCRTC_BRANCH" --depth 1 \
       https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
+    olc_git_safe_register "$OLCRTC_REPO"
   fi
   if [[ -d "$MGR_REPO/.git" ]]; then
     if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
       log "refresh manager main"
-      git -C "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
-        git -C "$MGR_REPO" fetch origin main
-      git -C "$MGR_REPO" reset --hard origin/main
+      olc_git "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
+        olc_git "$MGR_REPO" fetch origin main
+      olc_git "$MGR_REPO" reset --hard origin/main
     fi
   elif [[ -e "$MGR_REPO" ]]; then
     rm -rf "$MGR_REPO"
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
+    olc_git_safe_register "$MGR_REPO"
   else
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
+    olc_git_safe_register "$MGR_REPO"
   fi
 }
 
@@ -116,8 +125,22 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-room-validate.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-capabilities.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-olcrtc-settings.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-olcrtc-settings-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-profiles.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-profiles-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-go-fixes.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-status.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-status-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-status-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-pool-job.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v4.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-notification-settings.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backend-v4.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backend-v4-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-git-safe-dir.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-settings-actions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-room-binding.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-runtime-dir.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
@@ -139,7 +162,22 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-safe-state.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-room-hint.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-settings-forms.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-settings-forms-v2.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-phase456-ui.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v5.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v6.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v7.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v8.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v9.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v10.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-fixes.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-project-ui-fix.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-warp-feature.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-warp-settings-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-components-jobs-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-warp.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-warp-v2.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-components-jobs-v2.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-stop-button.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"

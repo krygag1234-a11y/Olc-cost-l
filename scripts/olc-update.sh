@@ -27,6 +27,8 @@ detect_repo() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
+# shellcheck source=lib-git-safe.sh
+source "$SCRIPT_DIR/lib-git-safe.sh"
 
 main() {
   need_root "$@"
@@ -44,7 +46,8 @@ main() {
   }
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
-  git pull --ff-only origin main
+  olc_git_safe_register "$repo"
+  olc_git "$repo" pull --ff-only origin main
   # Re-read profile id if passed as --profile <id>
   local boot_args=(--update)
   local i=1

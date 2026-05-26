@@ -1,17 +1,18 @@
 {
   "schema": 1,
-  "profile_id": "foreign-minimal",
-  "label": "Зарубежный VPS: только olcrtc + панель",
+  "profile_id": "foreign-warp",
+  "label": "Зарубежный VPS: OlcRTC + WARP (без Tor)",
   "components": {
     "tor": false,
     "split": false,
     "zapret": false,
     "bridges": false,
-    "warp": false
+    "warp": true
   },
   "ru_vps": false,
   "update_steps": [
     "patches",
+    "warp",
     "systemd",
     "cleanup-tmp",
     "restart-manager"

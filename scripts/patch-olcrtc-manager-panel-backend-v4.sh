@@ -65,7 +65,9 @@ func olcRepoRoot() string {
 func runGitShort(repo string, args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repo}, args...)...)
+	gitArgs := []string{"-c", "safe.directory=" + repo, "-C", repo}
+	gitArgs = append(gitArgs, args...)
+	cmd := exec.CommandContext(ctx, "git", gitArgs...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.Output()
 	if err != nil {

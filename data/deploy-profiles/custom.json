@@ -1,15 +1,16 @@
 {
   "schema": 1,
-  "profile_id": "ru-full",
-  "label": "RU VPS: Tor + Split + Zapret + Мосты",
+  "profile_id": "custom",
+  "label": "Смешанный профиль (установка через UI/CLI)",
   "components": {
-    "tor": true,
-    "split": true,
-    "zapret": true,
-    "bridges": true,
+    "tor": false,
+    "split": false,
+    "zapret": false,
+    "bridges": false,
     "warp": false
   },
   "ru_vps": true,
+  "update_mode": "incremental",
   "update_steps": [
     "patches",
     "sysctl",
@@ -17,6 +18,7 @@
     "split",
     "fetch-community-lists",
     "zapret",
+    "warp",
     "systemd",
     "cron",
     "cleanup-tmp",

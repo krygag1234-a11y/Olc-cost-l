@@ -24,6 +24,8 @@ Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.m
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
 # Иностранный VPS (без Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-tor
+# Иностранный VPS + Cloudflare WARP (proxy, без Tor):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --with-warp
 # Только обновление:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
@@ -52,6 +54,7 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 | **Пул мостов** | igareck + [Tor-Bridges-Collector](https://github.com/Delta-Kronecker/Tor-Bridges-Collector) (`data/bridge-extra-urls.txt`) |
 | **Мониторинг** | healthcheck */10, monitor */20, pool */6h, **deep check** раз в неделю |
 | **zapret** | DPI на direct egress для заблокированных `.ru` |
+| **WARP** (опц.) | Cloudflare SOCKS5 на foreign VPS вместо Tor — [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) |
 | **Списки** | `*.ru`, CDN, `2ipcore`, force-tor (YouTube), geosite |
 
 ```text
@@ -82,7 +85,8 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 | [UPSTREAM-OLCRTC.md](docs/UPSTREAM-OLCRTC.md) | Upstream olcrtc: carriers, обновления, WB/Telemost/Jitsi |
 | [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | Отличия Olc-cost-l от upstream |
 | [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |
-| [FEATURES.md](docs/FEATURES.md) | `olc-feature` — toggle zapret/tor/split/webtunnel |
+| [FEATURES.md](docs/FEATURES.md) | `olc-feature` — toggle zapret/tor/split/webtunnel/warp |
+| [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) | Cloudflare WARP (proxy mode, foreign VPS) |
 | [RESUME-INSTALL.md](docs/RESUME-INSTALL.md) | Resumable install/update + webtunnel mirror |
 
 ---
@@ -113,6 +117,7 @@ sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
 |------|-----------|
 | `--full` | Tor + split + zapret + патчи |
 | `--full --no-tor` | Иностранный VPS, без мостов |
+| `--with-warp` | Foreign VPS + WARP proxy (без Tor) |
 | `--no-split` | Tor на весь трафик |
 | `--update` | git pull, пересборка, списки, units |
 

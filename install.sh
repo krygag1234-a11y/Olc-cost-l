@@ -4,6 +4,7 @@
 # One URL for everything:
 #   curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
 #   curl -fsSL ... | sudo bash -s -- --no-tor          # foreign VPS
+#   curl -fsSL ... | sudo bash -s -- --with-warp       # foreign VPS + Cloudflare WARP (без Tor)
 #   curl -fsSL ... | sudo bash -s -- --full            # force clean deps + rebuild
 #   curl -fsSL ... | sudo bash -s -- --update          # force update only
 #   curl -fsSL ... | sudo bash -s -- --resume          # продолжить с последнего успешного шага
@@ -107,7 +108,9 @@ else
 fi
 
 export OLC_REPO_ROOT="$INSTALL_DIR"
-git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+# shellcheck source=scripts/lib-git-safe.sh
+source "$INSTALL_DIR/scripts/lib-git-safe.sh"
+olc_git_safe_register "$INSTALL_DIR"
 ln -sfn "$INSTALL_DIR" /opt/olcrtc 2>/dev/null || true
 chmod +x "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/install.sh 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-update.sh" /usr/local/bin/olc-update 2>/dev/null || true

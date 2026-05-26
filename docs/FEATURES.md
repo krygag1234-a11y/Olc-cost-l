@@ -17,7 +17,8 @@
 | `olc-feature tor on\|off`           | Старт/стоп `tor@default`, убирает `OLCRTC_EXIT_PROXY` у панели |
 | `olc-feature split on\|off`         | Включает/выключает `*.ru`/CDN direct-списки для olcrtc         |
 | `olc-feature webtunnel on\|off`     | Скачивает binary из mirror-cry / удаляет                       |
-| `olc-feature all-off`              | zapret + tor + split → off (минимальный режим для тестов)      |
+| `olc-feature warp on\|off\|status`  | Cloudflare WARP (**proxy only**); взаимоисключение с Tor       |
+| `olc-feature all-off`              | zapret + tor + split + warp → off (минимальный режим для тестов) |
 | `olc-feature all-on`               | Восстановить все слои                                          |
 
 Симлинк, чтобы не писать полный путь:
@@ -39,13 +40,36 @@ sudo ln -sf /opt/Olc-cost-l/scripts/olc-feature.sh /usr/local/bin/olc-feature
 
 ## Профиль деплоя (умный update)
 
-Файл `/etc/olcrtc-manager/deploy-profile.json` — какие компоненты ставить при `olc-update`
-(foreign VPS без Tor/zapret/split не гоняет тяжёлые шаги).
+**Один файл** — `/etc/olcrtc-manager/deploy-profile.json`. Это не несколько отпечатков и не сумма: один JSON с флагами `components.{tor,split,zapret,bridges,warp}`.
+
+### Два слоя состояния (не путать)
+
+| Слой | Файл | Что означает |
+|------|------|--------------|
+| **Состав стека** | `deploy-profile.json` | Какие шаги гонять при `olc-update` (Tor, zapret, WARP…) |
+| **Вкл/выкл сейчас** | `features.env` | Переключатели в шапке панели (сервис остановлен, конфиги на диске) |
+
+- **± Установить/Удалить** в панели → меняет `deploy-profile.json` (после job).
+- **Toggle Zp/Tor/Sp/Wt/WARP** в шапке → только `features.env`; состав стека не меняется.
+- При `olc-update` шаги идут по **профилю**; после обслуживания **не включают** сервис, если в `features.env` он выключен.
+
+### Пресеты и custom
+
+| `profile_id` | Когда |
+|--------------|-------|
+| `ru-full`, `foreign-minimal`, `foreign-warp`, … | Совпадает с шаблоном в `data/deploy-profiles/` |
+| `custom` | Смесь компонентов (например, zapret+split без Tor после установки через UI) |
+
+Если набор не совпадает ни с одним шаблоном — `profile_id` становится **`custom`**, не создаётся второй файл.
+
+### Команды
 
 ```bash
 olc-profile show
 olc-profile list
 olc-profile set foreign-minimal
+olc-profile set foreign-warp    # зарубежный VPS + WARP (без Tor)
+olc-profile sync                # пересобрать профиль по установленным пакетам (ручной откат)
 olc-update --show-profile
 olc-update --profile ru-full
 ```
@@ -68,10 +92,12 @@ olc-sync-panel-host.sh sync-config   # пересобрать из config.json
 
 ## Через панель
 
-В шапке `/admin`: для каждого слоя (**Zp / Tor / Sp / Wt**) — переключатель, кнопка **логов** и **настроек** (краткая справка по слою).
-Та же тройка дублируется в карточке **«Сеть и обход»**; состояние синхронизируется через событие `olc-features-changed`.
+В шапке `/admin`: для каждого слоя (**Zp / Tor / Sp / Wt / WARP**) — переключатель, кнопка **логов** и **настроек** (краткая справка по слою).
+Та же тройка дублируется в карточке **«Сеть и обход»** (сворачивается, состояние в `localStorage`); синхронизация через `olc-features-changed`.
 
 - **Split** нельзя включить, пока выключен **Tor** (и в UI, и в `olc-feature split on`).
+- **Tor** и **WARP** взаимоисключающие (и в UI, и в `olc-feature.sh`).
+- **WARP** всегда виден в UI (даже до установки); установка — drawer **«Компоненты VPS»** (±) с job-логом и статусом после перезагрузки страницы (`GET /api/components/jobs`).
 - У локации: **Стоп** (без удаления), **Restart**, **Логи**.
 - **Удалить локацию** — только эта строка блокируется на ~5–15 с; остальные клиенты/кнопки активны; перезагрузка инстансов идёт в фоне.
 
@@ -85,6 +111,8 @@ olc-sync-panel-host.sh sync-config   # пересобрать из config.json
 - `GET /api/features` — возвращает `{flags, live, script}`
 - `POST /api/features/{name}` — body `{"enabled": true|false}`, вызывает `olc-feature.sh <name> on|off`
 
-Whitelist имён жёсткий (`zapret/tor/split/webtunnel`), shell-injection невозможен — manager не подставляет имя в shell-строку, а передаёт его как отдельный argv. Manager уже бежит от root, дополнительный sudo не нужен.
+Whitelist имён жёсткий (`zapret/tor/split/webtunnel/warp`), shell-injection невозможен — manager не подставляет имя в shell-строку, а передаёт его как отдельный argv. Manager уже бежит от root, дополнительный sudo не нужен.
+
+Подробнее про WARP: [WARP-OPTIONAL.md](WARP-OPTIONAL.md).
 
 Откатить UI (если что-то не нравится) — `olc-feature off` в CLI работает независимо.

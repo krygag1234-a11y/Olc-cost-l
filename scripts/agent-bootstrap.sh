@@ -7,7 +7,7 @@
 #   agent-bootstrap.sh --no-tor            # иностранный VPS: только панель+olcrtc, без Tor/split/мостов
 #   agent-bootstrap.sh --with-tor          # RU VPS: Tor + bridge pool + split (RU+CDN+плееры)
 #   agent-bootstrap.sh --no-split          # RU VPS: Tor без списков direct (весь трафик через exit)
-#   agent-bootstrap.sh --foreign           # то же что --no-tor (явно не-RU)
+#   agent-bootstrap.sh --with-warp          # foreign VPS: WARP proxy вместо Tor
 #   agent-bootstrap.sh --rebuild-only      # only apply patches + rebuild binaries
 #   agent-bootstrap.sh --update            # git pull path: lists + patches + tor exit (no apt)
 #   agent-bootstrap.sh --resume            # продолжить с последнего успешного шага
@@ -29,6 +29,7 @@ export OLC_REPO_ROOT="$REPO_ROOT"
 FULL=0
 ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
 ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
+ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
 RU_VPS="${OLCRTC_RU_VPS:-1}"
 REBUILD_ONLY=0
 UPDATE=0
@@ -42,6 +43,8 @@ source "$SCRIPT_DIR/safety-lib.sh"
 source "$SCRIPT_DIR/lib-webtunnel-build.sh"
 # shellcheck source=lib-install-state.sh
 source "$SCRIPT_DIR/lib-install-state.sh"
+# shellcheck source=lib-git-safe.sh
+source "$SCRIPT_DIR/lib-git-safe.sh"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 
@@ -75,7 +78,8 @@ usage() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full) FULL=1 ;;
-    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
+    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0; ENABLE_WARP=0 ;;
+    --with-warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
     --with-tor) ENABLE_TOR=1; RU_VPS=1 ;;
     --no-split) ENABLE_SPLIT=0; RU_VPS=1 ;;
     --no-zapret) export OLCRTC_ENABLE_ZAPRET=0 ;;
@@ -105,7 +109,7 @@ fi
 profile_apply_env
 
 if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]] && [[ "$UPDATE" -ne 1 ]]; then
-  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap"
+  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP"
 fi
 
 require_root() {
@@ -132,6 +136,20 @@ build_webtunnel() {
   build_webtunnel_client log || true
 }
 
+setup_warp() {
+  [[ "${ENABLE_WARP:-0}" -eq 1 ]] || { log "skip WARP (not in deploy profile)"; return 0; }
+  bash "$SCRIPT_DIR/install-warp.sh"
+  if [[ -f /etc/olcrtc-manager/features.env ]]; then
+    # shellcheck disable=SC1091
+    set -a; source /etc/olcrtc-manager/features.env; set +a
+  fi
+  if [[ "${OLCRTC_ENABLE_WARP:-0}" == "1" ]]; then
+    bash "$SCRIPT_DIR/olc-feature.sh" warp on || true
+  else
+    log "warp: installed/updated; left disconnected (features.env WARP=0)"
+  fi
+}
+
 setup_tor() {
   [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
   bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
@@ -148,8 +166,19 @@ setup_tor() {
     bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types "$btypes" || \
     bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
   bash "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --types "$btypes" 2>/dev/null || true
-  systemctl enable tor@default.service
-  systemctl restart tor@default.service || true
+  # Respect features.env: maintenance may run, but don't force-start if user toggled off.
+  if [[ -f /etc/olcrtc-manager/features.env ]]; then
+    # shellcheck disable=SC1091
+    set -a; source /etc/olcrtc-manager/features.env; set +a
+  fi
+  if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
+    systemctl enable tor@default.service
+    systemctl restart tor@default.service || true
+  else
+    systemctl stop tor@default.service 2>/dev/null || true
+    systemctl disable tor@default.service 2>/dev/null || true
+    log "tor: pools refreshed; service left stopped (features.env TOR=0)"
+  fi
   systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
     olcrtc-tor-bridge-deep.timer 2>/dev/null || true
   bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
@@ -252,6 +281,7 @@ EOF
 
 # --- main ---
 require_root
+olc_git_safe_register "${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 ensure_install_symlink
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
 state_init
@@ -298,8 +328,10 @@ setup_zapret() {
 
 if [[ "$UPDATE" -eq 1 ]]; then
   log "UPDATE: refresh lists, patches, tor exit, zapret, units (resumable)"
+  profile_apply_env
   state_step_profile patches              run_patches
   state_step_profile sysctl               setup_sysctl
+  state_step_profile warp                 setup_warp
   state_step_profile tor                  setup_tor
   state_step_profile split                setup_split_routing
   state_step_profile fetch-community-lists run_community_lists
@@ -308,6 +340,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   state_step_profile cron                 setup_cron
   state_step_profile cleanup-tmp          run_cleanup_tmp
   state_step_profile restart-manager      run_restart_manager
+  profile_apply_runtime_toggles 2>/dev/null || true
   state_finish
   log "Update done."
   exit 0
@@ -326,6 +359,7 @@ else
   fi
 fi
 
+state_step_profile warp                   setup_warp
 state_step_profile tor                   setup_tor
 state_step_profile split                 setup_split_routing
 state_step_profile fetch-community-lists run_community_lists

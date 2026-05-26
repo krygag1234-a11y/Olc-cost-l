@@ -49,7 +49,7 @@ func componentSettingsAfterSave(name string, body map[string]any) {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 					defer cancel()
-					cmd := exec.CommandContext(ctx, "bash", "-c", "set -a; source /etc/olcrtc-manager/tor-exit.env 2>/dev/null; set +a; bash "+script)
+					cmd := exec.CommandContext(ctx, "bash", "-c", "set -a; source /etc/olcrtc-manager/tor-exit.env 2>/dev/null; source /etc/olcrtc-manager/tor-exit-exclude.env 2>/dev/null; set +a; bash "+script)
 					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
 					_, _ = cmd.CombinedOutput()
 				}()

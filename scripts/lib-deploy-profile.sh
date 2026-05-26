@@ -24,8 +24,17 @@ profile_from_flags() {
   local bridges="${4:-1}"
   local ru="${5:-${RU_VPS:-1}}"
   local fingerprint="${6:-}"
+  local warp="${7:-${ENABLE_WARP:-0}}"
 
-  if [[ "$tor" -eq 0 ]]; then
+  if [[ "$warp" -eq 1 ]]; then
+    PROFILE_ID="foreign-warp"
+    PROFILE_LABEL="Зарубежный VPS: OlcRTC + WARP (без Tor)"
+    tor=0
+    split=0
+    zapret=0
+    bridges=0
+    ru=0
+  elif [[ "$tor" -eq 0 ]]; then
     PROFILE_ID="foreign-minimal"
     PROFILE_LABEL="Зарубежный VPS: только olcrtc + панель"
     zapret=0
@@ -59,24 +68,26 @@ profile_from_flags() {
       --argjson split "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
       --argjson zapret "$([[ "$zapret" -eq 1 ]] && echo true || echo false)" \
       --argjson bridges "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
+      --argjson warp "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
       --argjson ru "$([[ "$ru" -eq 1 ]] && echo true || echo false)" \
       '{
         schema: 1,
         profile_id: $id,
         label: $label,
-        components: { tor: $tor, split: $split, zapret: $zapret, bridges: $bridges },
+        components: { tor: $tor, split: $split, zapret: $zapret, bridges: $bridges, warp: $warp },
         ru_vps: $ru,
         update_mode: "incremental",
         created_at: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
         install_script_fingerprint: $fp
       }' >"$OLCRTC_DEPLOY_PROFILE"
   else
-    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s}}\n' \
+    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s}}\n' \
       "$PROFILE_ID" "$PROFILE_LABEL" \
       "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$zapret" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
+      "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
       >"$OLCRTC_DEPLOY_PROFILE"
   fi
   profile_log "saved $PROFILE_ID → $OLCRTC_DEPLOY_PROFILE"
@@ -130,19 +141,21 @@ profile_apply_env() {
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
-  local tor split zapret ru
+  local tor split zapret ru warp
   tor="$(jq -r '.components.tor // true' "$OLCRTC_DEPLOY_PROFILE")"
   split="$(jq -r '.components.split // true' "$OLCRTC_DEPLOY_PROFILE")"
   zapret="$(jq -r '.components.zapret // true' "$OLCRTC_DEPLOY_PROFILE")"
   ru="$(jq -r '.ru_vps // true' "$OLCRTC_DEPLOY_PROFILE")"
+  warp="$(jq -r '.components.warp // false' "$OLCRTC_DEPLOY_PROFILE")"
 
   [[ "$tor" == "true" ]] && ENABLE_TOR=1 || ENABLE_TOR=0
   [[ "$split" == "true" ]] && ENABLE_SPLIT=1 || ENABLE_SPLIT=0
   [[ "$zapret" == "true" ]] && export OLCRTC_ENABLE_ZAPRET=1 || export OLCRTC_ENABLE_ZAPRET=0
   [[ "$ru" == "true" ]] && RU_VPS=1 || RU_VPS=0
+  [[ "$warp" == "true" ]] && ENABLE_WARP=1 || ENABLE_WARP=0
 
-  export ENABLE_TOR ENABLE_SPLIT RU_VPS
-  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1})"
+  export ENABLE_TOR ENABLE_SPLIT RU_VPS ENABLE_WARP
+  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP)"
 }
 
 profile_step_enabled() {
@@ -153,6 +166,10 @@ profile_step_enabled() {
       ;;
     tor|bridges)
       [[ "${ENABLE_TOR:-1}" -eq 1 ]]
+      return
+      ;;
+    warp)
+      [[ "${ENABLE_WARP:-0}" -eq 1 ]]
       return
       ;;
     split)
@@ -190,4 +207,184 @@ profile_list_templates() {
     [[ -f "$f" ]] || continue
     basename "$f" .json
   done
+}
+
+# --- Live sync (UI ± / olc-profile sync) ---
+
+profile_read_component() {
+  local key="$1"
+  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  jq -r --arg k "$key" '.components[$k] // false' "$OLCRTC_DEPLOY_PROFILE"
+}
+
+profile_write_json() {
+  local json="$1"
+  profile_ensure_dir
+  printf '%s\n' "$json" >"$OLCRTC_DEPLOY_PROFILE"
+}
+
+profile_set_component() {
+  local key="$1"
+  local val="$2" # true|false
+  profile_ensure_dir
+  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || profile_from_flags
+  command -v jq >/dev/null 2>&1 || {
+    profile_log "jq required for profile_set_component"
+    return 1
+  }
+  local tmp json
+  tmp="$(mktemp)"
+  jq --arg k "$key" --argjson v "$([[ "$val" == true ]] && echo true || echo false)" \
+    '.components[$k] = $v | .updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
+  mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  profile_refresh_id_label
+  profile_log "component $key=$val"
+}
+
+profile_refresh_id_label() {
+  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local matched=""
+  local tpl id
+  for tpl in "$OLCRTC_PROFILES_DIR"/*.json; do
+    [[ -f "$tpl" ]] || continue
+    id="$(basename "$tpl" .json)"
+    [[ "$id" == "custom" ]] && continue
+    if jq -e --slurpfile t "$tpl" \
+      '(.components == $t[0].components) and ((.ru_vps // true) == ($t[0].ru_vps // true))' \
+      "$OLCRTC_DEPLOY_PROFILE" >/dev/null 2>&1; then
+      matched="$id"
+      break
+    fi
+  done
+  local tmp
+  tmp="$(mktemp)"
+  if [[ -n "$matched" ]]; then
+    jq --arg id "$matched" --arg label "$(jq -r '.label' "${OLCRTC_PROFILES_DIR}/${matched}.json")" \
+      '.profile_id = $id | .label = $label' "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
+  else
+    jq '.profile_id = "custom" | .label = "Смешанный профиль (UI/CLI)"' \
+      "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
+  fi
+  mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+}
+
+# Called after panel ± install/uninstall job.
+profile_after_component_job() {
+  local component="$1"
+  local action="$2" # install|uninstall
+  local enabled="false"
+  [[ "$action" == "install" ]] && enabled="true"
+
+  case "$component" in
+    zapret|split|warp)
+      profile_set_component "$component" "$enabled"
+      ;;
+    tor)
+      profile_set_component tor "$enabled"
+      if [[ "$action" == "install" ]]; then
+        profile_set_component bridges true
+      else
+        profile_set_component split false
+        profile_set_component bridges false
+      fi
+      ;;
+    bridges)
+      profile_set_component bridges "$enabled"
+      if [[ "$action" == "install" ]]; then
+        profile_set_component tor true
+      fi
+      ;;
+    *)
+      profile_log "unknown component for profile sync: $component"
+      return 1
+      ;;
+  esac
+
+  if [[ "$component" == "warp" && "$action" == "install" ]]; then
+    profile_set_component tor false
+    profile_set_component split false
+    profile_set_component bridges false
+    profile_set_component zapret false
+    local tmp
+    tmp="$(mktemp)"
+    jq '.ru_vps = false' "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  fi
+  if [[ "$component" == "tor" && "$action" == "install" ]]; then
+    profile_set_component warp false
+  fi
+  profile_refresh_id_label
+  profile_log "after component job: $component $action → $(jq -c '.components' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo '?')"
+}
+
+# Detect packages/config on disk; does NOT read feature toggles (on/off).
+profile_detect_installed() {
+  local tor=0 split=0 zapret=0 bridges=0 warp=0 ru=1
+
+  dpkg-query -W -f='${Status}' tor 2>/dev/null | grep -q 'install ok installed' && tor=1
+  [[ -x /opt/zapret/nfq/nfqws ]] && zapret=1
+  command -v warp-cli >/dev/null 2>&1 && warp=1
+  if [[ -f /var/lib/olcrtc/lists/ru-direct-domains.txt ]] \
+    || [[ -f /var/lib/olcrtc/lists/panel-carrier-hosts.txt ]]; then
+    split=1
+  fi
+  if [[ -f /etc/tor/bridges.conf ]] && grep -qE '^[[:space:]]*Bridge ' /etc/tor/bridges.conf 2>/dev/null; then
+    bridges=1
+  fi
+  [[ "$tor" -eq 0 && "$split" -eq 0 && "$zapret" -eq 0 && "$warp" -eq 0 ]] && ru=0
+
+  printf '%s %s %s %s %s %s\n' "$tor" "$split" "$zapret" "$bridges" "$warp" "$ru"
+}
+
+# Merge detected install state into deploy profile (one file, not multiple fingerprints).
+profile_sync_from_installed() {
+  profile_ensure_dir
+  read -r tor split zapret bridges warp ru <<<"$(profile_detect_installed)"
+  if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]]; then
+    profile_from_flags "$tor" "$split" "$zapret" "$bridges" "$ru" "profile-sync"
+    profile_refresh_id_label
+    return 0
+  fi
+  command -v jq >/dev/null 2>&1 || return 0
+  local tmp
+  tmp="$(mktemp)"
+  jq \
+    --argjson tor "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
+    --argjson split "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
+    --argjson zapret "$([[ "$zapret" -eq 1 ]] && echo true || echo false)" \
+    --argjson bridges "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
+    --argjson warp "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
+    --argjson ru "$([[ "$ru" -eq 1 ]] && echo true || echo false)" \
+    '.components = {tor:$tor, split:$split, zapret:$zapret, bridges:$bridges, warp:$warp}
+     | .ru_vps = $ru
+     | .synced_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
+  mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  profile_refresh_id_label
+  profile_log "synced from installed packages → $(jq -r '.profile_id' "$OLCRTC_DEPLOY_PROFILE")"
+}
+
+# Honor features.env after update maintenance (toggle off ≠ remove from profile).
+profile_apply_runtime_toggles() {
+  local env=/etc/olcrtc-manager/features.env
+  [[ -f "$env" ]] || return 0
+  # shellcheck disable=SC1090
+  set -a; source "$env"; set +a
+
+  if [[ "${OLCRTC_ENABLE_TOR:-1}" != "1" ]]; then
+    systemctl stop tor@default.service 2>/dev/null || true
+    systemctl disable tor@default.service 2>/dev/null || true
+    profile_log "runtime: tor left stopped (features.env)"
+  fi
+  if [[ "${OLCRTC_ENABLE_WARP:-0}" != "1" ]]; then
+    warp-cli disconnect 2>/dev/null || true
+    profile_log "runtime: warp disconnected (features.env)"
+  fi
+  if [[ "${OLCRTC_ENABLE_ZAPRET:-1}" != "1" ]]; then
+    systemctl stop zapret.service 2>/dev/null || true
+    pkill -9 nfqws 2>/dev/null || true
+    profile_log "runtime: zapret left stopped (features.env)"
+  fi
 }

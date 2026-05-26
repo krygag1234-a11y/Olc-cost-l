@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install/uninstall optional stack components (background job from panel).
-# Usage: olc-component-job.sh <zapret|tor|split|bridges> <install|uninstall> [job_id]
+# Usage: olc-component-job.sh <zapret|tor|split|bridges|warp> <install|uninstall> [job_id]
 set -euo pipefail
 
 COMPONENT="${1:?component}"
@@ -54,6 +54,10 @@ run_install() {
       bash "$SCRIPT_DIR/tor-bridge-pool.sh" refresh 2>/dev/null || true
       bash "$SCRIPT_DIR/olc-feature.sh" webtunnel on 2>/dev/null || true
       ;;
+    warp)
+      bash "$SCRIPT_DIR/install-warp.sh"
+      bash "$SCRIPT_DIR/olc-feature.sh" warp on
+      ;;
     *) echo "unknown component: $COMPONENT" >&2; return 1 ;;
   esac
 }
@@ -67,6 +71,7 @@ run_uninstall() {
       ;;
     split) bash "$SCRIPT_DIR/olc-feature.sh" split off ;;
     bridges) bash "$SCRIPT_DIR/olc-feature.sh" webtunnel off ;;
+    warp) bash "$SCRIPT_DIR/olc-feature.sh" warp off ;;
     *) echo "unknown component: $COMPONENT" >&2; return 1 ;;
   esac
 }
@@ -79,4 +84,12 @@ run_uninstall() {
     *) echo "bad action: $ACTION" >&2; exit 1 ;;
   esac
   echo "=== done ==="
-} >>"$LOG" 2>&1 && write_status done 0 "" || write_status failed "$?" "see $LOG"
+} >>"$LOG" 2>&1 && {
+  write_status done 0 ""
+  if [[ -x "$SCRIPT_DIR/lib-deploy-profile.sh" ]]; then
+    # shellcheck source=lib-deploy-profile.sh
+    source "$SCRIPT_DIR/lib-deploy-profile.sh"
+    export OLC_REPO_ROOT="$REPO_ROOT"
+    profile_after_component_job "$COMPONENT" "$ACTION" || true
+  fi
+} || write_status failed "$?" "see $LOG"

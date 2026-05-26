@@ -6,9 +6,8 @@
     "tor": true,
     "split": false,
     "zapret": false,
-    "bridges": true
-  },
-  "ru_vps": false,
+    "bridges": true,
+    "warp": false
   "update_mode": "incremental",
   "update_steps": [
     "patches",

@@ -7,6 +7,7 @@
 #   olc-feature tor    on|off
 #   olc-feature split  on|off           # *.ru/CDN direct lists for olcrtc
 #   olc-feature webtunnel on|off|status # try mirror, install/uninstall
+#   olc-feature warp     on|off|status # Cloudflare WARP proxy (mutually exclusive with tor)
 #   olc-feature all-off                 # quick: zapret off + tor off + split off (testing)
 #   olc-feature all-on                  # restore defaults (zapret + tor + split)
 #
@@ -34,6 +35,7 @@ OLCRTC_ENABLE_ZAPRET=1
 OLCRTC_ENABLE_TOR=1
 OLCRTC_ENABLE_SPLIT=1
 OLCRTC_ENABLE_WEBTUNNEL=1
+OLCRTC_ENABLE_WARP=0
 EOF
 
 _now()  { date -u +%Y%m%dT%H%M%SZ; }
@@ -64,6 +66,7 @@ status() {
   printf '  %-10s %s\n' tor    "${OLCRTC_ENABLE_TOR:-1}"
   printf '  %-10s %s\n' split  "${OLCRTC_ENABLE_SPLIT:-1}"
   printf '  %-10s %s\n' webtunnel "${OLCRTC_ENABLE_WEBTUNNEL:-1}"
+  printf '  %-10s %s\n' warp     "${OLCRTC_ENABLE_WARP:-0}"
   echo
   echo "Live state:"
   printf '  %-10s ' tor;       systemctl is-active tor@default 2>/dev/null || echo inactive
@@ -72,6 +75,10 @@ status() {
   printf '  %-10s ' manager;   systemctl is-active olcrtc-manager 2>/dev/null || echo inactive
   printf '  %-10s ' webtunnel
   if [[ -x /usr/bin/webtunnel-client ]]; then echo "/usr/bin/webtunnel-client present"
+  else echo "missing"; fi
+  printf '  %-10s ' warp
+  if command -v warp-cli >/dev/null 2>&1; then
+    warp-cli status 2>/dev/null | head -1 || echo "warp-cli present"
   else echo "missing"; fi
 }
 
@@ -102,6 +109,11 @@ zapret_reload() {
 
 # ---------- TOR ----------
 tor_on() {
+  _load
+  if [[ "${OLCRTC_ENABLE_WARP:-0}" == "1" ]]; then
+    echo "[tor] ERROR: Tor недоступен при включённом WARP — сначала: olc-feature warp off" >&2
+    return 1
+  fi
   _save OLCRTC_ENABLE_TOR 1
   systemctl enable --now tor@default.service
   if [[ -f /etc/systemd/system/olcrtc-manager.service ]]; then
@@ -187,6 +199,26 @@ webtunnel_on() {
     return 1
   fi
 }
+# ---------- WARP ----------
+warp_on() {
+  _load
+  if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
+    echo "[warp] ERROR: WARP недоступен при включённом Tor — сначала: olc-feature tor off" >&2
+    return 1
+  fi
+  _save OLCRTC_ENABLE_WARP 1
+  bash "$REPO_ROOT/scripts/install-warp.sh"
+  _defer_manager_restart
+  echo "[warp] ON"
+}
+warp_off() {
+  _save OLCRTC_ENABLE_WARP 0
+  warp-cli disconnect 2>/dev/null || true
+  systemctl stop warp-svc 2>/dev/null || true
+  _defer_manager_restart
+  echo "[warp] OFF (warp-cli kept; revert with: olc-feature warp on)"
+}
+
 webtunnel_off() {
   _save OLCRTC_ENABLE_WEBTUNNEL 0
   rm -f /usr/bin/webtunnel-client /usr/local/bin/webtunnel-client
@@ -236,6 +268,15 @@ case "${1:-status}" in
             off|disable) webtunnel_off ;;
             status) [[ -x /usr/bin/webtunnel-client ]] && echo present || echo missing ;;
             *) echo "olc-feature webtunnel on|off|status"; exit 1 ;;
+          esac ;;
+  warp)    case "${2:-}" in
+            on|enable) warp_on ;;
+            off|disable) warp_off ;;
+            status)
+              if command -v warp-cli >/dev/null 2>&1; then warp-cli status 2>/dev/null || echo present
+              else echo missing; fi
+              ;;
+            *) echo "olc-feature warp on|off|status"; exit 1 ;;
           esac ;;
   all-off) all_off ;;
   all-on)  all_on ;;
