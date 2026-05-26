@@ -10,9 +10,14 @@
 #   agent-bootstrap.sh --foreign           # то же что --no-tor (явно не-RU)
 #   agent-bootstrap.sh --rebuild-only      # only apply patches + rebuild binaries
 #   agent-bootstrap.sh --update            # git pull path: lists + patches + tor exit (no apt)
+#   agent-bootstrap.sh --resume            # продолжить с последнего успешного шага
+#   agent-bootstrap.sh --fresh-state       # удалить state и пройти все шаги заново
+#   agent-bootstrap.sh --state             # показать текущее состояние установки
 #   agent-bootstrap.sh --help
 #
 # Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_RU_VPS=0|1  OLCRTC_BRANCH=master
+#      OLCRTC_RESUME=0|1  OLCRTC_FRESH=0|1  OLCRTC_FORCE_STEP=<step-name>
+#      OLCRTC_SKIP_WEBTUNNEL=0|1  OLCRTC_ENABLE_ZAPRET=0|1
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,6 +39,13 @@ log() { echo "==> $*"; }
 source "$SCRIPT_DIR/safety-lib.sh"
 # shellcheck source=lib-webtunnel-build.sh
 source "$SCRIPT_DIR/lib-webtunnel-build.sh"
+# shellcheck source=lib-install-state.sh
+source "$SCRIPT_DIR/lib-install-state.sh"
+
+# Hint shown on abort so user can `--resume` exactly the same invocation.
+export OLCRTC_RESUME_HINT="--resume $*"
+# Soft (non-fatal) steps: install proceeds even if these fail.
+export OLCRTC_SOFT_STEPS="webtunnel,zapret,cron,sysctl,split,bridges,fetch-community-lists"
 
 ensure_install_symlink() {
   safety_ensure_olcrtc_symlink "$REPO_ROOT"
@@ -53,9 +65,13 @@ while [[ $# -gt 0 ]]; do
     --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
     --with-tor) ENABLE_TOR=1; RU_VPS=1 ;;
     --no-split) ENABLE_SPLIT=0; RU_VPS=1 ;;
+    --no-zapret) export OLCRTC_ENABLE_ZAPRET=0 ;;
     --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
     --update) UPDATE=1 ;;
+    --resume) export OLCRTC_RESUME=1 ;;
+    --fresh-state) export OLCRTC_FRESH=1 ;;
+    --state) source "$SCRIPT_DIR/lib-install-state.sh"; state_show; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage; exit 1 ;;
   esac
@@ -198,10 +214,16 @@ EOF
 require_root
 ensure_install_symlink
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
+state_init
+
+run_patches() { BUILD=1 bash "$PATCH_SCRIPT"; }
+run_community_lists() { bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true; }
+run_restart_manager() { systemctl restart olcrtc-manager; }
+run_cleanup_tmp() { find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true; }
 
 if [[ "$REBUILD_ONLY" -eq 1 ]]; then
-  BUILD=1 bash "$PATCH_SCRIPT"
-  systemctl restart olcrtc-manager
+  run_patches
+  run_restart_manager
   exit 0
 fi
 
@@ -221,42 +243,43 @@ setup_zapret() {
 }
 
 if [[ "$UPDATE" -eq 1 ]]; then
-  log "UPDATE: refresh lists, patches, tor exit, zapret, units"
-  BUILD=1 bash "$PATCH_SCRIPT"
-  setup_sysctl
-  setup_tor
-  setup_split_routing
-  bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true
-  setup_zapret
-  setup_systemd
-  setup_cron
-  find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
-  systemctl restart olcrtc-manager
+  log "UPDATE: refresh lists, patches, tor exit, zapret, units (resumable)"
+  state_step patches              run_patches
+  state_step sysctl               setup_sysctl
+  state_step tor                  setup_tor
+  state_step split                setup_split_routing
+  state_step fetch-community-lists run_community_lists
+  state_step zapret               setup_zapret
+  state_step systemd              setup_systemd
+  state_step cron                 setup_cron
+  state_step cleanup-tmp          run_cleanup_tmp
+  state_step restart-manager      run_restart_manager
+  state_finish
   log "Update done."
   exit 0
 fi
 
 if [[ "$FULL" -eq 1 ]]; then
-  install_deps
-  BUILD=1 bash "$PATCH_SCRIPT"
-  build_webtunnel
-  setup_sysctl
+  state_step packages       install_deps
+  state_step patches        run_patches
+  state_step webtunnel      build_webtunnel
+  state_step sysctl         setup_sysctl
 else
-  # ensure patched binaries exist
   if [[ ! -x /usr/local/bin/olcrtc ]] || [[ ! -x /usr/local/bin/olcrtc-manager ]]; then
     log "binaries missing — building patched versions"
-    BUILD=1 bash "$PATCH_SCRIPT"
-    build_webtunnel
+    state_step patches      run_patches
+    state_step webtunnel    build_webtunnel
   fi
 fi
 
-setup_tor
-setup_split_routing
-bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true
-setup_zapret
-setup_systemd
-setup_cron
-systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager
+state_step tor                   setup_tor
+state_step split                 setup_split_routing
+state_step fetch-community-lists run_community_lists
+state_step zapret                setup_zapret
+state_step systemd               setup_systemd
+state_step cron                  setup_cron
+state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager'
+state_finish
 
 log "Done. Read $DOC"
 log "Patches: $REPO_ROOT/patches/PATCHES.md"

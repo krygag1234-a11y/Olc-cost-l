@@ -80,6 +80,8 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 | [UPSTREAM-OLCRTC.md](docs/UPSTREAM-OLCRTC.md) | Upstream olcrtc: carriers, обновления, WB/Telemost/Jitsi |
 | [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | Отличия Olc-cost-l от upstream |
 | [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |
+| [FEATURES.md](docs/FEATURES.md) | `olc-feature` — toggle zapret/tor/split/webtunnel |
+| [RESUME-INSTALL.md](docs/RESUME-INSTALL.md) | Resumable install/update + webtunnel mirror |
 
 ---
 
