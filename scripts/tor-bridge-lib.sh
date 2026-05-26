@@ -110,6 +110,10 @@ bridge_fingerprint() {
 
 bridge_is_ipv6_heavy() {
   local line="$1"
+  # webtunnel uses url= HTTPS endpoint; bracket IPv6 in bridgeline is not the dial target
+  if [[ "$line" == *" webtunnel "* ]] && [[ "$line" == *"url="* ]]; then
+    return 1
+  fi
   [[ "$line" == *"["* ]] && return 0
   [[ "$line" =~ [0-9a-fA-F]{2,}:[0-9a-fA-F]{2,}: ]] && return 0
   return 1
@@ -188,6 +192,13 @@ pick_webtunnel_pool_lines() {
   mapfile -t v4 < <(grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep -v '\[' || true)
   if ((${#v4[@]} > 0)); then
     printf '%s\n' "${v4[@]}" | awk '!seen[$0]++' | head -n "$n"
+    return
+  fi
+  # url= webtunnel: connect via HTTPS host, not bridgeline IPv6 placeholder
+  mapfile -t urlwt < <(grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null | grep ' url=' || true)
+  if ((${#urlwt[@]} > 0)); then
+    bridge_log "webtunnel pool: ${#urlwt[@]} with url= (IPv4 VPS OK)"
+    printf '%s\n' "${urlwt[@]}" | awk '!seen[$0]++' | head -n "$n"
     return
   fi
   if [[ "${OLCRTC_BRIDGE_IPV4_ONLY:-1}" == "1" ]]; then
