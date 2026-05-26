@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "profile_id": "foreign-minimal",
+  "label": "Зарубежный VPS: только olcrtc + панель",
+  "components": {
+    "tor": false,
+    "split": false,
+    "zapret": false,
+    "bridges": false,
+    "webtunnel": false
+  },
+  "update_steps": [
+    "patches",
+    "systemd",
+    "cleanup-tmp",
+    "restart-manager"
+  ]
+}

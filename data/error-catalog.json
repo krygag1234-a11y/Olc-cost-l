@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "description": "Справочник ошибок для автодетектора панели. Дополнять по мере обнаружения на VPS.",
+  "entries": [
+    {
+      "id": "jitsi-xmpp-not-authorized",
+      "pattern": "not-authorized|not authorized|401",
+      "sources": ["instance", "olcrtc"],
+      "title": "Jitsi: нет гостевого XMPP",
+      "meaning": "Хост не разрешает anonymous join — olcrtc не сможет подключиться.",
+      "fixes": [
+        "Используйте другой Jitsi-хост с гостевым входом",
+        "Проверьте room_id (полный URL meet)",
+        "Для теста отключите zapret/tor и повторите"
+      ],
+      "severity": "error"
+    },
+    {
+      "id": "jitsi-service-unavailable",
+      "pattern": "service-unavailable|503|504|gateway timeout",
+      "sources": ["instance", "olcrtc"],
+      "title": "Jitsi: сервис недоступен",
+      "meaning": "Сервер meet перегружен или блокирует соединение.",
+      "fixes": [
+        "Повторить через 1–2 мин",
+        "Проверить доступность хоста с VPS: curl -I https://…",
+        "Увеличить таймаут join (panel.env)"
+      ],
+      "severity": "warning"
+    },
+    {
+      "id": "jitsi-ice-empty-colibri",
+      "pattern": "colibri-ws=|empty.*colibri|ICE failed",
+      "sources": ["instance"],
+      "title": "Jitsi: ICE / colibri не поднялся",
+      "meaning": "WebRTC мост не выдал рабочий colibri-ws — часто SCTP/UDP.",
+      "fixes": [
+        "Попробовать datachannel вместо vp8",
+        "Проверить UDP на VPS",
+        "Хост conf.hyperia.space — известен долгий bridge timeout"
+      ],
+      "severity": "error"
+    },
+    {
+      "id": "tor-socks-refused",
+      "pattern": "connection refused.*9050|socks.*refused|Can't complete SOCKS",
+      "sources": ["tor", "instance", "olcrtc"],
+      "title": "Tor: SOCKS недоступен",
+      "meaning": "tor@default не запущен или другой порт.",
+      "fixes": [
+        "olc-feature tor on",
+        "systemctl status tor@default",
+        "Проверить порт в настройках Tor"
+      ],
+      "severity": "error"
+    },
+    {
+      "id": "manager-signal-terminated",
+      "pattern": "signal: terminated|HTTP 500.*terminated",
+      "sources": ["panel"],
+      "title": "Панель: обрыв при перезапуске",
+      "meaning": "Manager перезапустился во время запроса (tor/split toggle).",
+      "fixes": [
+        "Подождать 3 с и повторить",
+        "Обновить страницу",
+        "Уже исправлено deferred restart — обновите olc-update"
+      ],
+      "severity": "warning"
+    },
+    {
+      "id": "zapret-nfqws-dead",
+      "pattern": "nfqws.*not running|nfqws.*exited|Can't open NFQUEUE",
+      "sources": ["zapret"],
+      "title": "Zapret: nfqws не работает",
+      "meaning": "DPI-обход остановлен или нет прав iptables.",
+      "fixes": [
+        "olc-feature zapret on",
+        "systemctl status zapret",
+        "OLCRTC_ZAPRET_REINSTALL=1 olc-update"
+      ],
+      "severity": "error"
+    },
+    {
+      "id": "split-lists-missing",
+      "pattern": "lists.*not found|ru-direct-domains.*empty",
+      "sources": ["split", "olcrtc"],
+      "title": "Split: списки пусты или отключены",
+      "meaning": "Файлы в /var/lib/olcrtc/lists/ отсутствуют (split off).",
+      "fixes": [
+        "olc-feature split on",
+        "olc-update для полного setup-split-ru"
+      ],
+      "severity": "warning"
+    },
+    {
+      "id": "invalid-client-id",
+      "pattern": "invalid.*client|client_id.*required|Validate.*client",
+      "sources": ["panel"],
+      "title": "Некорректный ID клиента",
+      "meaning": "ID не прошёл валидацию config.",
+      "fixes": [
+        "Используйте латиницу, цифры, дефис (a-z0-9_-)",
+        "Удалите пробелы и кириллицу",
+        "Длина 1–64 символа"
+      ],
+      "severity": "error"
+    }
+  ]
+}
