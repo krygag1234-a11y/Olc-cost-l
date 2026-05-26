@@ -40,12 +40,29 @@ release_old = '''              <div className="mt-1 text-muted-foreground">
               )}'''
 
 release_new = '''              <div className="mt-1 text-muted-foreground">
-                Релиз стека:{" "}
-                {status?.latest_release_tag ? (
-                  <code>{String(status.latest_release_tag)}</code>
+                Релиз стека (установлен):{" "}
+                {(status?.installed_release_tag ?? status?.latest_release_tag) ? (
+                  <code>{String(status?.installed_release_tag ?? status?.latest_release_tag)}</code>
                 ) : (
-                  <span className="text-amber-400">не определён (git fetch / rate-limit GitHub API)</span>
+                  <span className="text-amber-400">нет в version.json</span>
                 )}
+              </div>
+              {status?.latest_release_tag &&
+                status?.installed_release_tag &&
+                String(status.latest_release_tag) !== String(status.installed_release_tag) && (
+                  <div className="mt-1 text-xs text-emerald-400">
+                    На GitHub новее: <code>{String(status.latest_release_tag)}</code>
+                  </div>
+                )}
+              <div className="mt-1 text-[10px]">
+                <a
+                  className="text-primary underline"
+                  href="https://github.com/krygag1234-a11y/Olc-cost-l/releases"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  github.com/.../Olc-cost-l/releases
+                </a>
               </div>
               {Boolean(status?.git_ahead) && (
                 <p className="mt-1 text-amber-400">Локальный репозиторий впереди origin/main</p>

@@ -5,12 +5,12 @@
   "repo": "https://github.com/krygag1234-a11y/Olc-cost-l",
   "release": {
     "tag": "v0.9.0-pre-alpha.1",
-    "olc_cost_l_sha": "a23b02685766a05527573689d434b04e2ae61e93"
+    "olc_cost_l_sha": "3c47cb67902efa14f2ca1e90407907cb9e2799c1"
   },
   "stack": {
     "olc-cost-l": {
       "repo": "https://github.com/krygag1234-a11y/Olc-cost-l",
-      "sha": "a23b02685766a05527573689d434b04e2ae61e93"
+      "sha": "3c47cb67902efa14f2ca1e90407907cb9e2799c1"
     },
     "olcrtc": {
       "repo": "https://github.com/openlibrecommunity/olcrtc.git",
