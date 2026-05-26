@@ -8,7 +8,7 @@
 
 | Компонент | Ветка | Ссылка |
 |-----------|--------|--------|
-| olcrtc | **`master`**+**`fix/all`** | https://github.com/openlibrecommunity/olcrtc и https://github.com/openlibrecommunity/olcrtc/tree/fix/all |
+| olcrtc | **`master`**+**`fix/all`** | https://github.com/openlibrecommunity/olcrtc, https://github.com/openlibrecommunity/olcrtc/tree/fix/all |
 | manager panel | **`main`** | https://github.com/BigDaddy3334/olcrtc-manager-panel |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
