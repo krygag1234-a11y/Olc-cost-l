@@ -2,8 +2,9 @@
 # Manage deploy profile (which components olc-update runs).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+REPO_ROOT="${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
+[[ -d "$REPO_ROOT/.git" ]] || REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 
