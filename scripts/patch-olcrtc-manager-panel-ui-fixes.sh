@@ -13,13 +13,69 @@ p = Path(sys.argv[1])
 t = p.read_text()
 orig = t
 
-# Drop legacy duplicate MainSettingsAutodetectLink without props.
+AUTODETECT_JSX = '<MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />'
+
+# Legacy JSX still references removed component after ui-v7 migration.
+t = t.replace('<NotificationSettingsSection />', AUTODETECT_JSX)
+t = t.replace('<MainSettingsAutodetectLink />', AUTODETECT_JSX)
+t = t.replace(
+    '''            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
+              <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />
+            </section>''',
+    '            ' + AUTODETECT_JSX,
+    1,
+)
+
+# Keep the inline expandable component; drop legacy no-props duplicate from ui-v7.
+if 'function MainSettingsAutodetectLink({' in t:
+    t = re.sub(
+        r'\nfunction MainSettingsAutodetectLink\(\) \{\n(?:.*\n)*?\}\n',
+        '\n',
+        t,
+        count=1,
+    )
+elif '<MainSettingsAutodetectLink' in t and 'function MainSettingsAutodetectLink' not in t:
+    MAIN_SETTINGS_AUTODETECT_LINK = '''
+function MainSettingsAutodetectLink() {
+  return (
+    <section className="grid gap-3 rounded-md border border-border bg-background p-4">
+      <div className="text-sm font-medium text-foreground">Автодетектор</div>
+      <p className="text-xs text-muted-foreground">Периодически ищет ошибки в логах и состоянии сервисов.</p>
+      <button
+        type="button"
+        className="w-fit rounded border border-border px-3 py-2 text-xs hover:bg-muted"
+        onClick={() => window.dispatchEvent(new CustomEvent("olc-open-autodetect-settings"))}
+      >
+        Настройки уведомлений автодетектора
+      </button>
+    </section>
+  );
+}
+'''
+    t = t.replace('function NotificationBell()', MAIN_SETTINGS_AUTODETECT_LINK + '\nfunction NotificationBell()', 1)
+
+# Collapse duplicate JSX blocks from stacked patches.
 t = re.sub(
-    r'\nfunction MainSettingsAutodetectLink\(\) \{\n(?:.*\n)*?\}\n(?=\nfunction NotificationBell\(\))',
-    '\n',
+    rf'(\s*{re.escape(AUTODETECT_JSX)}\s*\n){{2,}}',
+    '\n            ' + AUTODETECT_JSX + '\n',
+    t,
+)
+
+# Drop duplicate MainSettingsAutodetectLink with props (keep first).
+t = re.sub(
+    r'(function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)(?:\n*function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)+',
+    r'\1',
     t,
     count=1,
 )
+# Drop duplicate no-props copies when stacked.
+while t.count('function MainSettingsAutodetectLink()') > 1:
+    t = re.sub(
+        r'\nfunction MainSettingsAutodetectLink\(\) \{\n(?:.*\n)*?\}\n(?=\nfunction MainSettingsAutodetectLink)',
+        '\n',
+        t,
+        count=1,
+    )
 # Drop duplicate MainSettingsAutodetectLink with props (keep first).
 t = re.sub(
     r'(function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)(?:\n*function MainSettingsAutodetectLink\(\{[\s\S]*?\n\}\n)+',
