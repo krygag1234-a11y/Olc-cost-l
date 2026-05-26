@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version.json
+        id: ver
+        run: |
+          echo "panel=$(jq -r .panel version.json)" >> "$GITHUB_OUTPUT"
+          echo "channel=$(jq -r .channel version.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.ver.outputs.panel }}
+          prerelease: true
+          generate_release_notes: true
+          files: version.json

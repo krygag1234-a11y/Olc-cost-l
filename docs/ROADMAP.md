@@ -252,8 +252,8 @@ POST /api/components/{name}/uninstall
 | ID | Задача | Статус |
 |----|--------|--------|
 | 5.1.1 | `version.json` в репо: `{ "panel": "0.9.0-alpha.1", "min_manager": "...", "channel": "alpha" }` | `[x]` |
-| 5.1.2 | GitHub Action: tag → release notes + attach `version.json` | `[ ]` |
-| 5.1.3 | `GET /api/updates/check` → сравнение с `origin/main` или release API | `[x]` |
+| 5.1.2 | GitHub Action: tag → release notes + attach `version.json` | `[x]` |
+| 5.1.3 | `GET /api/updates/check` → release API + git behind `origin/main` | `[x]` |
 
 ### 5.2 UI «Состояние проекта»
 
