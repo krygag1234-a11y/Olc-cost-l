@@ -115,6 +115,9 @@ tor_on() {
 }
 tor_off() {
   _save OLCRTC_ENABLE_TOR 0
+  if [[ "${OLCRTC_ENABLE_SPLIT:-1}" == "1" ]]; then
+    split_off
+  fi
   systemctl stop tor@default.service 2>/dev/null || true
   systemctl disable tor@default.service 2>/dev/null || true
   if grep -q 'OLCRTC_EXIT_PROXY=' /etc/systemd/system/olcrtc-manager.service 2>/dev/null; then
