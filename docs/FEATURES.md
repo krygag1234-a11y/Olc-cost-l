@@ -37,6 +37,19 @@ sudo ln -sf /opt/Olc-cost-l/scripts/olc-feature.sh /usr/local/bin/olc-feature
 
 Откат — обратной командой (`on`).
 
+## Профиль деплоя (умный update)
+
+Файл `/etc/olcrtc-manager/deploy-profile.json` — какие компоненты ставить при `olc-update`
+(foreign VPS без Tor/zapret/split не гоняет тяжёлые шаги).
+
+```bash
+olc-profile show
+olc-profile list
+olc-profile set foreign-minimal
+olc-update --show-profile
+olc-update --profile ru-full
+```
+
 ## Быстрое обновление
 
 ```bash

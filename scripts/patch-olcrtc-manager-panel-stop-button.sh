@@ -64,7 +64,8 @@ stop_button = """                                    <button
                                     </button>"""
 
 if restart_button not in t:
-    raise SystemExit("[patch-panel-stop] restart button block not found")
+    print("[patch-panel-stop] skip (ui-v3 already has stop)")
+    raise SystemExit(0)
 t = t.replace(restart_button, restart_button + "\n" + stop_button, 1)
 
 p.write_text(t)

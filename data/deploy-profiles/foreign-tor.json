@@ -1,17 +1,21 @@
 {
   "schema": 1,
-  "profile_id": "foreign-minimal",
-  "label": "Зарубежный VPS: только olcrtc + панель",
+  "profile_id": "foreign-tor",
+  "label": "Tor-only VPS: мосты без split/zapret",
   "components": {
-    "tor": false,
+    "tor": true,
     "split": false,
     "zapret": false,
-    "bridges": false
+    "bridges": true
   },
   "ru_vps": false,
+  "update_mode": "incremental",
   "update_steps": [
     "patches",
+    "sysctl",
+    "tor",
     "systemd",
+    "cron",
     "cleanup-tmp",
     "restart-manager"
   ]

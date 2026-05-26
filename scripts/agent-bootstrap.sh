@@ -32,6 +32,7 @@ ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
 RU_VPS="${OLCRTC_RU_VPS:-1}"
 REBUILD_ONLY=0
 UPDATE=0
+PROFILE_ID=""
 
 log() { echo "==> $*"; }
 
@@ -41,6 +42,8 @@ source "$SCRIPT_DIR/safety-lib.sh"
 source "$SCRIPT_DIR/lib-webtunnel-build.sh"
 # shellcheck source=lib-install-state.sh
 source "$SCRIPT_DIR/lib-install-state.sh"
+# shellcheck source=lib-deploy-profile.sh
+source "$SCRIPT_DIR/lib-deploy-profile.sh"
 
 # Hint shown on abort so user can `--resume` exactly the same invocation.
 export OLCRTC_RESUME_HINT="--resume $*"
@@ -82,11 +85,28 @@ while [[ $# -gt 0 ]]; do
     --resume) export OLCRTC_RESUME=1 ;;
     --fresh-state) export OLCRTC_FRESH=1 ;;
     --state) source "$SCRIPT_DIR/lib-install-state.sh"; state_show; exit 0 ;;
+    --profile)
+      PROFILE_ID="${2:-}"
+      [[ -n "$PROFILE_ID" ]] || { echo "--profile requires profile id" >&2; exit 1; }
+      shift 2
+      continue
+      ;;
+    --write-profile) profile_from_flags "install.sh:${*:-}"; profile_show; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage; exit 1 ;;
   esac
   shift
 done
+
+if [[ -n "$PROFILE_ID" ]]; then
+  profile_install_template "$PROFILE_ID"
+fi
+
+profile_apply_env
+
+if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]] && [[ "$UPDATE" -ne 1 ]]; then
+  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap"
+fi
 
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
@@ -278,16 +298,16 @@ setup_zapret() {
 
 if [[ "$UPDATE" -eq 1 ]]; then
   log "UPDATE: refresh lists, patches, tor exit, zapret, units (resumable)"
-  state_step patches              run_patches
-  state_step sysctl               setup_sysctl
-  state_step tor                  setup_tor
-  state_step split                setup_split_routing
-  state_step fetch-community-lists run_community_lists
-  state_step zapret               setup_zapret
-  state_step systemd              setup_systemd
-  state_step cron                 setup_cron
-  state_step cleanup-tmp          run_cleanup_tmp
-  state_step restart-manager      run_restart_manager
+  state_step_profile patches              run_patches
+  state_step_profile sysctl               setup_sysctl
+  state_step_profile tor                  setup_tor
+  state_step_profile split                setup_split_routing
+  state_step_profile fetch-community-lists run_community_lists
+  state_step_profile zapret               setup_zapret
+  state_step_profile systemd              setup_systemd
+  state_step_profile cron                 setup_cron
+  state_step_profile cleanup-tmp          run_cleanup_tmp
+  state_step_profile restart-manager      run_restart_manager
   state_finish
   log "Update done."
   exit 0
@@ -306,10 +326,10 @@ else
   fi
 fi
 
-state_step tor                   setup_tor
-state_step split                 setup_split_routing
-state_step fetch-community-lists run_community_lists
-state_step zapret                setup_zapret
+state_step_profile tor                   setup_tor
+state_step_profile split                 setup_split_routing
+state_step_profile fetch-community-lists run_community_lists
+state_step_profile zapret                setup_zapret
 state_step systemd               setup_systemd
 state_step cron                  setup_cron
 state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager'
