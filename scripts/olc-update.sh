@@ -24,7 +24,11 @@ detect_repo() {
   return 1
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_script="${BASH_SOURCE[0]}"
+while [[ -L "$_script" ]]; do
+  _script="$(readlink -f "$_script")"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_script")" && pwd)"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-git-safe.sh

@@ -15,7 +15,7 @@
 #   agent-bootstrap.sh --state             # показать текущее состояние установки
 #   agent-bootstrap.sh --help
 #
-# Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_RU_VPS=0|1  OLCRTC_BRANCH=master
+# Env: OLCRTC_ENABLE_TOR=0|1  OLCRTC_ENABLE_SPLIT=0|1  OLCRTC_RU_VPS=0|1  OLCRTC_BRANCH=fix/all (default from data/upstream-pins.json)
 #      OLCRTC_RESUME=0|1  OLCRTC_FRESH=0|1  OLCRTC_FORCE_STEP=<step-name>
 #      OLCRTC_SKIP_WEBTUNNEL=0|1  OLCRTC_ENABLE_ZAPRET=0|1
 set -euo pipefail

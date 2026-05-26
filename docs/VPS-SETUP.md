@@ -1,11 +1,12 @@
 # OlcRTC VPS — полная документация
 
-**Обновлено:** 2026-05-24  
-**Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) (`refactor/universal-carrier` смержена, отдельной ветки нет)  
-**Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + **патчи** в `/opt/Olc-cost-l/patches/`  
-**Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) · [все релизы](https://github.com/alananisimov/olcbox/releases) · [репо](https://github.com/alananisimov/olcbox) — см. [CLIENT.md](CLIENT.md)
+**Обновлено:** 2026-05-27  
+**Ветка olcrtc:** [`fix/all`](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) — pin в `data/upstream-pins.json`  
+**Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + **патчи** `scripts/patch-olcrtc-manager-*.sh` → `apply-olcrtc-patches.sh`  
+**webtunnel:** бинарник [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry/releases/latest), не gitlab.torproject.org  
+**Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) — [CLIENT.md](CLIENT.md)
 
-Копия: `/root/VPS-SETUP.md` → симлинк сюда.
+Общедоступный демо-VPS (без секретов на хосте): [PUBLIC-DEMO-VPS.md](PUBLIC-DEMO-VPS.md).
 
 ---
 
@@ -34,7 +35,7 @@ bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 
 | Компонент | Upstream | На этом VPS |
 |-----------|----------|-------------|
-| olcrtc | `master` | + payload Jitsi 16K, split RU/Tor (`internal/routing/cidr.go`), `session.DirectCIDRsFile` |
+| olcrtc | `fix/all` | + payload Jitsi 16K, split RU/Tor, carriers (Jitsi/WB/Telemost) |
 | manager | `main` без патчей | + логи API query, HOST_NETWORK, EXIT_PROXY если Tor жив, PUBLIC_URL, Jitsi liveness, Telemost URL |
 | Tor bridges | вручную | пул из [TOR_BRIDGES_ALL.txt](https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt), мониторинг, ротация |
 | Капча bridges.torproject.org | — | **не автоматизируем** ([gist s3rgeym](https://gist.github.com/s3rgeym/48405a282d61fd6bf74aed578f483111) — капча, с RU IP неудобно) |
@@ -141,6 +142,9 @@ BRIDGE_TYPES=webtunnel,obfs4 /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --apply
 |--------|------------|
 | **agent-bootstrap.sh** | Главный деплой: `--full`, `--update`, `--no-tor`, `--rebuild-only` |
 | **install.sh** / **uninstall.sh** | `curl \| bash` install/update; `olc-purge.sh` — полное удаление |
+| **olc-update.sh** | `git pull` + `agent-bootstrap --update` по deploy-profile |
+| **olc-feature.sh** | Toggle zapret/tor/split/webtunnel/warp без purge |
+| **olc-profile.sh** | Просмотр/смена deploy-profile |
 | **apply-olcrtc-patches.sh** | Клон + idempotent `patch-*.sh` + Go toolchain + сборка |
 | **upstream-sync.sh** | Проверка/применение upstream pins |
 | **install-go-toolchain.sh** | Go ≥1.23 в `/usr/local/go` (для go.mod 1.26+) |
@@ -176,9 +180,9 @@ bash /opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh
 
 Не используйте «голый» upstream manager — **не будет** логов в панели, Jitsi liveness, split, умного EXIT_PROXY.
 
-### 3. webtunnel-client (опционально)
+### 3. webtunnel-client
 
-Сборка может упасть по SSL timeout с gitlab.torproject.org — install **не прерывается**, obfs4 достаточно.
+По умолчанию скачивается **prebuilt** с [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry/releases/latest) (`install-tor-pluggable-transports.sh`). Сборка с gitlab.torproject.org — fallback; при SSL timeout install **не прерывается**, obfs4 достаточно.
 
 ### 4. Tor pool + timers
 

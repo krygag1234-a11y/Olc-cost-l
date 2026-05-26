@@ -6,10 +6,11 @@
 
 ## Upstream (2026-05)
 
-| Компонент | Ветка | Ссылка |
-|-----------|--------|--------|
-| olcrtc | **`master`** | https://github.com/openlibrecommunity/olcrtc |
-| manager panel | **`main`** | https://github.com/BigDaddy3334/olcrtc-manager-panel |
+| Компонент | Ветка / источник | Ссылка |
+|-----------|------------------|--------|
+| olcrtc | **`fix/all`** (pin в `data/upstream-pins.json`) | https://github.com/openlibrecommunity/olcrtc/tree/fix/all |
+| manager panel | **`main`** + патчи в `scripts/patch-olcrtc-manager-*.sh` | https://github.com/BigDaddy3334/olcrtc-manager-panel |
+| webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
 **Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
@@ -81,9 +82,8 @@ Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 | [SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат |
 | [CLIENT.md](docs/CLIENT.md) | Olcbox |
 | [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
-| [UPSTREAM-AUDIT.md](docs/UPSTREAM-AUDIT.md) | Сверка Olc-cost-l с upstream olcrtc + manager |
-| [UPSTREAM-OLCRTC.md](docs/UPSTREAM-OLCRTC.md) | Upstream olcrtc: carriers, обновления, WB/Telemost/Jitsi |
 | [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | Отличия Olc-cost-l от upstream |
+| [PUBLIC-DEMO-VPS.md](docs/PUBLIC-DEMO-VPS.md) | Общедоступный VPS: что не хранить на хосте |
 | [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |
 | [FEATURES.md](docs/FEATURES.md) | `olc-feature` — toggle zapret/tor/split/webtunnel/warp |
 | [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) | Cloudflare WARP (proxy mode, foreign VPS) |

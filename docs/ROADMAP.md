@@ -2,7 +2,7 @@
 
 > **Назначение:** единый живой документ. При работе над задачей — открывать этот файл, отмечать статус, не терять контекст на длинных сессиях.  
 > **Последнее обновление плана:** 2026-05-26  
-> **Текущая версия панели (репо):** `0.9.0-alpha.2` (фазы 0–2 done, 3–6 в работе)
+> **Текущая версия панели (репо):** `0.9.0-pre-alpha.1` (см. `version.json`)
 
 ## Легенда статусов
 
@@ -400,7 +400,7 @@ POST /api/components/{name}/uninstall
 - [ ] Обновить `version.json` + `data/upstream-pins.json` при смене pin
 - [ ] `docs/FEATURES.md` / `PATCHES.md`
 - [ ] Тест на foreign profile (`--no-tor --no-zapret`) и ru-full
-- [ ] `sudo olc-update` на тестовом VPS `111.88.154.165`
+- [ ] `sudo olc-update` на чистом/демо VPS (см. [PUBLIC-DEMO-VPS.md](./PUBLIC-DEMO-VPS.md))
 
 ---
 
@@ -431,3 +431,4 @@ POST /api/components/{name}/uninstall
 | Дата | Изменение |
 |------|-----------|
 | 2026-05-26 | Создан документ; зафиксированы фазы 0–8; v3 UI отмечен частично готовым |
+| 2026-05-27 | Доки: fix/all, olc-update, PUBLIC-DEMO-VPS; TTL component jobs; без IP/SSH в репо |

@@ -33,7 +33,7 @@ sudo /opt/Olc-cost-l/scripts/install-tor-pluggable-transports.sh
 
 | PT | Пакет / бинарник | Назначение |
 |----|------------------|------------|
-| webtunnel | `webtunnel-client` (сборка из gitlab.torproject.org) | основной обход DPI; при недоступности gitlab install продолжается с **obfs4** |
+| webtunnel | `webtunnel-client` ([mirror-cry](https://github.com/krygag1234-a11y/mirror-cry/releases/latest) или сборка gitlab) | основной обход DPI; при недоступности gitlab install продолжается с **obfs4** |
 | obfs4 | `obfs4proxy` (apt) | запасной PT ([форум Tor](https://forum.torproject.org/t/tor/21439/9)) |
 | snowflake | `snowflake-client` (apt) | **не используем на VPS** — см. ниже |
 
@@ -50,7 +50,7 @@ sudo touch /var/lib/olcrtc/tor-snowflake-viable
 
 Ручные мосты (капча, свои строки): `/var/lib/olcrtc/tor-user-bridges.txt` — подмешиваются при apply/rotate.
 
-**IPv4:** на RU VPS часто режут IPv6-подсети провайдера Tor — `OLCRTC_BRIDGE_IPV4_ONLY=1` (по умолчанию). **Без IPv4 webtunnel** в пуле скрипт **не** заполняет `bridges.conf` IPv6 webtunnel — используется **obfs4-first** (см. `tor-bridge-lib.sh` → `pick_webtunnel_pool_lines`).
+**IPv4:** на RU VPS часто режут IPv6 — `OLCRTC_BRIDGE_IPV4_ONLY=1` (по умолчанию). Строки webtunnel с `url=https://…` **сохраняются**: Tor подключается к host из URL, а не к bracket-IPv6. Чистый IPv6 webtunnel без URL отбрасывается → **obfs4-first** (`tor-bridge-lib.sh`).
 
 ## Healthcheck (важно)
 

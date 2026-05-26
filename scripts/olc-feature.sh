@@ -20,7 +20,11 @@
 #   • prints a one-liner to revert
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_script="${BASH_SOURCE[0]}"
+while [[ -L "$_script" ]]; do
+  _script="$(readlink -f "$_script")"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_script")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FEATURES_ENV=/etc/olcrtc-manager/features.env
 TOR_BRIDGES=/etc/tor/bridges.conf

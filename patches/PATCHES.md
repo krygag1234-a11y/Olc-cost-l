@@ -1,7 +1,7 @@
 # Патчи относительно upstream (обязательны для Jitsi + панель + RU VPS)
 
 **Обновлено:** 2026-05-26  
-**Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master)  
+**Ветка olcrtc:** [`fix/all`](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) (default в `apply-olcrtc-patches.sh` из `data/upstream-pins.json`)  
 **Панель:** [`main`](https://github.com/BigDaddy3334/olcrtc-manager-panel)  
 **Применение:** `scripts/apply-olcrtc-patches.sh` или `upstream-sync.sh --apply`
 
@@ -77,6 +77,8 @@ Legacy `.patch` в `patches/` — справочно; при конфликте 
 | `patch-olcrtc-manager-components-jobs-v2.sh` | `GET /api/components/jobs` — статус install/uninstall jobs |
 | `patch-olcrtc-manager-panel-ui-warp.sh` / `*-v2.sh` | UI: WARP toggle, настройки, сеть и обход |
 | `patch-olcrtc-manager-panel-components-jobs-v2.sh` | Inline job log в drawer «Компоненты VPS» |
+| `patch-olcrtc-manager-components-jobs-v3.sh` | TTL завершённых jobs в API (~3 мин) |
+| `patch-olcrtc-manager-panel-components-jobs-ui-ttl.sh` | UI: автоскрытие лога задачи ~2 мин после `done` |
 | `patch-olcrtc-manager-panel-ui-v8.sh` … `v10.sh` | Проект/графики, rename профиля, collapsible network |
 | `patch-olcrtc-manager-panel-ui-fixes.sh` | Dedupe legacy patch stacking (JSX, hints, join) |
 | `patch-olcrtc-manager-bridge-profiles*.sh` | Профили мостов → `bridges.conf` при save |

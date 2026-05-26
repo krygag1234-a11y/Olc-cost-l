@@ -1,5 +1,7 @@
 # Установка и обновление
 
+## Одна команда (с GitHub)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
 ```
@@ -11,42 +13,79 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 Симлинк: `/opt/olcrtc` → `/opt/Olc-cost-l`
 
-## Ручные режимы
+## После клонирования репозитория
+
+```bash
+sudo olc-update                    # git pull + bootstrap по deploy-profile
+sudo olc-update --show-profile
+sudo olc-update --profile ru-full
+
+sudo olc-feature status            # toggle без переустановки пакетов
+sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
+```
+
+`olc-update` вызывает `scripts/agent-bootstrap.sh --update` с учётом `/etc/olcrtc-manager/deploy-profile.json` (инкрементальный update: foreign VPS не тянет лишний zapret/Tor).
+
+## Ручные режимы install.sh
 
 ```bash
 sudo bash install.sh --full
 sudo bash install.sh --update
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --no-tor   # foreign VPS
+sudo bash install.sh --resume          # продолжить install-state.json
+sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --no-tor
+sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --with-warp   # foreign + WARP
 ```
 
 ## Что делает `--update`
 
-1. `git pull` (в `install.sh`)
-2. Пересборка патченных `olcrtc` / `olcrtc-manager`
-3. `setup-split-ru.sh` — CIDR и домены
-4. `configure-tor-exit.sh` — ExitNodes
-5. `install-tor-pluggable-transports.sh` + обновление пула мостов
-6. systemd: manager, pool/monitor/**deep** timers, healthcheck cron
-7. zapret (RU VPS, если включён)
-8. `systemctl restart olcrtc-manager`
+1. `git pull` (или `reset --hard origin/main` при грязном дереве — см. install.sh)
+2. `apply-olcrtc-patches.sh` — olcrtc ветка **`fix/all`** (pin в `data/upstream-pins.json`)
+3. Шаги по **deploy-profile**: split-списки, Tor pool, zapret, timers
+4. `features.env` — после update **не** включает выключенные компоненты
+5. `systemctl restart olcrtc-manager`
 
-`torrc` и `bridges.conf` не сносятся; pool дополняется.
+`torrc` и существующий `bridges.conf` не сносятся; пул дополняется.
 
-## После обновления
+## Обновление из панели
+
+«Состояние проекта» → обновление с GitHub. Лог: `/var/log/olcrtc-panel-update.log`, статус: `/var/lib/olcrtc/panel-update-status.json`.
+
+Если job завис в `running`:
+
+```bash
+sudo bash /opt/Olc-cost-l/scripts/olc-panel-update-run.sh --reconcile
+```
+
+## Пересборка только бинарников
+
+```bash
+cd /opt/Olc-cost-l
+sudo BUILD=1 bash scripts/apply-olcrtc-patches.sh
+sudo systemctl restart olcrtc-manager
+```
+
+## После обновления — проверки
 
 ```bash
 systemctl is-active tor@default olcrtc-manager
 systemctl list-timers 'olcrtc-tor-bridge-*' --no-pager
 curl -s --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
-grep '^Bridge ' /etc/tor/bridges.conf | sed 's/ .*//' | uniq -c
-journalctl -u olcrtc-manager -n 30 --no-pager | grep route=
+grep -cE '^Bridge ' /etc/tor/bridges.conf
 ```
 
-## Tor (после обновления, опционально)
+## Tor (опционально)
 
 ```bash
 sudo /opt/Olc-cost-l/scripts/fetch-bridge-extra-sources.sh
-sudo /opt/Olc-cost-l/scripts/tor-bridge-deep-check.sh --from-pool --limit 8 --jobs 2
 sudo /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --apply
+sudo /opt/Olc-cost-l/scripts/tor-bridge-deep-check.sh --from-pool --limit 8 --jobs 2
 ```
+
+## Версия стека
+
+```bash
+jq . /opt/Olc-cost-l/version.json
+bash /opt/Olc-cost-l/scripts/generate-version-stack.sh   # обновить block "stack" перед релизом
+```
+
+См. [FEATURES.md](./FEATURES.md), [RESUME-INSTALL.md](./RESUME-INSTALL.md), [PUBLIC-DEMO-VPS.md](./PUBLIC-DEMO-VPS.md).

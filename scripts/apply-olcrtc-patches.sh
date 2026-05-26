@@ -15,7 +15,10 @@ OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
 safety_validate_git_build_dir "$OLCRTC_REPO" OLCRTC_REPO
 safety_validate_git_build_dir "$MGR_REPO" OLCRTC_MGR_REPO
-OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
+if [[ -z "${OLCRTC_BRANCH:-}" ]] && [[ -f "$REPO_ROOT/data/upstream-pins.json" ]]; then
+  OLCRTC_BRANCH="$(jq -r '.olcrtc.branch // "fix/all"' "$REPO_ROOT/data/upstream-pins.json")"
+fi
+OLCRTC_BRANCH="${OLCRTC_BRANCH:-fix/all}"
 
 log() { echo "[apply-patches] $*"; }
 
