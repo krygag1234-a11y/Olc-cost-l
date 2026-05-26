@@ -29,8 +29,8 @@
 
 | ID | Задача | Статус | Файлы / заметки |
 |----|--------|--------|-----------------|
-| 0.1 | **Копировать** в логах инстансов не работает | `[ ]` | `main.tsx`: `openLogs` / clipboard; проверить HTTPS / `navigator.clipboard` fallback `execCommand` |
-| 0.2 | В логах **патчей** (Zp/Tor/Sp/Мосты): кнопки **Копировать** + **Обновить** (не live stream) | `[ ]` | `FeatureLogsModal` + `GET /api/features/logs/{name}?refresh=1` |
+| 0.1 | **Копировать** в логах инстансов не работает | `[x]` | `copyLogs` теперь с `navigator.clipboard` + textarea/`execCommand` fallback (работает на http) |
+| 0.2 | В логах **патчей** (Zp/Tor/Sp/Мосты): кнопки **Копировать** + **Обновить** (не live stream) | `[x]` | `FeatureLogsModal`: кнопки «Обновить» и «Копировать» с fallback |
 | 0.3 | **Некорректный client_id** ломает всю панель (белый экран) | `[ ]` | Backend: валидация в `POST /api/clients`, `POST .../locations`; UI: показ ошибки, не падать на `loadState` |
 | 0.4 | **Jitsi URL** без `https://` — автодобавление схемы; не ругаться на полный URL | `[ ]` | Нормализация в manager при save + в UI перед submit |
 | 0.5 | Синхронизация header ↔ «Сеть и обход» | `[x]` | `olc-features-changed` (v3) |

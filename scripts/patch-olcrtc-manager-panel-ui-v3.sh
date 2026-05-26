@@ -86,7 +86,54 @@ function FeatureLogsModal({
 
   return (
     <Modal title={`Логи: ${feature}`} onClose={onClose}>
-      <div className="p-4">
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          {path && <div className="text-xs text-muted-foreground truncate">{path}</div>}
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
+              disabled={loading}
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/features/logs/${feature}`, { cache: "no-store" });
+                  const body = (await res.json()) as { lines?: string[]; path?: string };
+                  setLines(body.lines ?? []);
+                  setPath(body.path ?? "");
+                } catch (e) {
+                  setLines([String(e)]);
+                }
+              }}
+            >
+              Обновить
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
+              disabled={loading || lines.length === 0}
+              onClick={async () => {
+                const text = lines.join("\n");
+                try {
+                  await navigator.clipboard.writeText(text);
+                } catch {
+                  const textarea = document.createElement("textarea");
+                  textarea.value = text;
+                  textarea.style.position = "fixed";
+                  textarea.style.opacity = "0";
+                  document.body.appendChild(textarea);
+                  textarea.select();
+                  try {
+                    document.execCommand("copy");
+                  } finally {
+                    document.body.removeChild(textarea);
+                  }
+                }
+              }}
+            >
+              Копировать
+            </button>
+          </div>
+        </div>
         {path && <div className="mb-2 text-xs text-muted-foreground">{path}</div>}
         <pre className="max-h-[60vh] overflow-auto rounded-md border border-border bg-background p-3 text-xs">
           {loading ? "Загрузка…" : lines.join("\n") || "(пусто)"}
@@ -495,6 +542,37 @@ t = t.replace(
     "disabled={Boolean(pendingLocations[locationActionKey(client.client_id, loc)]) || !loc.runtime.running}\n                                      onClick={() => stopLocation(client.client_id, loc)}",
     1,
 )
+
+# --- Instance logs: robust clipboard copy with fallback (HTTP-friendly) ---
+old_copy_logs = """  const copyLogs = () =>
+    runAction(async () => {
+      await navigator.clipboard.writeText(
+        logs.map((line) => `[${line.time}] ${line.stream}: ${line.line}`).join("\\n"),
+      );
+    }, "Логи скопированы");"""
+
+new_copy_logs = """  const copyLogs = () =>
+    runAction(async () => {
+      const text = logs.map((line) => `[${line.time}] ${line.stream}: ${line.line}`).join("\\n");
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand("copy");
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+    }, "Логи скопированы");"""
+
+if old_copy_logs in t:
+    t = t.replace(old_copy_logs, new_copy_logs, 1)
 
 p.write_text(t)
 print("[patch-panel-ui-v3] ok")
