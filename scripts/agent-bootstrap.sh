@@ -49,7 +49,7 @@ export OLCRTC_SOFT_STEPS="webtunnel,zapret,cron,sysctl,split,bridges,fetch-commu
 
 ensure_install_symlink() {
   safety_ensure_olcrtc_symlink "$REPO_ROOT"
-  install -m 0755 "$SCRIPT_DIR/olc-update.sh" /usr/local/bin/olc-update 2>/dev/null || true
+  install_cli_symlinks
 }
 
 ensure_ui_build_deps() {
@@ -203,14 +203,16 @@ EOF
   systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
 }
 
-install_olc_feature_symlink() {
-  if [[ -f "$SCRIPT_DIR/olc-feature.sh" ]] && [[ ! -L /usr/local/bin/olc-feature ]]; then
-    ln -sfn "$SCRIPT_DIR/olc-feature.sh" /usr/local/bin/olc-feature 2>/dev/null || true
-  fi
+install_cli_symlinks() {
+  local s
+  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh; do
+    [[ -f "$SCRIPT_DIR/$s" ]] || continue
+    ln -sfn "$SCRIPT_DIR/$s" "/usr/local/bin/${s%.sh}" 2>/dev/null || true
+  done
 }
 
 setup_cron() {
-  install_olc_feature_symlink
+  install_cli_symlinks
   local cronf=/etc/cron.d/olcrtc-healthcheck
   safety_path_allowed "$cronf" || return 1
   cat >"$cronf" <<EOF

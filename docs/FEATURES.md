@@ -37,9 +37,31 @@ sudo ln -sf /opt/Olc-cost-l/scripts/olc-feature.sh /usr/local/bin/olc-feature
 
 Откат — обратной командой (`on`).
 
+## Быстрое обновление
+
+```bash
+olc-update          # git pull + agent-bootstrap --update (если репо уже на VPS)
+curl -fsSL .../install.sh | sudo bash   # авто: detect installed → update, fresh → full
+```
+
+## Хосты из панели (Jitsi URL)
+
+При создании/удалении локации hostname из `room_id` (`https://jitsi.etudevs.ru/room`) добавляется в
+`/var/lib/olcrtc/lists/panel-carrier-hosts.txt` и в `ru-direct-domains.txt` (для split/zapret).
+
+```bash
+olc-sync-panel-host.sh sync-config   # пересобрать из config.json
+```
+
 ## Через панель
 
-В админке (`/admin`) появилась карточка **Network features** под заголовком: показывает текущие toggle + live-состояние сервисов, кнопки `Enable/Disable` для каждого. Реализовано как:
+В шапке `/admin`: кнопки **Zp / Tor / Sp / Wt** (быстрый toggle). Ниже — карточка **«Сеть и обход»**.
+У локации: **Стоп** (без удаления), **Restart**, **Логи**.
+
+При выключении Tor/Split панель может ответить предупреждением, а не 500 — manager перезапускается
+через 2 с в фоне (иначе HTTP обрывается с `signal: terminated`).
+
+Реализовано как:
 
 - `GET /api/features` — возвращает `{flags, live, script}`
 - `POST /api/features/{name}` — body `{"enabled": true|false}`, вызывает `olc-feature.sh <name> on|off`

@@ -38,6 +38,16 @@ EOF
 
 _now()  { date -u +%Y%m%dT%H%M%SZ; }
 _load() { set -a; source "$FEATURES_ENV"; set +a; }
+
+# Never restart manager synchronously from API handlers — that kills the HTTP
+# request with "signal: terminated". Schedule restart after the script exits.
+_defer_manager_restart() {
+  if [[ "${OLC_FEATURE_NO_MANAGER_RESTART:-0}" == "1" ]]; then
+    return 0
+  fi
+  nohup bash -c 'sleep 2; systemctl restart olcrtc-manager' \
+    >>/var/log/olcrtc-feature-restart.log 2>&1 &
+}
 _save() {
   local key="$1" val="$2"
   if grep -q "^${key}=" "$FEATURES_ENV"; then
@@ -94,29 +104,26 @@ zapret_reload() {
 tor_on() {
   _save OLCRTC_ENABLE_TOR 1
   systemctl enable --now tor@default.service
-  # Re-enable EXIT_PROXY for manager
   if [[ -f /etc/systemd/system/olcrtc-manager.service ]]; then
     if ! grep -q 'OLCRTC_EXIT_PROXY=' /etc/systemd/system/olcrtc-manager.service; then
       cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
       systemctl daemon-reload
-      systemctl restart olcrtc-manager
+      _defer_manager_restart
     fi
   fi
   echo "[tor] ON"
 }
 tor_off() {
   _save OLCRTC_ENABLE_TOR 0
-  # Stop tor but DO NOT remove torrc/bridges (so we can flip back).
   systemctl stop tor@default.service 2>/dev/null || true
   systemctl disable tor@default.service 2>/dev/null || true
-  # Manager: remove SOCKS dependency so it doesn't keep waiting for tor
   if grep -q 'OLCRTC_EXIT_PROXY=' /etc/systemd/system/olcrtc-manager.service 2>/dev/null; then
     cp /etc/systemd/system/olcrtc-manager.service \
        "$TOR_BRIDGES_BACKUP_DIR/olcrtc-manager.service.bak.$(_now)"
     sed -i '/^After=.*tor@default/s|tor@default\.service||g; /^Wants=.*tor@default/s|tor@default\.service||g; /^Environment=OLCRTC_EXIT_PROXY=/d' \
       /etc/systemd/system/olcrtc-manager.service
     systemctl daemon-reload
-    systemctl restart olcrtc-manager
+    _defer_manager_restart
   fi
   echo "[tor] OFF (bridges + torrc preserved; revert with: olc-feature tor on)"
 }
@@ -135,11 +142,15 @@ split_on() {
     done
     shopt -u nullglob
   fi
-  if [[ -x "$REPO_ROOT/scripts/setup-split-ru.sh" ]]; then
-    OLCRTC_RU_VPS=1 bash "$REPO_ROOT/scripts/setup-split-ru.sh" || echo "[split] WARN: setup-split-ru had errors (lists may be partial)"
+  # Full setup-split-ru takes minutes — only from olc-update, not panel toggle.
+  if [[ "${OLC_SPLIT_FULL:-0}" == "1" ]] && [[ -x "$REPO_ROOT/scripts/setup-split-ru.sh" ]]; then
+    OLCRTC_RU_VPS=1 bash "$REPO_ROOT/scripts/setup-split-ru.sh" \
+      || echo "[split] WARN: setup-split-ru had errors (lists may be partial)"
+  elif [[ -x "$REPO_ROOT/scripts/zapret-sync-excludes.sh" ]]; then
+    bash "$REPO_ROOT/scripts/zapret-sync-excludes.sh" 2>/dev/null || true
   fi
-  systemctl restart olcrtc-manager 2>/dev/null || true
-  echo "[split] ON"
+  _defer_manager_restart
+  echo "[split] ON (quick; run olc-update for full list refresh)"
 }
 split_off() {
   _save OLCRTC_ENABLE_SPLIT 0
@@ -151,7 +162,7 @@ split_off() {
     mv "$f" "$d/disabled/" 2>/dev/null || true
   done
   shopt -u nullglob
-  systemctl restart olcrtc-manager 2>/dev/null || true
+  _defer_manager_restart
   echo "[split] OFF (lists in $d/disabled; revert with: olc-feature split on)"
 }
 

@@ -1,7 +1,5 @@
 # Olc-cost-l
 
-# сорре, пока еще хуйня
-
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
 **Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
@@ -140,5 +138,3 @@ sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --check
 ---
 
 `OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`
-
-я рот ебал запрета4рокет

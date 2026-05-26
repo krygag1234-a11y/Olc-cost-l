@@ -60,7 +60,7 @@ stop_button = """                                    <button
                                       disabled={busy || !loc.runtime.running}
                                       onClick={() => stopLocation(client.client_id, loc)}
                                     >
-                                      Stop
+                                      Стоп
                                     </button>"""
 
 if restart_button not in t:
