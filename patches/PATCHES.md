@@ -34,7 +34,10 @@
 | `patch-olcrtc-server-reconnect-debounce.sh` | Debounce smux reconnect (**5s**) |
 | `patch-olcrtc-server-jitsi-no-smux-reconnect.sh` | Jitsi bridge reconnect **без** smux tear-down |
 | `patch-j-xmpp-bind-fastfail.sh` | Быстрый fail при Prosody `bind` error (не ждать 60s EOF) |
-| `patch-olcrtc-jitsi-join-retry.sh` v3 | 6 ретраев с jitter, варьируется nick (избегает session-ghost), per-attempt timeout 14s; **cap=3 при подряд WS-dial-timeout** (хост недоступен — не жжём весь бюджет) |
+| `patch-olcrtc-jitsi-join-retry.sh` v4 | 6 ретраев, nick jitter, **28s** per-attempt (медленный WS cryptopro), cap=2 WS-dial-timeout, **fail-fast** на «no anonymous XMPP», `Insecure` из `OLCRTC_JITSI_INSECURE_TLS` |
+| `patch-olcrtc-jitsi-extras.sh` | `jitsiJoinInsecureTLS()`, `bridgeOpenTimeout` 60s (SCTP / hyperia) |
+| `patch-olcrtc-manager-features-split-tolerant.sh` | Split toggle не отдаёт 500, если флаг уже записан |
+| `patch-olcrtc-manager-panel-features-v2.sh` | RU UI + подсказка Logs / panel.env |
 | `patch-olcrtc-goolom-reconnect-stable.sh` | Стабильный reconnect carrier |
 | `patch-olcrtc-goolom-reconnect-no-early-callback.sh` | Без раннего `onReconnect(nil)` |
 | `olcrtc-session-direct-cidrs.patch` | (legacy) проброс `direct_cidrs_file` в session |

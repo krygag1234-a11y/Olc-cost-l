@@ -16,7 +16,7 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-MARKER = "joinDialMaxAttempts"         # v3 marker (cap on WS-dial timeouts)
+MARKER = "jitsiJoinInsecureTLS"          # v4 marker (TLS + timeouts + auth errors)
 V2_MARKER = "joinRetryAttempts"        # v2 marker (we'll rewrite v2 → v3)
 LEGACY = "joinAndOpenBridgeWithRetry"  # from v1 (legacy, replaced too)
 
@@ -32,8 +32,8 @@ ORIG = """\tjSess, err := j.Join(ctx, j.Config{
 \t}"""
 
 NEW = """\tconst joinRetryAttempts = 6
-\tconst joinDialMaxAttempts = 3 // cap retries when host is unreachable (WS dial timeout)
-\tconst joinPerAttemptTimeout = 14 * time.Second
+\tconst joinDialMaxAttempts = 2 // cap WS-dial timeouts (host down / blocked)
+\tconst joinPerAttemptTimeout = 28 * time.Second // slow Prosody (meet.cryptopro.ru ~10s WS)
 \tconst joinRetryBase = 1500 * time.Millisecond
 \tconst joinRetryMax = 10 * time.Second
 \tvar jSess *j.Session
@@ -52,16 +52,21 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\t\t}
 \t\t}
 \t\tjSess, err = j.Join(actx, j.Config{
-\t\t\tHost:  s.host,
-\t\t\tRoom:  s.room,
-\t\t\tNick:  nick,
-\t\t\tDebug: logger.IsVerbose(),
+\t\t\tHost:     s.host,
+\t\t\tRoom:     s.room,
+\t\t\tNick:     nick,
+\t\t\tDebug:    logger.IsVerbose(),
+\t\t\tInsecure: jitsiJoinInsecureTLS(),
 \t\t})
 \t\tacancel()
 \t\tif err == nil {
 \t\t\tbreak
 \t\t}
 \t\tmsg := err.Error()
+\t\t// Host requires login (meet.tilda.team etc.) — retrying won't help.
+\t\tif strings.Contains(msg, \"does not advertise anonymous\") {
+\t\t\treturn nil, fmt.Errorf(\"jitsi join: %s requires auth (not anonymous XMPP): %w\", s.host, err)
+\t\t}
 \t\t// Classify: WS dial timeout means the host is unreachable. No point
 \t\t// burning the full 6-attempt budget while the manager's liveness
 \t\t// timer kills us — bail after joinDialMaxAttempts in that case.
@@ -125,9 +130,10 @@ V1_RE = re.compile(
     re.MULTILINE,
 )
 
-# Pattern for v2 (6 attempts with joinRetryAttempts const but no dial-streak cap)
+# Pattern for v2/v3 retry blocks (upgrade to v4)
 V2_RE = re.compile(
     r"\tconst joinRetryAttempts = 6\n"
+    r"\tconst joinDialMaxAttempts[^\n]*\n"
     r"\tconst joinPerAttemptTimeout[^\n]*\n"
     r"(?:.*\n)*?"
     r"\tif err != nil \{\n"
@@ -137,7 +143,7 @@ V2_RE = re.compile(
 )
 
 if MARKER in t:
-    print("[patch-jitsi-retry] already at v3 (marker present) — nothing to do")
+    print("[patch-jitsi-retry] already at v4 — nothing to do")
     sys.exit(0)
 
 # Replace original / v1 / v2 block
@@ -171,5 +177,5 @@ if '"time"' not in t:
     raise SystemExit("[patch-jitsi-retry] time import missing")
 
 p.write_text(t)
-print(f"[patch-jitsi-retry] applied v3 (from {src})")
+print(f"[patch-jitsi-retry] applied v4 (from {src})")
 PY

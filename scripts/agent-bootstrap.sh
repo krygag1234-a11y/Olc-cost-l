@@ -86,7 +86,8 @@ install_deps() {
   log "packages"
   apt-get update -qq
   apt-get install -y -qq git curl build-essential golang-go jq ca-certificates \
-    patch ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils ffmpeg}
+    patch nodejs npm \
+    ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils ffmpeg}
   bash "$SCRIPT_DIR/install-go-toolchain.sh"
   export PATH="/usr/local/go/bin:${PATH:-}"
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
@@ -223,7 +224,20 @@ ensure_install_symlink
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
 state_init
 
-run_patches() { BUILD=1 bash "$PATCH_SCRIPT"; }
+ensure_panel_jitsi_tls() {
+  local env=/etc/olcrtc-manager/panel.env
+  install -d /etc/olcrtc-manager
+  touch "$env"
+  if ! grep -qE '^[[:space:]]*OLCRTC_JITSI_INSECURE_TLS=' "$env" 2>/dev/null; then
+    echo 'OLCRTC_JITSI_INSECURE_TLS=1' >>"$env"
+    log "panel.env: OLCRTC_JITSI_INSECURE_TLS=1 (Jitsi TURN with self-signed certs)"
+  fi
+}
+
+run_patches() {
+  BUILD=1 bash "$PATCH_SCRIPT"
+  ensure_panel_jitsi_tls
+}
 run_community_lists() { bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true; }
 run_restart_manager() { systemctl restart olcrtc-manager; }
 run_cleanup_tmp() { find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true; }

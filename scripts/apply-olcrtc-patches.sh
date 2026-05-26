@@ -85,6 +85,7 @@ apply_olcrtc() {
   bash "$SCRIPT_DIR/patch-olcrtc-server-reconnect-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-jitsi-no-smux-reconnect.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-join-retry.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-jitsi-extras.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
   bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-stable.sh" "$OLCRTC_REPO/internal/engine/goolom"
   bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-no-early-callback.sh" "$OLCRTC_REPO/internal/engine/goolom/lifecycle.go"
   # Ensure datachannel payload (fallback if patch hunk failed)
@@ -118,12 +119,19 @@ apply_manager() {
     "$MGR_REPO/src/main.tsx" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-vp8-defaults.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-features-split-tolerant.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-features.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-features-v2.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
-  if [[ -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
-    log "build manager admin UI (web/dist)"
-    (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install) && (cd "$MGR_REPO" && npm run build) || \
-      log "WARN: admin UI build failed — using existing web/dist if any"
+  if [[ -f "$MGR_REPO/package.json" ]]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      log "WARN: npm missing — install nodejs/npm then re-run apply-olcrtc-patches.sh (admin UI will be stale)"
+    else
+      log "build manager admin UI (web/dist)"
+      rm -rf "$MGR_REPO/web/dist"
+      (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install)
+      (cd "$MGR_REPO" && npm run build) || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
+    fi
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already
 }

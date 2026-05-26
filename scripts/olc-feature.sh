@@ -124,22 +124,35 @@ tor_off() {
 # ---------- SPLIT (direct lists for olcrtc) ----------
 split_on() {
   _save OLCRTC_ENABLE_SPLIT 1
+  local d=/var/lib/olcrtc/lists
+  install -d "$d"
+  # Restore lists from disabled/ if user toggled off before
+  if [[ -d "$d/disabled" ]]; then
+    shopt -s nullglob
+    local f
+    for f in "$d/disabled"/*.txt; do
+      mv "$f" "$d/" 2>/dev/null || true
+    done
+    shopt -u nullglob
+  fi
   if [[ -x "$REPO_ROOT/scripts/setup-split-ru.sh" ]]; then
-    OLCRTC_RU_VPS=1 bash "$REPO_ROOT/scripts/setup-split-ru.sh"
+    OLCRTC_RU_VPS=1 bash "$REPO_ROOT/scripts/setup-split-ru.sh" || echo "[split] WARN: setup-split-ru had errors (lists may be partial)"
   fi
   systemctl restart olcrtc-manager 2>/dev/null || true
   echo "[split] ON"
 }
 split_off() {
   _save OLCRTC_ENABLE_SPLIT 0
-  # Move split files out of the active dir so olcrtc stops using them.
   local d=/var/lib/olcrtc/lists
-  if [[ -d "$d" ]]; then
-    install -d "$d/disabled"
-    mv "$d"/*.txt "$d/disabled/" 2>/dev/null || true
-  fi
+  install -d "$d/disabled"
+  shopt -s nullglob
+  local f
+  for f in "$d"/*.txt; do
+    mv "$f" "$d/disabled/" 2>/dev/null || true
+  done
+  shopt -u nullglob
   systemctl restart olcrtc-manager 2>/dev/null || true
-  echo "[split] OFF (lists moved to $d/disabled; revert with: olc-feature split on)"
+  echo "[split] OFF (lists in $d/disabled; revert with: olc-feature split on)"
 }
 
 # ---------- WEBTUNNEL ----------
