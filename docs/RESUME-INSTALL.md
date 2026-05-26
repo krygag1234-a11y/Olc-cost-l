@@ -63,4 +63,11 @@ sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --fresh-state
 
 `scripts/lib-webtunnel-build.sh` сначала скачивает готовый binary с
 `https://github.com/krygag1234-a11y/mirror-cry/releases/latest/download/webtunnel-client-linux-amd64`
+
+Если релизов mirror-cry ещё нет — один раз с VPS (gitlab доступен):
+
+```bash
+export GITHUB_TOKEN=...
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/mirror-cry/main/scripts/mirror-webtunnel-publish.sh | bash
+```
 (зеркало, обновляемое GitHub Actions из gitlab.torproject.org), и только если зеркало недоступно — fallback на gitlab tarball / git clone. Это убирает зависимость RU VPS от gitlab.torproject.org, который у большинства RU провайдеров заблокирован.

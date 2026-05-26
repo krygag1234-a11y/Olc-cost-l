@@ -16,16 +16,33 @@ install -d "$JOBS_DIR" /var/log
 
 write_status() {
   local st="$1" ec="${2:-0}" err="${3:-}"
-  jq -n \
-    --arg id "$JOB_ID" \
-    --arg component "$COMPONENT" \
-    --arg action "$ACTION" \
-    --arg status "$st" \
-    --argjson exit_code "$ec" \
-    --arg error "$err" \
-    --arg log "$LOG" \
-    '{job_id:$id, type:"component", component:$component, action:$action, status:$status, exit_code:$exit_code, error:$error, log_path:$log}' \
-    >"$STATUS"
+  local now
+  now="$(date -u -Iseconds)"
+  if [[ "$st" == "running" ]]; then
+    jq -n \
+      --arg id "$JOB_ID" \
+      --arg component "$COMPONENT" \
+      --arg action "$ACTION" \
+      --arg status "$st" \
+      --argjson exit_code "$ec" \
+      --arg error "$err" \
+      --arg log "$LOG" \
+      --arg started_at "$now" \
+      '{job_id:$id, type:"component", component:$component, action:$action, status:$status, exit_code:$exit_code, error:$error, log_path:$log, started_at:$started_at}' \
+      >"$STATUS"
+  else
+    jq -n \
+      --arg id "$JOB_ID" \
+      --arg component "$COMPONENT" \
+      --arg action "$ACTION" \
+      --arg status "$st" \
+      --argjson exit_code "$ec" \
+      --arg error "$err" \
+      --arg log "$LOG" \
+      --arg finished_at "$now" \
+      '{job_id:$id, type:"component", component:$component, action:$action, status:$status, exit_code:$exit_code, error:$error, log_path:$log, finished_at:$finished_at}' \
+      >"$STATUS"
+  fi
 }
 
 write_status running 0 ""
