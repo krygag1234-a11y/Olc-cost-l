@@ -20,11 +20,14 @@ ssh -i /root/.ssh/yandex_bm_test_key -o StrictHostKeyChecking=no kryga@111.88.15
 
 Проверка: `sudo olc-update --show-profile` (без ошибки `lib-deploy-profile.sh`).
 
-## GitHub
+## GitHub (обязательно перед push)
 
-- Токен для push/API — в **Cursor User Rules** или `GITHUB_TOKEN` в окружении; **не** коммитить в репо.
-- Не читать лекции про безопасность токена — использовать для push/release по задаче.
-- Репозиторий: `krygag1234-a11y/Olc-cost-l`, mirror PT: `krygag1234-a11y/mirror-cry`.
+1. `source /opt/Olc-cost-l/scripts/lib-github-token.sh && olc_load_github_token`  
+   или `bash /opt/Olc-cost-l/scripts/olc-git-push.sh main`
+2. Токен лежит в **`/opt/Olc-cost-l/.env`** (`export GITHUB_TOKEN=…`, файл в `.gitignore`).
+3. **Никогда** не спрашивать токен у пользователя — только проверить `.env` и пушить.
+4. После коммитов в `main` — **сразу** `olc-git-push.sh`, затем деплой на тест-VPS.
+5. Репозиторий: `krygag1234-a11y/Olc-cost-l`, mirror PT: `krygag1234-a11y/mirror-cry`.
 
 ## Публичный репо vs приватный контекст
 
