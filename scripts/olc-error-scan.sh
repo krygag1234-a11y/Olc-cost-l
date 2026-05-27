@@ -82,6 +82,12 @@ for entry in catalog.get("entries", []):
         hay += gather_text(sources.get(s, sources["instance"])) + "\n"
     if not rx.search(hay):
         continue
+    matched = []
+    for line in hay.splitlines():
+        if rx.search(line):
+            matched.append(line[:240])
+            if len(matched) >= 8:
+                break
     fp = hashlib.sha256((eid + pat).encode()).hexdigest()[:16]
     if seen.get(fp):
         notifications.append(seen[fp])
@@ -93,6 +99,7 @@ for entry in catalog.get("entries", []):
         "title": entry.get("title", eid),
         "meaning": entry.get("meaning", ""),
         "fixes": entry.get("fixes", []),
+        "matched_lines": matched,
         "created_at": now,
         "read": False,
     }

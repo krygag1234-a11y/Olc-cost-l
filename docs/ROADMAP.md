@@ -25,10 +25,10 @@
 | **0** | 8/8 | — | — | Закрыта |
 | **1** | 5/5 | — | — | Профиль + инкрементальный update работают |
 | **2** | 3/3 | — | — | `GET /api/capabilities` |
-| **3** | 8 | 14 | 9 | Формы есть; не хватает пресетов zapret, CIDR-only, PT-чекбоксов |
-| **4** | 6/7 | — | 1 | ± drawer + jobs; нет combined confirm мосты+split |
-| **5** | 6 | 3 | 1 | Релизы + update из UI; нет фонового poll 6–24 ч |
-| **6** | 7 | 4 | 2 | Shell-scan вместо Go detector; нет `olc-error-match.sh` |
+| **3** | 12 | 10 | 5 | strategy select, cidr toggle, zapret reinstall; PT — скрипты |
+| **4** | 7/7 | — | 0 | ± + bridges uninstall confirm |
+| **5** | 8 | 2 | 0 | toast update 6h, lock 503; progress job — [~] |
+| **6** | 9 | 2 | 1 | `olc-error-match.sh`, matched_lines в scan |
 | **7** | 0 | 4 | 3 | Hub настроек не собран |
 | **8** | 1 | 2 | 2 | Perf-полировка в backlog |
 
@@ -125,13 +125,13 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | ID | Настройка | Статус | Реально на VPS / в репо |
 |----|-----------|--------|-------------------------|
 | 3.1.1 | Вкл/выкл, reload | `[x]` | `olc-feature zapret` |
-| 3.1.2 | Выбор **стратегии** / пресета | `[ ]` | Только **read-only** имя стратегии; нет select → `zapret.override` |
+| 3.1.2 | Выбор **стратегии** / пресета | `[x]` | select + `olc-zapret-apply-strategy.sh` |
 | 3.1.3 | nfqws параметры (whitelist) | `[~]` | Raw textarea `nfqws_config` → `data/zapret-olcrtc.config` |
 | 3.1.4 | Кастом include/exclude хосты | `[x]` | textarea + `/var/lib/olcrtc/zapret-custom/` |
 | 3.1.4b | Reload после save | `[x]` | `zapret-sync-excludes.sh --reload-zapret` |
 | 3.1.5 | Авто sync списков (cron) | `[x]` | Toggle `auto_sync` → `/etc/cron.d/olcrtc-zapret-sync` |
-| 3.1.6 | Полная переустановка из UI | `[~]` | Только подсказка CLI: `OLCRTC_ZAPRET_REINSTALL=1 olc-update` |
-| 3.1.7 | Warning: restart → разрыв DPI | `[~]` | Статический текст в форме, не отдельный modal |
+| 3.1.6 | Полная переустановка из UI | `[x]` | Кнопка + `reinstall` → `olc-component-job.sh` |
+| 3.1.7 | Warning: restart → разрыв DPI | `[x]` | Текст-предупреждение в форме zapret |
 
 ### 3.2 Tor
 
@@ -153,7 +153,7 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | 3.3.1 | Вкл/выкл | `[x]` | `olc-feature split` |
 | 3.3.2 | Редактор ru-direct / CDN / carrier hosts | `[~]` | `panel_hosts`, `custom_direct_domains`; счётчик `ru_direct_count` read-only |
 | 3.3.3 | force-tor / blocked-tor / custom direct | `[~]` | Textarea → файлы в `/var/lib/olcrtc/` |
-| 3.3.4 | CIDR-only mode toggle | `[ ]` | `cidr_only` только display |
+| 3.3.4 | CIDR-only mode toggle | `[x]` | checkbox → `OLCRTC_SPLIT_CIDR_ONLY` + `setup-split-ru.sh` |
 | 3.3.5 | «Полное обновление списков» + progress | `[~]` | `refresh_lists` → `setup-split-ru.sh` в фоне; **без** progress bar |
 | 3.3.6 | Зависимость от Tor | `[x]` | |
 
@@ -191,7 +191,7 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | 4.3 | Install → `olc-component-job.sh` | `[x]` | `POST /api/components/{name}/install` |
 | 4.3b | Job log + polling | `[x]` | TTL ~2 мин UI + ~3 мин API (`components-jobs-v3`, `ui-ttl`) |
 | 4.4 | Uninstall → feature off | `[x]` | |
-| 4.5 | Combined confirm мосты+split | `[ ]` | |
+| 4.5 | Combined confirm мосты+split | `[x]` | confirm при uninstall bridges |
 | 4.6 | Обновление `deploy-profile.json` | `[x]` | `profile_after_component_job` |
 
 **На тест-VPS:** все компоненты **установлены**, toggles в `features.env` = `0` (выкл в UI, пакеты остаются).
@@ -220,11 +220,11 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 
 | ID | Задача | Статус | Реально |
 |----|--------|--------|---------|
-| 5.3.1 | Lock на мутации | `[~]` | `panel-update.lock` + 409; **нет** global 503 middleware |
+| 5.3.1 | Lock на мутации | `[x]` | `updateGuardMiddleware` → 503 + lockfile |
 | 5.3.2 | Фоновый runner | `[x]` | `olc-panel-update-run.sh` |
 | 5.3.3 | UI UpdateModal / «Проект» | `[x]` | |
-| 5.3.4 | Фоновая проверка 6–24 ч | `[ ]` | Только ручная «Проверить» |
-| 5.3.5 | Persistent toast «есть update» | `[~]` | Индикатор в модалке «Проект», не mini-toast |
+| 5.3.4 | Фоновая проверка 6–24 ч | `[x]` | `UpdateAvailableToast` poll 6h |
+| 5.3.5 | Persistent toast «есть update» | `[x]` | toast с ✕ + «Открыть» |
 
 ---
 
@@ -233,7 +233,7 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | ID | Задача | Статус | Реально |
 |----|--------|--------|---------|
 | 6.1.1 | `data/error-catalog.json` | `[x]` | |
-| 6.1.2 | `scripts/olc-error-match.sh` | `[ ]` | **Файла нет** |
+| 6.1.2 | `scripts/olc-error-match.sh` | `[x]` | CLI тест каталога |
 | 6.1.3 | Scan логов | `[x]` | **`olc-error-scan.sh`** (shell), не Go goroutine |
 | 6.1.4 | Интервал scan | `[x]` | UI poll 60s + `scan_interval_sec` в notification-settings |
 | 6.1.5 | `GET /api/notifications` | `[x]` | |
@@ -243,9 +243,9 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | 6.2.3 | Автодетектор в главных Settings | `[~]` | Inline panel + event `olc-open-autodetect-settings` |
 | 6.3.1 | Кнопка «Ошибки» | `[x]` | |
 | 6.3.2 | Источники из catalog | `[x]` | |
-| 6.3.3 | severity ≥ warning | `[~]` | UI фильтрует только `error`, warnings скрыты |
-| 6.3.4 | Matched log lines в drawer | `[ ]` | |
-| 6.3.5 | Ссылка на настройки из Errors | `[~]` | Через колокольчик |
+| 6.3.3 | severity ≥ warning | `[x]` | error + warning в drawer |
+| 6.3.4 | Matched log lines в drawer | `[x]` | `matched_lines` из `olc-error-scan.sh` |
+| 6.3.5 | Ссылка на настройки из Errors | `[x]` | кнопка «Настройки автодетектора» |
 
 ---
 
@@ -267,10 +267,10 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 
 | ID | Мера | Статус | Реально |
 |----|------|--------|---------|
-| 8.1 | Metrics interval + tab hidden | `[ ]` | |
-| 8.2 | Error dedup / throttle | `[~]` | fingerprint в `olc-error-scan.sh` |
+| 8.1 | Metrics interval + tab hidden | `[~]` | poll 15s, skip when tab hidden |
+| 8.2 | Error dedup / throttle | `[x]` | fingerprint в `olc-error-scan.sh` |
 | 8.3 | Update log tail limit | `[~]` | **500 строк**, не 500 KB |
-| 8.4 | Capabilities cache 30s | `[ ]` | `cache: "no-store"` |
+| 8.4 | Capabilities cache 30s | `[x]` | refresh каждые 30s в `useCapabilities` |
 | 8.5 | Async location delete | `[x]` | |
 
 ---
@@ -335,3 +335,4 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | 2026-05-26 | Создан документ; фазы 0–8 |
 | 2026-05-27 | Доки: fix/all, olc-update, PUBLIC-DEMO-VPS; TTL component jobs |
 | 2026-05-27 | **Полная сверка** с репо + тест-VPS: статусы, таблица альтернатив, backlog |
+| 2026-05-27 | ROADMAP backlog: strategy, cidr, errors, update toast, lock 503, `olc-error-match` |

@@ -29,6 +29,9 @@ bash "$SCRIPT_DIR/fetch-ru-direct-domains.sh"
 bash "$SCRIPT_DIR/fetch-ru-blocked-tor-domains.sh"
 
 # Legacy IP CDN lists — optional, off by default (causes 404 on wrong nginx edge)
+if [[ "${OLCRTC_SPLIT_CIDR_ONLY:-0}" == "1" ]]; then
+  OLCRTC_INCLUDE_CDN_IPS=0
+fi
 if [[ "${OLCRTC_INCLUDE_CDN_IPS:-0}" == "1" ]]; then
   echo "[setup-split-ru] WARN: including CDN /32 lists (may cause 404 nginx)…"
   bash "$SCRIPT_DIR/fetch-cdn-direct.sh" 2>/dev/null || true
