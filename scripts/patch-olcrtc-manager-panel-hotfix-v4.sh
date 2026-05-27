@@ -40,6 +40,18 @@ t = t.replace(
     1,
 )
 
+# Header mini toggles: block bridges enable when Tor is off.
+t = t.replace(
+    '          const splitBlocked = it.name === "split" && !flags?.tor;\n          const warpBlocked = it.name === "warp" && Boolean(flags?.tor);\n          const torBlocked = it.name === "tor" && Boolean(flags?.warp);\n          const blocked = splitBlocked || warpBlocked || torBlocked;\n',
+    '          const splitBlocked = it.name === "split" && !flags?.tor;\n          const bridgesBlocked = it.name === "webtunnel" && !flags?.tor;\n          const warpBlocked = it.name === "warp" && Boolean(flags?.tor);\n          const torBlocked = it.name === "tor" && Boolean(flags?.warp);\n          const blocked = splitBlocked || bridgesBlocked || warpBlocked || torBlocked;\n',
+    1,
+)
+t = t.replace(
+    '              : splitBlocked\n                ? "Сначала Tor"\n                : `${it.name}: ${on ? "on" : "off"}`;',
+    '              : splitBlocked || bridgesBlocked\n                ? "Сначала Tor"\n                : `${it.name}: ${on ? "on" : "off"}`;',
+    1,
+)
+
 if "olc-panel-hotfix-v4" not in t:
     marker = "/* olc-panel-hotfix-v3 */"
     if marker in t:
