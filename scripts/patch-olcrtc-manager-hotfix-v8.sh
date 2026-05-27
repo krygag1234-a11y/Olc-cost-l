@@ -18,10 +18,10 @@ t = t.replace(
 )
 
 # feature logs should accept olcrtc key (used by panel logs button).
-if 'for _, n := range featureNames {' in t and 'name == "olcrtc"' not in t:
+if 'func featuresLogsHandler()' in t and 'if !allowed && name == "olcrtc"' not in t:
     t = t.replace(
-        '\t\tif !allowed {\n\t\t\thttp.Error(w, "unknown feature", http.StatusBadRequest)\n\t\t\treturn\n\t\t}\n',
-        '\t\tif !allowed && name == "olcrtc" {\n\t\t\tallowed = true\n\t\t}\n\t\tif !allowed {\n\t\t\thttp.Error(w, "unknown feature", http.StatusBadRequest)\n\t\t\treturn\n\t\t}\n',
+        '\t\tif !allowed {\n\t\t\thttp.Error(w, "unknown feature", http.StatusBadRequest)\n\t\t\treturn\n\t\t}\n\t\tvar usedPath string\n',
+        '\t\tif !allowed && name == "olcrtc" {\n\t\t\tallowed = true\n\t\t}\n\t\tif !allowed {\n\t\t\thttp.Error(w, "unknown feature", http.StatusBadRequest)\n\t\t\treturn\n\t\t}\n\t\tvar usedPath string\n',
         1,
     )
 
