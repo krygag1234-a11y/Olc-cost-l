@@ -51,7 +51,7 @@ ok_new = """\tif mainWSCode == 101 || mainWSCode == 200 || mainWSCode == 426 {
 \t\t\tif out.BridgePostJoinNote == "" {
 \t\t\t\tout.BridgePostJoinNote = "Проверяйте post-join в runtime: bridge websocket должен дать HTTP 101 (а не 200)"
 \t\t\t}
-\t\t\tout.Details = append(out.Details, "Bridge WS compatibility: ориентир в runtime — \"bridge open\" / \"Link connected\"")
+\t\t\tout.Details = append(out.Details, "Bridge WS compatibility: ориентир в runtime - \"bridge open\" / \"Link connected\"")
 \t\t}
 \t\treturn out
 \t}
@@ -74,11 +74,11 @@ weak_new = """\tout.OK = true
 \tout.Details = []string{
 \t\tfmt.Sprintf("/xmpp-websocket=%d, bosh=%d", mainWSCode, boshCode),
 \t\t"Финальный статус определяется runtime-логом jitsi join",
-\t\t"Bridge WS compatibility (post-join): ошибка \"expected 101 but got 200\" = инстанс нерабочий",
+\t\t"Bridge WS compatibility (post-join): ошибка \\\"expected 101 but got 200\\\" = инстанс нерабочий",
 \t}
 \tif out.BridgePostJoinNote == "" {
 \t\tout.BridgePostJoinRisk = true
-\t\tout.BridgePostJoinNote = "Проверьте post-join runtime-лог: при проблеме будет \"expected handshake response status code 101 but got 200\""
+\t\tout.BridgePostJoinNote = "Проверьте post-join runtime-лог: при проблеме будет \\\"expected handshake response status code 101 but got 200\\\""
 \t}
 \treturn out
 }"""
