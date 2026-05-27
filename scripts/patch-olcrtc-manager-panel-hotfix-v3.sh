@@ -24,13 +24,13 @@ t = t.replace(
 
 # 2) Global fallback in App: open mini modal directly.
 app_start = t.find("function App()")
-if app_start != -1 and 'const [autodetectMiniOpen, setAutodetectMiniOpen]' not in t[app_start:app_start+8000]:
-    init_anchor = "  const [settingsOpen, setSettingsOpen] = useState(false);\n"
+if app_start != -1 and 'const [autodetectMiniOpen, setAutodetectMiniOpen]' not in t[app_start:app_start+12000]:
+    init_anchor = "  const [showAutodetectInline, setShowAutodetectInline] = useState(false);\n"
     init_insert = "  const [autodetectMiniOpen, setAutodetectMiniOpen] = useState(false);\n"
     if init_anchor in t:
         t = t.replace(init_anchor, init_anchor + init_insert, 1)
 
-    effect_anchor = '  useEffect(() => {\n    const onOpenAutodetect = () => {\n      setSettingsOpen(true);\n      setSettingsTab("general");\n      setSettingsInlineOpen(true);\n    };\n    window.addEventListener("olc-open-autodetect-settings", onOpenAutodetect);\n    return () => window.removeEventListener("olc-open-autodetect-settings", onOpenAutodetect);\n  }, []);\n'
+    effect_anchor = '  useEffect(() => {\n    const onOpenAutodetect = () => {\n      setShowSettings(true);\n      setShowAutodetectInline(true);\n      void loadSettings().catch((err) => setNotice(err instanceof Error ? err.message : String(err)));\n    };\n    window.addEventListener("olc-open-autodetect-settings", onOpenAutodetect);\n    return () => window.removeEventListener("olc-open-autodetect-settings", onOpenAutodetect);\n  }, []);\n'
     add_effect = '''
   useEffect(() => {
     const onOpenMini = () => {
@@ -43,7 +43,7 @@ if app_start != -1 and 'const [autodetectMiniOpen, setAutodetectMiniOpen]' not i
     if effect_anchor in t and add_effect not in t:
         t = t.replace(effect_anchor, effect_anchor + add_effect, 1)
 
-    render_anchor = "      {settingsOpen && (\n        <SettingsModal\n"
+    render_anchor = "      {showSettings && (\n"
     render_insert = "      {autodetectMiniOpen && <NotificationPreferencesModal onClose={() => setAutodetectMiniOpen(false)} />}\n"
     if render_anchor in t and render_insert not in t:
         t = t.replace(render_anchor, render_insert + render_anchor, 1)
