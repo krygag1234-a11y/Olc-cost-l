@@ -26,7 +26,12 @@ if (typeof window !== "undefined") {
 }
 
 """
-    t = t.replace("const REQUEST_TIMEOUT_MS = 15000;\n", "const REQUEST_TIMEOUT_MS = 15000;\n" + shim, 1)
+    if "const REQUEST_TIMEOUT_MS = 15000;\n" in t:
+        t = t.replace("const REQUEST_TIMEOUT_MS = 15000;\n", "const REQUEST_TIMEOUT_MS = 15000;\n" + shim, 1)
+    elif "type FeatureName =" in t:
+        t = t.replace("type FeatureName =", shim + "type FeatureName =", 1)
+    else:
+        t = shim + t
 
 # 1) Errors button should open dedicated autodetect modal (not notification prefs).
 if "const [autodetectOpen, setAutodetectOpen] = useState(false);" not in t[t.find("function ErrorsSummaryButton()"):t.find("function UpdateAvailableToast()")]:
