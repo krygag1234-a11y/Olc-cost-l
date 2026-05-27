@@ -174,7 +174,7 @@ type SettingsForm = {
 
 const carriers = ["jitsi", "wbstream", "telemost", "jazz"];
 const transportsByCarrier: Record<string, string[]> = {
-  jitsi: ["datachannel", "vp8channel", "seichannel", "videochannel"],
+  jitsi: ["datachannel", "vp8channel", "seichannel"],
   wbstream: ["datachannel", "vp8channel", "seichannel"],
   telemost: ["vp8channel", "seichannel"],
   jazz: ["datachannel"],
@@ -216,18 +216,6 @@ const payloadFields: Record<string, Array<{ key: string; label: string; defaultV
     { key: "batch", label: "Batch", defaultValue: "50" },
     { key: "frag", label: "Fragment bytes", defaultValue: "900" },
     { key: "ack-ms", label: "ACK timeout ms", defaultValue: "2000" },
-  ],
-  videochannel: [
-    { key: "video-w", label: "Width", defaultValue: "1080" },
-    { key: "video-h", label: "Height", defaultValue: "1080" },
-    { key: "video-fps", label: "FPS", defaultValue: "60" },
-    { key: "video-bitrate", label: "Bitrate", defaultValue: "5000k" },
-    { key: "video-codec", label: "Codec", defaultValue: "qrcode" },
-    { key: "video-hw", label: "Hardware accel", defaultValue: "none" },
-    { key: "video-qr-size", label: "QR size", defaultValue: "0" },
-    { key: "video-qr-recovery", label: "QR recovery", defaultValue: "low" },
-    { key: "video-tile-module", label: "Tile module", defaultValue: "4" },
-    { key: "video-tile-rs", label: "Tile RS", defaultValue: "20" },
   ],
 };
 
@@ -689,6 +677,39 @@ function HeaderMetric({ label, value }: { label: string; value: React.ReactNode 
   );
 }
 
+/** Прокрутка логов: колёсико не уезжает на фоновую страницу. */
+function LogScrollBox({
+  className = "",
+  children,
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={`overscroll-contain ${className}`}
+      onWheel={(e) => e.stopPropagation()}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+function LogScrollPre({
+  className = "",
+  children,
+  ...rest
+}: React.HTMLAttributes<HTMLPreElement>) {
+  return (
+    <pre
+      className={`overscroll-contain ${className}`}
+      onWheel={(e) => e.stopPropagation()}
+      {...rest}
+    >
+      {children}
+    </pre>
+  );
+}
+
 function Modal({
   title,
   children,
@@ -699,8 +720,8 @@ function Modal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border border-border bg-card shadow-2xl">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onWheel={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold tracking-normal">{title}</h2>
           <button
@@ -1641,9 +1662,9 @@ function BridgesSettingsFields({
               Закрыть
             </button>
           </div>
-          <pre className="max-h-48 overflow-auto text-xs leading-relaxed whitespace-pre-wrap">
+          <LogScrollPre className="max-h-48 overflow-y-auto text-xs leading-relaxed whitespace-pre-wrap">
             {(logTail.length > 0 ? logTail : [jobStatus === "running" ? "Ожидание строк лога…" : poolHint || ""]).slice(-250).join("\n")}
-          </pre>
+          </LogScrollPre>
         </div>
       )}
       <label className="grid gap-1 text-xs text-muted-foreground">
@@ -2065,7 +2086,6 @@ function ComponentSettingsModal({
                       <option value="datachannel">datachannel</option>
                       <option value="vp8channel">vp8channel</option>
                       <option value="seichannel">seichannel</option>
-                      <option value="videochannel">videochannel</option>
                     </select>
                   </label>
                 </div>
@@ -3035,7 +3055,7 @@ function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {
               </span>
             </div>
             {logLines.length > 0 && (
-              <pre className="max-h-48 overflow-auto rounded border border-border bg-background p-2 text-xs">{logLines.slice(-50).join("\n")}</pre>
+              <LogScrollPre className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-xs">{logLines.slice(-50).join("\n")}</LogScrollPre>
             )}
           </div>
         </Modal>
@@ -3300,7 +3320,7 @@ function ComponentsDrawerButton() {
                     Закрыть
                   </button>
                 </div>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs leading-relaxed">{activeJobLines.slice(-250).join("\n")}</pre>
+                <LogScrollPre className="max-h-48 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed">{activeJobLines.slice(-250).join("\n")}</LogScrollPre>
               </div>
             )}
           </div>
@@ -4432,7 +4452,7 @@ function App() {
       {clientLogTarget && (
         <Modal title={`Логи ${clientLogTarget.client_id}`} onClose={() => setClientLogTarget(null)}>
           <div className="p-5">
-            <div className="max-h-[520px] overflow-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
+            <LogScrollBox className="max-h-[520px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
               {clientLogs.length === 0 ? (
                 <div className="text-muted-foreground">Загрузка логов...</div>
               ) : (
@@ -4464,7 +4484,7 @@ function App() {
                   </div>
                 ))
               )}
-            </div>
+            </LogScrollBox>
 
             <div className="mt-5 flex items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
@@ -4495,7 +4515,7 @@ function App() {
               )}
             </div>
 
-            <div className="mt-4 max-h-[420px] overflow-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
+            <LogScrollBox className="mt-4 max-h-[420px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
               {logs.length === 0 ? (
                 <div className="text-muted-foreground">Логов пока нет</div>
               ) : (
@@ -4514,7 +4534,7 @@ function App() {
                   </div>
                 ))
               )}
-            </div>
+            </LogScrollBox>
 
             <div className="mt-5 flex items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
