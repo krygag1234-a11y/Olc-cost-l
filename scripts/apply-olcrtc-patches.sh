@@ -9,6 +9,8 @@ PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
 source "$SCRIPT_DIR/safety-lib.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-olc-ru.sh
+source "$SCRIPT_DIR/lib-olc-ru.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-vps-backup.sh
@@ -28,7 +30,13 @@ if [[ -z "${OLCRTC_BRANCH:-}" ]] && [[ -f "$REPO_ROOT/data/upstream-pins.json" ]
 fi
 OLCRTC_BRANCH="${OLCRTC_BRANCH:-fix/all}"
 
-log() { echo "[apply-patches] $*"; }
+log() {
+  if declare -f olc_log_apply >/dev/null 2>&1; then
+    olc_log_apply "$*"
+  else
+    echo "[apply-patches] $*"
+  fi
+}
 
 pin_olcrtc_sha() {
   local pins="${UPSTREAM_PINS:-$REPO_ROOT/data/upstream-pins.json}"
@@ -122,7 +130,15 @@ apply_manager() {
   # Always run idempotent core patch (upstream main may already have logs API partial)
   bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
   if ! grep -q 'exitProxyReachable' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
-    (cd "$MGR_REPO" && patch -p1 --forward -N <"$PATCH_DIR/olcrtc-manager-main.go.patch") 2>/dev/null || true
+    if [[ -f "$PATCH_DIR/olcrtc-manager-main.go.patch" ]]; then
+      if ! (cd "$MGR_REPO" && patch -p1 --forward -N --batch <"$PATCH_DIR/olcrtc-manager-main.go.patch" >/dev/null 2>&1); then
+        if declare -f olc_patch_skip_msg >/dev/null 2>&1; then
+          olc_patch_skip_msg
+        else
+          log "skip olcrtc-manager-main.go.patch (already applied or upstream mismatch)"
+        fi
+      fi
+    fi
     bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   fi
   bash "$SCRIPT_DIR/patch-olcrtc-manager-socks.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
@@ -251,6 +267,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v19.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v20.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v21.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v22.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v22-room-carrier.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"

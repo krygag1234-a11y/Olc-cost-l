@@ -35,7 +35,15 @@ REBUILD_ONLY=0
 UPDATE=0
 PROFILE_ID=""
 
-log() { echo "==> $*"; }
+# shellcheck source=lib-olc-ru.sh
+source "$SCRIPT_DIR/lib-olc-ru.sh"
+log() {
+  if declare -f olc_log_step >/dev/null 2>&1; then
+    olc_log_step "$*"
+  else
+    echo "==> $*"
+  fi
+}
 
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh"

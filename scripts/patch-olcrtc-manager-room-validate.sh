@@ -32,18 +32,33 @@ func validateRoomIDStrict(roomID, carrier string) error {
 	if carrier == "" {
 		carrier = "jitsi"
 	}
-	if carrier == "jitsi" || carrier == "wbstream" || carrier == "telemost" || carrier == "jazz" {
-		rid := roomID
+	rid := roomID
+	if carrier == "jitsi" {
 		if strings.HasPrefix(rid, "http://") || strings.HasPrefix(rid, "https://") {
 			if _, err := url.Parse(rid); err != nil {
-				return fmt.Errorf("room_id: некорректный URL: %w", err)
+				return fmt.Errorf("room_id: некорректный URL Jitsi: %w", err)
 			}
 			return nil
 		}
 		if strings.Contains(rid, ".") && !strings.Contains(rid, " ") {
 			return nil
 		}
-		return errors.New("room_id: укажите https://meet.example.com/room или meet.example.com/room")
+		return errors.New("room_id: для Jitsi укажите https://meet.example.com/room или meet.example.com/room")
+	}
+	if carrier == "telemost" || carrier == "wbstream" || carrier == "jazz" {
+		if strings.HasPrefix(rid, "http://") || strings.HasPrefix(rid, "https://") {
+			return errors.New("room_id: для этого провайдера укажите ID комнаты, не ссылку")
+		}
+		for _, ch := range rid {
+			if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
+				continue
+			}
+			return errors.New("room_id: некорректный ID (латиница, цифры, _ и -)")
+		}
+		if len(rid) < 1 || len(rid) > 128 {
+			return errors.New("room_id: длина ID 1–128 символов")
+		}
+		return nil
 	}
 	return nil
 }

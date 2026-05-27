@@ -26,7 +26,17 @@
 # Force re-run specific step even on resume.
 : "${OLCRTC_FORCE_STEP:=}"
 
-_state_log() { echo "[state] $*"; }
+if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
+  # shellcheck source=lib-olc-ru.sh
+  source "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh"
+fi
+_state_log() {
+  if declare -f olc_state_line >/dev/null 2>&1; then
+    olc_state_line "$*"
+  else
+    echo "[state] $*"
+  fi
+}
 
 state_init() {
   mkdir -p "$OLCRTC_STATE_DIR"
