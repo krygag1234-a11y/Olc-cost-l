@@ -58,12 +58,56 @@ if 'case "warp":' not in t[t.find("func componentSettingsGet"):t.find("func patc
     if insert_before in t:
         t = t.replace(insert_before, block + insert_before, 1)
 
+# Remove accidental misplaced warp PUT block from featureLogPaths (from old hotfix-v2).
+bad_block = r'''
+\tcase "warp":
+\t\tif v, ok := body["proxy"].(string); ok {
+\t\t\tif err := setPanelEnvKey("OLCRTC_WARP_PROXY", strings.TrimSpace(v)); err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t}
+\t\tif v, ok := body["mode"].(string); ok {
+\t\t\tmv := strings.TrimSpace(v)
+\t\t\tif mv == "" {
+\t\t\t\tmv = "proxy"
+\t\t\t}
+\t\t\tif err := setPanelEnvKey("OLCRTC_WARP_MODE", mv); err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t}
+\t\tif v, ok := body["autoconnect"].(bool); ok {
+\t\t\tval := "0"
+\t\t\tif v {
+\t\t\t\tval = "1"
+\t\t\t}
+\t\t\tif err := setPanelEnvKey("OLCRTC_WARP_AUTOCONNECT", val); err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t}
+\t\tif v, ok := body["warp_plus"].(bool); ok {
+\t\t\tval := "0"
+\t\t\tif v {
+\t\t\t\tval = "1"
+\t\t\t}
+\t\t\tif err := setPanelEnvKey("OLCRTC_WARP_PLUS", val); err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t}
+\t\tif v, ok := body["license_key"].(string); ok {
+\t\t\tif err := setPanelEnvKey("OLCRTC_WARP_LICENSE", strings.TrimSpace(v)); err != nil {
+\t\t\t\treturn err
+\t\t\t}
+\t\t}
+\t\treturn nil
+'''
+t = t.replace(bad_block + '\n\tcase "split":', '\n\tcase "split":', 1)
+
 # Add warp settings PUT block if missing.
 put_start = t.find("func componentSettingsPut")
 put_end = t.find("// component-settings-v3")
 put_slice = t[put_start:put_end] if put_start >= 0 and put_end > put_start else ""
 if 'case "warp":' not in put_slice:
-    insert_before = '\tcase "split":'
+    insert_before = '\tcase "tor":'
     block = r'''
 	case "warp":
 		if v, ok := body["proxy"].(string); ok {
