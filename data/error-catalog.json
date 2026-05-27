@@ -16,6 +16,58 @@
       "severity": "error"
     },
     {
+      "id": "jitsi-xmpp-token-required",
+      "pattern": "token required|requires auth \\(not anonymous XMPP\\)",
+      "sources": ["instance", "olcrtc"],
+      "title": "Jitsi: требуется токен / авторизация",
+      "meaning": "Хост использует авторизацию (JWT/токен) и не пускает анонимные подключения olcrtc.",
+      "fixes": [
+        "Используйте публичный Jitsi-хост без авторизации",
+        "Попросите владельца площадки выдать гостевой/анонимный доступ или отдельный backend",
+        "Удалите такую локацию или пометьте её как недоступную в панели"
+      ],
+      "severity": "error"
+    },
+    {
+      "id": "jitsi-websocket-404",
+      "pattern": "expected handshake response status code 101 but got 404",
+      "sources": ["instance", "olcrtc"],
+      "title": "Jitsi: WebSocket endpoint не найден (404)",
+      "meaning": "Конференция открывается в браузере, но XMPP WebSocket для бота возвращает 404 (нестандартный или отключённый endpoint).",
+      "fixes": [
+        "Проверьте, что Jitsi настроен с xmpp-websocket для гостей",
+        "Попробуйте другой Jitsi-хост — многие кастомные инсталляции ломают стандартный websocket",
+        "Если вы админ Jitsi — проверьте nginx prosody-конфиг для /xmpp-websocket"
+      ],
+      "severity": "error"
+    },
+    {
+      "id": "jitsi-wait-jingle-timeout",
+      "pattern": "jitsi join: wait jingle: context deadline exceeded|wait jingle: context deadline exceeded",
+      "sources": ["instance", "olcrtc"],
+      "title": "Jitsi: не пришёл jingle от моста",
+      "meaning": "olcrtc подключился к XMPP, но Jitsi не прислал jingle/offer за отведённое время (часто перегрузка или нестабильный bridge).",
+      "fixes": [
+        "Повторите попытку — это может быть временная перегрузка",
+        "Проверьте, что в комнате есть хотя бы один реальный участник",
+        "Попробуйте другой Jitsi-хост, если таймауты стабильны именно на этом"
+      ],
+      "severity": "warning"
+    },
+    {
+      "id": "jitsi-host-unreachable",
+      "pattern": "jitsi join: host .+ unreachable after",
+      "sources": ["instance", "olcrtc"],
+      "title": "Jitsi: хост недоступен через Tor/сеть",
+      "meaning": "После нескольких попыток WebSocket/HTTP-соединение до Jitsi так и не установилось (таймауты/отказы).",
+      "fixes": [
+        "Проверьте reachability с VPS: curl -I https://host и через Tor",
+        "Для RU-доменов попробуйте link=direct и отключите Tor для этой локации",
+        "Используйте другой Jitsi-хост, который стабильно открывается из вашей сети"
+      ],
+      "severity": "error"
+    },
+    {
       "id": "jitsi-service-unavailable",
       "pattern": "service-unavailable|503|504|gateway timeout",
       "sources": ["instance", "olcrtc"],

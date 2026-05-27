@@ -63,9 +63,9 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\t\tbreak
 \t\t}
 \t\tmsg := err.Error()
-\t\t// Host requires login (meet.tilda.team etc.) — retrying won't help.
+\t\t// Хост требует авторизацию — ретраи не помогут.
 \t\tif strings.Contains(msg, \"does not advertise anonymous\") {
-\t\t\treturn nil, fmt.Errorf(\"jitsi join: %s requires auth (not anonymous XMPP): %w\", s.host, err)
+\t\t\treturn nil, fmt.Errorf(\"jitsi join: хост %s требует авторизацию (анонимный XMPP выключен): %w\", s.host, err)
 \t\t}
 \t\t// Classify: WS dial timeout means the host is unreachable. No point
 \t\t// burning the full 6-attempt budget while the manager's liveness
@@ -91,7 +91,7 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\t\t(isDialTimeout && dialTimeoutStreak >= joinDialMaxAttempts)
 \t\tif budgetExhausted || !retriable {
 \t\t\tif isDialTimeout && dialTimeoutStreak >= joinDialMaxAttempts {
-\t\t\t\treturn nil, fmt.Errorf(\"jitsi join: host %s unreachable after %d attempts: %w\", s.host, attempt, err)
+\t\t\t\treturn nil, fmt.Errorf(\"jitsi join: хост %s недоступен после %d попыток: %w\", s.host, attempt, err)
 \t\t\t}
 \t\t\treturn nil, fmt.Errorf(\"jitsi join: %w\", err)
 \t\t}
@@ -107,7 +107,7 @@ NEW = """\tconst joinRetryAttempts = 6
 \t\t\t\td = 250 * time.Millisecond
 \t\t\t}
 \t\t}
-\t\tlogger.Warnf(\"jitsi: join attempt %d failed (%v), retrying in %s\", attempt, err, d.Round(time.Millisecond))
+\t\tlogger.Warnf(\"jitsi: попытка join %d не удалась (%v), повтор через %s\", attempt, err, d.Round(time.Millisecond))
 \t\tselect {
 \t\tcase <-ctx.Done():
 \t\t\treturn nil, ctx.Err()
