@@ -11,6 +11,23 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
+# 0) Guard against stale/injected global refs crashing UI.
+if "olc-autoselect-shim-v5" not in t:
+    shim = """
+/* olc-autoselect-shim-v5 */
+if (typeof window !== "undefined") {
+  const w = window as unknown as Record<string, unknown>;
+  if (typeof w.autoSelectLabelFn !== "function") {
+    w.autoSelectLabelFn = (v: unknown) => String(v ?? "");
+  }
+  if (typeof w.autoSelectLabel !== "function") {
+    w.autoSelectLabel = (v: unknown) => String(v ?? "");
+  }
+}
+
+"""
+    t = t.replace("const REQUEST_TIMEOUT_MS = 15000;\n", "const REQUEST_TIMEOUT_MS = 15000;\n" + shim, 1)
+
 # 1) Errors button should open dedicated autodetect modal (not notification prefs).
 if "const [autodetectOpen, setAutodetectOpen] = useState(false);" not in t[t.find("function ErrorsSummaryButton()"):t.find("function UpdateAvailableToast()")]:
     t = t.replace(
