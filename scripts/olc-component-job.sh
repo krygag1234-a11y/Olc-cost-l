@@ -48,6 +48,7 @@ write_status() {
 write_status running 0 ""
 
 run_install() {
+  rm -f "/var/lib/olcrtc/component-removed/$COMPONENT" 2>/dev/null || true
   case "$COMPONENT" in
     zapret)
       if [[ -x /opt/zapret/nfq/nfqws ]] && pidof nfqws >/dev/null 2>&1; then
@@ -80,17 +81,7 @@ run_install() {
 }
 
 run_uninstall() {
-  case "$COMPONENT" in
-    zapret) bash "$SCRIPT_DIR/olc-feature.sh" zapret off ;;
-    tor)
-      bash "$SCRIPT_DIR/olc-feature.sh" tor off
-      bash "$SCRIPT_DIR/olc-feature.sh" split off
-      ;;
-    split) bash "$SCRIPT_DIR/olc-feature.sh" split off ;;
-    bridges) bash "$SCRIPT_DIR/olc-feature.sh" webtunnel off ;;
-    warp) bash "$SCRIPT_DIR/olc-feature.sh" warp off ;;
-    *) echo "unknown component: $COMPONENT" >&2; return 1 ;;
-  esac
+  bash "$SCRIPT_DIR/olc-component-remove.sh" "$COMPONENT"
 }
 
 {

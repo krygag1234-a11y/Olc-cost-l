@@ -3,7 +3,10 @@
 set -euo pipefail
 MAIN_TSX="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/src/main.tsx}"
 [[ -f "$MAIN_TSX" ]] || exit 0
-grep -q 'olc-components-jobs-ui-ttl' "$MAIN_TSX" && { echo "[patch-panel-components-jobs-ui-ttl] already applied"; exit 0; }
+if grep -q 'function componentJobUiVisible' "$MAIN_TSX"; then
+  echo "[patch-panel-components-jobs-ui-ttl] already applied"
+  exit 0
+fi
 grep -q 'jobsByComponent, setJobsByComponent' "$MAIN_TSX" || { echo "[patch-panel-components-jobs-ui-ttl] need jobs v2"; exit 0; }
 
 python3 - "$MAIN_TSX" <<'PY'
