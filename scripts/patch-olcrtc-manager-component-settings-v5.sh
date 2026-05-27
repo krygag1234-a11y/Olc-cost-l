@@ -116,7 +116,10 @@ if 'body["strategy_id"]' not in t:
     )
 
 # split PUT cidr_only
-if 'body["cidr_only"]' not in t.split('case "split":')[1].split('case "bridges"')[0]:
+split_has = False
+if 'case "split":' in t and 'case "bridges"' in t:
+    split_has = 'body["cidr_only"]' in t.split('case "split":', 1)[1].split('case "bridges"', 1)[0]
+if not split_has:
     t = t.replace(
         '''	case "split":
 		if v, ok := body["custom_direct_domains"].(string); ok {''',
