@@ -51,7 +51,7 @@ ok_new = """\tif mainWSCode == 101 || mainWSCode == 200 || mainWSCode == 426 {
 \t\t\tif out.BridgePostJoinNote == "" {
 \t\t\t\tout.BridgePostJoinNote = "Проверяйте post-join в runtime: bridge websocket должен дать HTTP 101 (а не 200)"
 \t\t\t}
-\t\t\tout.Details = append(out.Details, "Bridge WS compatibility: ориентир в runtime - \"bridge open\" / \"Link connected\"")
+\t\t\tout.Details = append(out.Details, "Bridge WS compatibility: ориентир в runtime - \\\"bridge open\\\" / \\\"Link connected\\\"")
 \t\t}
 \t\treturn out
 \t}
