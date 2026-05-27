@@ -18,6 +18,7 @@ PANEL_CIDRS=/var/lib/olcrtc/lists/panel-carrier-cidrs.txt
 DIRECT_LIST=/var/lib/olcrtc/ru-direct-domains.txt
 CIDR_LIST=/var/lib/olcrtc/ru-cidrs.txt
 CONFIG=/etc/olcrtc-manager/config.json
+SEED_DOMAINS="$REPO_ROOT/data/panel-carrier-domain-seed.txt"
 SEED_CIDRS="$REPO_ROOT/data/panel-carrier-ip-seed.txt"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "root required" >&2; exit 1; }
@@ -59,6 +60,17 @@ merge_hosts() {
       echo "[panel-host] added to direct list: $h"
     fi
   done <"$PANEL_HOSTS"
+  if [[ -f "$SEED_DOMAINS" ]]; then
+    while IFS= read -r h || [[ -n "$h" ]]; do
+      h="${h%%#*}"
+      h="$(echo "$h" | xargs)"
+      [[ -z "$h" ]] && continue
+      if ! grep -qxF "$h" "$DIRECT_LIST" 2>/dev/null; then
+        echo "$h" >>"$DIRECT_LIST"
+        echo "[panel-host] added seed domain: $h"
+      fi
+    done <"$SEED_DOMAINS"
+  fi
 
   [[ -f "$CIDR_LIST" ]] || touch "$CIDR_LIST"
   local c
