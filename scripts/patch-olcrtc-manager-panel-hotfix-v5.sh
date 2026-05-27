@@ -92,6 +92,32 @@ t = t.replace(
     "",
 )
 
+# If usage was removed by previous patches, reinsert after settings buttons row.
+if 'MainSettingsAutodetectLink expanded={showAutodetectInline}' not in t:
+    anchor = """            <div className="flex justify-end gap-2">
+              <button
+                className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+                onClick={() => { setShowAutodetectInline(false); setShowSettings(false); }}
+              >
+                Закрыть
+              </button>
+              <button
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-black hover:bg-primary/90 disabled:opacity-60"
+                disabled={busy}
+                onClick={saveSettings}
+              >
+                <Settings className="h-4 w-4" />
+                Сохранить настройки
+              </button>
+            </div>
+"""
+    if anchor in t:
+        t = t.replace(
+            anchor,
+            anchor + '\n            <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />\n',
+            1,
+        )
+
 if "olc-panel-hotfix-v5" not in t:
     marker = "/* olc-panel-hotfix-v4 */"
     if marker in t:
