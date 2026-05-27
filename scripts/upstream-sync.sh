@@ -66,13 +66,17 @@ verify_markers() {
 }
 
 check_status() {
-  local osha msha orem mrem need=0
-  osha="$(remote_sha openlibrecommunity/olcrtc master)"
-  msha="$(remote_sha BigDaddy3334/olcrtc-manager-panel main)"
+  local osha msha orem mrem need=0 obranch mbranch
+  obranch="$(pin_get olcrtc branch)"
+  mbranch="$(pin_get olcrtc-manager branch)"
+  [[ -n "$obranch" ]] || obranch="fix/all"
+  [[ -n "$mbranch" ]] || mbranch="main"
+  osha="$(remote_sha openlibrecommunity/olcrtc "$obranch")"
+  msha="$(remote_sha BigDaddy3334/olcrtc-manager-panel "$mbranch")"
   orem="$(pin_get olcrtc pinned_sha)"
   mrem="$(pin_get olcrtc-manager pinned_sha)"
-  log "olcrtc upstream:  ${osha:0:12}  pinned: ${orem:-none}"
-  log "manager upstream: ${msha:0:12}  pinned: ${mrem:-none}"
+  log "olcrtc upstream ($obranch):  ${osha:0:12}  pinned: ${orem:-none}"
+  log "manager upstream ($mbranch): ${msha:0:12}  pinned: ${mrem:-none}"
   [[ -n "$osha" && "$osha" != "$orem" ]] && { log "→ olcrtc: update available"; need=1; }
   [[ -n "$msha" && "$msha" != "$mrem" ]] && { log "→ manager: update available"; need=1; }
   [[ "$need" -eq 0 ]] && log "status: pins match upstream (or first run)"
