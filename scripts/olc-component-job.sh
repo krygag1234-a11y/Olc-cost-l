@@ -8,6 +8,9 @@ ACTION="${2:?install|uninstall}"
 JOB_ID="${3:-component-${COMPONENT}-$(date -u +%Y%m%dT%H%M%SZ)}"
 REPO_ROOT="${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-vps-backup.sh
+source "$SCRIPT_DIR/lib-vps-backup.sh"
+olc_preflight_vps_backup "component-${COMPONENT}-${ACTION}" || true
 LOG="/var/log/olcrtc-component-${COMPONENT}-${ACTION}.log"
 JOBS_DIR=/var/lib/olcrtc/panel-jobs
 STATUS="$JOBS_DIR/${JOB_ID}.json"

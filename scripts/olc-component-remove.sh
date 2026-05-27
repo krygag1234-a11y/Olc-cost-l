@@ -37,7 +37,8 @@ case "$COMPONENT" in
     systemctl stop warp-svc 2>/dev/null || true
     systemctl disable warp-svc 2>/dev/null || true
     export DEBIAN_FRONTEND=noninteractive
-    apt-get remove -y --purge cloudflare-warp 2>/dev/null || true
+    timeout 300 apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+      remove --purge cloudflare-warp 2>/dev/null || true
     rm -rf /var/lib/cloudflare-warp 2>/dev/null || true
     rm -f /etc/apt/sources.list.d/cloudflare-client.list \
       /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg 2>/dev/null || true

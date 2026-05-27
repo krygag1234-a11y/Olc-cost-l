@@ -6,6 +6,8 @@ REPO_ROOT="${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-vps-backup.sh
+source "$SCRIPT_DIR/lib-vps-backup.sh"
 JOB_ID="${1:-update-$(date -u +%Y%m%dT%H%M%SZ)}"
 LOCK=/var/lib/olcrtc/panel-update.lock
 STATUS=/var/lib/olcrtc/panel-update-status.json
@@ -48,6 +50,8 @@ trap cleanup EXIT
 write_status running 0 ""
 {
   echo "=== panel update $JOB_ID $(date -u -Iseconds) ==="
+  export OLC_VPS_BACKUP_FORCE=1
+  olc_preflight_vps_backup "panel-update" || true
   cd "$REPO_ROOT"
   olc_git_safe_register "$REPO_ROOT"
   olc_git "$REPO_ROOT" fetch origin main 2>/dev/null || olc_git "$REPO_ROOT" fetch origin main

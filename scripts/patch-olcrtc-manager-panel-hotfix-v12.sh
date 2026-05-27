@@ -12,7 +12,7 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-# Remove duplicate autodetect block; fix section wrapper around MainSettingsAutodetectLink.
+# Remove duplicate autodetect block (keep MainSettingsAutodetectLink only).
 dup = """            {/* autodetect-settings-inline-v6 */}
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
               <div className="text-sm font-medium text-foreground">Автодетектор</div>
@@ -25,24 +25,6 @@ dup = """            {/* autodetect-settings-inline-v6 */}
 """
 if dup in t:
     t = t.replace(dup, "", 1)
-
-broken = """            <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />
-              {showAutodetectInline && (
-                <div className="rounded-md border border-dashed border-border bg-card p-3">
-                  <AutodetectNotificationSettingsPanel />
-                </div>
-              )}
-            </section>"""
-fixed = """            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />
-              {showAutodetectInline && (
-                <div className="rounded-md border border-dashed border-border bg-card p-3">
-                  <AutodetectNotificationSettingsPanel />
-                </div>
-              )}
-            </section>"""
-if broken in t:
-    t = t.replace(broken, fixed, 1)
 
 # Components drawer: clear jobMsg on close; TTL success message.
 if "JOB_MSG_TTL_MS" not in t:

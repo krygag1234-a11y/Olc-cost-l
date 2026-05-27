@@ -31,6 +31,9 @@ TOR_BRIDGES=/etc/tor/bridges.conf
 TOR_BRIDGES_BACKUP_DIR=/var/lib/olcrtc/feature-backups
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+# shellcheck source=lib-vps-backup.sh
+source "$SCRIPT_DIR/lib-vps-backup.sh"
+olc_preflight_vps_backup "olc-feature" || true
 install -d /etc/olcrtc-manager "$TOR_BRIDGES_BACKUP_DIR"
 [[ -f "$FEATURES_ENV" ]] || cat >"$FEATURES_ENV" <<'EOF'
 # Olc-cost-l feature toggles (managed by /opt/Olc-cost-l/scripts/olc-feature.sh)

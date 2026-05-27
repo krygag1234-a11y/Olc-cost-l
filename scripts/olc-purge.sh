@@ -8,6 +8,8 @@
 #   sudo bash /opt/Olc-cost-l/scripts/olc-purge.sh --purge-repo # also remove /opt/Olc-cost-l
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 KEEP_TOR=0
 PURGE_REPO=0
 DRY_RUN=0
@@ -37,6 +39,13 @@ run() {
 }
 
 log() { echo "[purge] $*"; }
+
+if [[ -f "$SCRIPT_DIR/lib-vps-backup.sh" ]]; then
+  # shellcheck source=lib-vps-backup.sh
+  source "$SCRIPT_DIR/lib-vps-backup.sh"
+  export OLC_VPS_BACKUP_FORCE=1
+  olc_preflight_vps_backup "purge" || true
+fi
 
 stop_unit() {
   local u="$1"

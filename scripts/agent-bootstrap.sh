@@ -47,6 +47,8 @@ source "$SCRIPT_DIR/lib-install-state.sh"
 source "$SCRIPT_DIR/lib-git-safe.sh"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
+# shellcheck source=lib-vps-backup.sh
+source "$SCRIPT_DIR/lib-vps-backup.sh"
 
 # Hint shown on abort so user can `--resume` exactly the same invocation.
 export OLCRTC_RESUME_HINT="--resume $*"
@@ -268,7 +270,7 @@ EOF
 
 install_cli_symlinks() {
   local s
-  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh; do
+  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-vps-backup.sh; do
     [[ -f "$SCRIPT_DIR/$s" ]] || continue
     ln -sfn "$SCRIPT_DIR/$s" "/usr/local/bin/${s%.sh}" 2>/dev/null || true
   done
@@ -295,6 +297,7 @@ EOF
 
 # --- main ---
 require_root
+olc_preflight_vps_backup "agent-bootstrap" || true
 olc_git_safe_register "${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 ensure_install_symlink
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true

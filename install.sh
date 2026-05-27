@@ -37,6 +37,12 @@ else
 fi
 safety_check_install_dir "$INSTALL_DIR"
 
+if [[ -f "$SCRIPT_DIR/scripts/lib-vps-backup.sh" ]]; then
+  # shellcheck source=scripts/lib-vps-backup.sh
+  source "$SCRIPT_DIR/scripts/lib-vps-backup.sh"
+  olc_preflight_vps_backup "install" || true
+fi
+
 FORCE_MODE=""
 BOOT_ARGS=()
 SHOW_STATE=0
@@ -117,6 +123,7 @@ ln -sfn "$INSTALL_DIR/scripts/olc-update.sh" /usr/local/bin/olc-update 2>/dev/nu
 ln -sfn "$INSTALL_DIR/scripts/olc-feature.sh" /usr/local/bin/olc-feature 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-sync-panel-host.sh" /usr/local/bin/olc-sync-panel-host 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-profile.sh" /usr/local/bin/olc-profile 2>/dev/null || true
+ln -sfn "$INSTALL_DIR/scripts/olc-vps-backup.sh" /usr/local/bin/olc-vps-backup 2>/dev/null || true
 
 DETECT="$INSTALL_DIR/scripts/olc-detect-install.sh"
 STATE="fresh"

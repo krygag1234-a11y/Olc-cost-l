@@ -33,6 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "$_script")" && pwd)"
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-vps-backup.sh
+source "$SCRIPT_DIR/lib-vps-backup.sh"
 
 main() {
   need_root "$@"
@@ -50,6 +52,7 @@ main() {
   }
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
+  olc_preflight_vps_backup "olc-update" || true
   olc_git_safe_register "$repo"
   olc_git "$repo" pull --ff-only origin main
   # Re-read profile id if passed as --profile <id>

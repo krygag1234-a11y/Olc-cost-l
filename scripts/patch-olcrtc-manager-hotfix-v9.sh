@@ -50,8 +50,18 @@ if not inserted:
         inserted = True
 
 if not inserted:
-    print("[patch-manager-hotfix-v9] failed: no anchor for routes", file=sys.stderr)
-    sys.exit(1)
+    for anchor in [
+        '\thandler.Handle("/api/project/status", adminAuth(http.HandlerFunc(projectStatusHandler)))',
+        '\thandler.Handle("/api/notification-settings", adminAuth(http.HandlerFunc(notificationSettingsHandler)))',
+    ]:
+        if anchor in t:
+            t = t.replace(anchor, routes + anchor, 1)
+            inserted = True
+            break
+
+if not inserted:
+    print("[patch-manager-hotfix-v9] warn: no anchor for routes (use hotfix-v14)", file=sys.stderr)
+    sys.exit(0)
 
 if "olc-manager-hotfix-v9" not in t:
     if "/* olc-manager-hotfix-v8 */" in t:

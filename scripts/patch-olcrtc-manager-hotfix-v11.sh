@@ -56,9 +56,15 @@ new_flp = r'''func featureLogPaths(name string) []string {
 pat = r"func featureLogPaths\(name string\) \[\]string \{[\s\S]*?\n\}\n\nfunc tailFileLines"
 m = re.search(pat, t)
 if not m:
-    print("[patch-manager-hotfix-v11] featureLogPaths block not found", file=sys.stderr)
-    sys.exit(1)
-t = t[: m.start()] + new_flp + "\n\nfunc tailFileLines" + t[m.end() :]
+    anchor = "func tailFileLines"
+    if anchor in t and "func featureLogPaths" not in t:
+        t = t.replace(anchor, new_flp + "\n\n" + anchor, 1)
+        print("[patch-manager-hotfix-v11] inserted featureLogPaths")
+    else:
+        print("[patch-manager-hotfix-v11] featureLogPaths block not found (skip)", file=sys.stderr)
+        sys.exit(0)
+else:
+    t = t[: m.start()] + new_flp + "\n\nfunc tailFileLines" + t[m.end() :]
 
 old_err = '\t\tif lines == nil {\n\t\t\tlines = []string{"(log file not found — run olc-update or check /var/log/olcrtc-*)"}\n\t\t}'
 new_err = '''\t\tif lines == nil {

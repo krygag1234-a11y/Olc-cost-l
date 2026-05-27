@@ -12,6 +12,12 @@ INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
 REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
 BRANCH="${OLC_REPO_BRANCH:-main}"
 
+if [[ -f "$INSTALL_DIR/scripts/lib-vps-backup.sh" ]]; then
+  # shellcheck source=scripts/lib-vps-backup.sh
+  source "$INSTALL_DIR/scripts/lib-vps-backup.sh"
+  olc_preflight_vps_backup "uninstall" || true
+fi
+
 # If repo on disk — use local purge script
 if [[ -f "$INSTALL_DIR/scripts/olc-purge.sh" ]]; then
   exec bash "$INSTALL_DIR/scripts/olc-purge.sh" "$@"
