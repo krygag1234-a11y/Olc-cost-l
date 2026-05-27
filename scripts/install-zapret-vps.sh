@@ -32,9 +32,9 @@ fetch_zapret() {
     log "zapret binaries present in $OPT"
     return 0
   fi
-  local tmp
+  local tmp=""
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  trap '[[ -n "$tmp" ]] && rm -rf "$tmp"' RETURN
   log "download zapret v${ZAPRET_VER}"
   curl -fsSL --max-time 180 \
     "https://github.com/bol-van/zapret/releases/download/v${ZAPRET_VER}/zapret-v${ZAPRET_VER}.tar.gz" \
@@ -98,8 +98,11 @@ noninteractive_install() {
       "$OPT/common/installer.sh" 2>/dev/null || true
   fi
   export INIT_APPLY_FW=1
+  export PRESS_ENTER_TO_CONTINUE=0
   cd "$OPT"
-  yes "" | timeout 600 sh ./install_easy.sh </dev/null || log "install_easy: non-zero, continuing"
+  # install_easy may ask Y/N, LAN/WAN, and "press enter to continue" — feed defaults.
+  yes "" | timeout 900 env PRESS_ENTER_TO_CONTINUE=0 sh ./install_easy.sh </dev/null \
+    || log "install_easy: non-zero, continuing"
 }
 
 enable_service() {

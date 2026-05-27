@@ -47,12 +47,33 @@ write_status() {
 
 write_status running 0 ""
 
+finalize_job() {
+  local ec=$?
+  if [[ ! -f "$STATUS" ]]; then
+    return "$ec"
+  fi
+  local cur
+  cur="$(jq -r '.status // ""' "$STATUS" 2>/dev/null || echo "")"
+  if [[ "$cur" != "running" ]]; then
+    return "$ec"
+  fi
+  if (( ec == 0 )); then
+    write_status done 0 ""
+  else
+    write_status failed "$ec" "job exited with status $ec (see $LOG)"
+  fi
+  return "$ec"
+}
+trap finalize_job EXIT
+
 run_install() {
   rm -f "/var/lib/olcrtc/component-removed/$COMPONENT" 2>/dev/null || true
   case "$COMPONENT" in
     zapret)
       if [[ -x /opt/zapret/nfq/nfqws ]] && pidof nfqws >/dev/null 2>&1; then
         bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret
+      elif [[ -x /opt/zapret/nfq/nfqws ]]; then
+        bash "$SCRIPT_DIR/install-zapret-vps.sh" || OLCRTC_ZAPRET_REINSTALL=1 bash "$SCRIPT_DIR/install-zapret-vps.sh"
       else
         OLCRTC_ZAPRET_REINSTALL=1 bash "$SCRIPT_DIR/install-zapret-vps.sh"
       fi
@@ -92,12 +113,20 @@ run_uninstall() {
     *) echo "bad action: $ACTION" >&2; exit 1 ;;
   esac
   echo "=== done ==="
-} >>"$LOG" 2>&1 && {
+} >>"$LOG" 2>&1
+job_ec=$?
+# install scripts may exit 1 after successful work (e.g. zapret tmp trap); trust log marker.
+if grep -qF "=== done ===" "$LOG" 2>/dev/null; then
   write_status done 0 ""
-  if [[ -x "$SCRIPT_DIR/lib-deploy-profile.sh" ]]; then
-    # shellcheck source=lib-deploy-profile.sh
-    source "$SCRIPT_DIR/lib-deploy-profile.sh"
-    export OLC_REPO_ROOT="$REPO_ROOT"
-    profile_after_component_job "$COMPONENT" "$ACTION" || true
-  fi
-} || write_status failed "$?" "see $LOG"
+  job_ec=0
+elif (( job_ec == 0 )); then
+  write_status done 0 ""
+else
+  write_status failed "$job_ec" "see $LOG"
+fi
+if (( job_ec == 0 )) && [[ -x "$SCRIPT_DIR/lib-deploy-profile.sh" ]]; then
+  # shellcheck source=lib-deploy-profile.sh
+  source "$SCRIPT_DIR/lib-deploy-profile.sh"
+  export OLC_REPO_ROOT="$REPO_ROOT"
+  profile_after_component_job "$COMPONENT" "$ACTION" || true
+fi

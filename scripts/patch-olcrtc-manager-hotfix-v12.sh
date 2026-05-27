@@ -57,6 +57,15 @@ pat = r"func featureLogPaths\(name string\) \[\]string \{[\s\S]*?\n\}\n\nfunc ta
 m = re.search(pat, t)
 if m:
     t = t[: m.start()] + new_flp + "\n\nfunc tailFileLines" + t[m.end() :]
+elif "case \"olcrtc\":" not in t:
+    t2, n = re.subn(
+        r"func featureLogPaths\(name string\) \[\]string \{[\s\S]*?\n\}",
+        new_flp,
+        t,
+        count=1,
+    )
+    if n:
+        t = t2
 
 if "func tailJournalUnit" not in t:
     journal_fn = r'''
