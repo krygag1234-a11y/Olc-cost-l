@@ -19,6 +19,7 @@ sudo bash /opt/Olc-cost-l/scripts/olc-sync-from-vps.sh
 | `main.tsx`, `main.go` с тестового VPS | `packaging/golden-panel/` + `SHA256SUMS` |
 | `features.env`, panel.env (без паролей), systemd | `packaging/vps-snapshot/` |
 | Проверка | `olc-panel-verify.sh` |
+| Локальный снимок VPS | `olc-vps-snapshot.sh` → `packaging/vps-snapshot/` |
 
 После скрипта: `git add`, `commit`, `push`.
 

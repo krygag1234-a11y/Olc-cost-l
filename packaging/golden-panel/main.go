@@ -421,6 +421,7 @@ func run() error {
 	handler.Handle("/api/notifications/scan", adminAuth(http.HandlerFunc(notificationsScanHandler)))
 	handler.Handle("/api/notifications/", adminAuth(http.HandlerFunc(notificationsPatchHandler)))
 	handler.Handle("/api/notification-settings", adminAuth(http.HandlerFunc(notificationSettingsHandler)))
+	handler.Handle("/api/instance-defaults", adminAuth(http.HandlerFunc(instanceDefaultsHandler)))
 	handler.Handle("/api/notifications", adminAuth(http.HandlerFunc(notificationsListHandler)))
 	handler.Handle("/api/components/", adminAuth(http.HandlerFunc(componentsActionHandler)))
 	handler.Handle("/api/capabilities", adminAuth(http.HandlerFunc(capabilitiesHandler())))
@@ -6173,6 +6174,57 @@ func notificationSettingsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"status": "ok", "settings": cur})
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+const instanceDefaultsPath = "/var/lib/olcrtc/instance-defaults.json"
+
+func readInstanceDefaults() map[string]any {
+	out := map[string]any{
+		"schema":     1,
+		"globalPort": "",
+		"carriers":   map[string]any{},
+	}
+	var stored map[string]any
+	if readJSONFile(instanceDefaultsPath, &stored) {
+		for k, v := range stored {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func instanceDefaultsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"defaults": readInstanceDefaults()})
+	case http.MethodPut:
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		payload := body
+		if nested, ok := body["defaults"].(map[string]any); ok {
+			payload = nested
+		}
+		if err := os.MkdirAll(filepath.Dir(instanceDefaultsPath), 0755); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		b, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := os.WriteFile(instanceDefaultsPath, b, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "defaults": payload})
 	default:
 		w.Header().Set("Allow", "GET, PUT")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

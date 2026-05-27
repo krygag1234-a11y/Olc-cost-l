@@ -12,7 +12,7 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-# Remove duplicate autodetect block (keep MainSettingsAutodetectLink only).
+# Remove duplicate autodetect block; fix section wrapper around MainSettingsAutodetectLink.
 dup = """            {/* autodetect-settings-inline-v6 */}
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
               <div className="text-sm font-medium text-foreground">Автодетектор</div>
@@ -25,6 +25,24 @@ dup = """            {/* autodetect-settings-inline-v6 */}
 """
 if dup in t:
     t = t.replace(dup, "", 1)
+
+broken = """            <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />
+              {showAutodetectInline && (
+                <div className="rounded-md border border-dashed border-border bg-card p-3">
+                  <AutodetectNotificationSettingsPanel />
+                </div>
+              )}
+            </section>"""
+fixed = """            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
+              <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />
+              {showAutodetectInline && (
+                <div className="rounded-md border border-dashed border-border bg-card p-3">
+                  <AutodetectNotificationSettingsPanel />
+                </div>
+              )}
+            </section>"""
+if broken in t:
+    t = t.replace(broken, fixed, 1)
 
 # Components drawer: clear jobMsg on close; TTL success message.
 if "JOB_MSG_TTL_MS" not in t:
@@ -100,7 +118,7 @@ status_block_new = """      {jobStatus === "done" && poolJob.finished_at && (
       {(jobStatus === "running" || jobStatus === "done" || jobStatus === "error") && logTail.length > 0 && (
         <details open={jobStatus === "running"} className="rounded border border-border bg-background p-2">
           <summary className="cursor-pointer text-xs text-muted-foreground">Лог обновления пула</summary>
-          <pre className="mt-2 max-h-48 overflow-auto text-[10px] leading-relaxed">{logTail.join("\\n")}</pre>
+          <pre className="mt-2 max-h-48 overflow-auto text-[10px] leading-relaxed">{logTail.join("\n")}</pre>
         </details>
       )}"""
 if status_block_old in t and "Лог обновления пула" not in t:

@@ -133,6 +133,30 @@ profile_component() {
   grep -q "\"$key\": true" "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null
 }
 
+profile_sanitize_warp_ru() {
+  # RU VPS: WARP только если явно включён в features.env (olc-feature warp on / --with-warp).
+  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local ru warp
+  ru="$(jq -r '.ru_vps // false' "$OLCRTC_DEPLOY_PROFILE")"
+  warp="$(jq -r '.components.warp // false' "$OLCRTC_DEPLOY_PROFILE")"
+  [[ "$ru" == "true" && "$warp" == "true" ]] || return 0
+  local feat=0
+  if [[ -f /etc/olcrtc-manager/features.env ]]; then
+    # shellcheck disable=SC1091
+    set -a
+    source /etc/olcrtc-manager/features.env 2>/dev/null || true
+    set +a
+    [[ "${OLCRTC_ENABLE_WARP:-0}" == "1" ]] && feat=1
+  fi
+  if [[ "$feat" -eq 0 ]]; then
+    local tmp
+    tmp="$(mktemp)"
+    jq '.components.warp = false' "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+    profile_log "RU VPS: WARP в профиле выключен (не включён в features.env). Используйте --with-warp или olc-feature warp on"
+  fi
+}
+
 profile_apply_env() {
   [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 0
   if [[ "${OLCRTC_PROFILE_IGNORE:-0}" == "1" ]]; then
@@ -141,6 +165,7 @@ profile_apply_env() {
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
+  profile_sanitize_warp_ru
   local tor split zapret ru warp
   tor="$(jq -r '.components.tor // true' "$OLCRTC_DEPLOY_PROFILE")"
   split="$(jq -r '.components.split // true' "$OLCRTC_DEPLOY_PROFILE")"

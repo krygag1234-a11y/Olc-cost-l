@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
 
-Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` · [UPDATE.md](docs/UPDATE.md)
+Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [UPDATE.md](docs/UPDATE.md)
 
 ## Полное удаление
 

@@ -18,7 +18,6 @@
     "split",
     "fetch-community-lists",
     "zapret",
-    "warp",
     "systemd",
     "cron",
     "cleanup-tmp",

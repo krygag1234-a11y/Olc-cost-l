@@ -1,0 +1,11 @@
+UNIT FILE                         STATE    PRESET
+olcrtc-manager.service            enabled  enabled
+olcrtc-network-recovery.service   static   -
+olcrtc-tor-bridge-deep.service    disabled enabled
+olcrtc-tor-bridge-monitor.service disabled enabled
+olcrtc-tor-bridge-pool.service    disabled enabled
+olcrtc-tor-bridge-deep.timer      enabled  enabled
+olcrtc-tor-bridge-monitor.timer   enabled  enabled
+olcrtc-tor-bridge-pool.timer      enabled  enabled
+
+8 unit files listed.

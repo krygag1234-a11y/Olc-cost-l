@@ -1,0 +1,80 @@
+# Olc-cost-l — быстрый старт (для новичков)
+
+Репозиторий: [Olc-cost-l](https://github.com/krygag1234-a11y/Olc-cost-l)
+
+## Что вы получите
+
+- Панель **OlcRTC Manager** на порту **8888** (`/admin`)
+- Туннель **olcrtc** к Jitsi / Telemost / WB Stream
+- На RU VPS: **Tor**, **split** (RU direct), **zapret**, **мосты**
+
+## 1. Установка (одна команда)
+
+На чистом Ubuntu/Debian VPS от root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+```
+
+Перед установкой (рекомендуется):
+
+```bash
+sudo apt-get update && sudo apt-get install -y curl git
+# проверка места на диске:
+curl -fsSL .../install.sh | sudo bash -s -- --state  # не ставит, только проверки
+sudo olc-disk-check   # после первого клона репо
+```
+
+## 2. Открыть панель
+
+В браузере: `http://IP_ВАШЕГО_VPS:8888/admin`
+
+При первом входе задайте логин и пароль администратора.
+
+## 3. Создать клиента и инстанс
+
+1. **Клиенты** → «Создать клиента»
+2. Укажите провайдер (Jitsi, Telemost, WB Stream…)
+3. Room ID — для Jitsi ссылка meet, для Telemost — ID комнаты
+4. **QR** — ссылка для Olcbox на телефоне/ПК
+
+## 4. Обновление
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
+```
+
+Только пересобрать панель из эталона (без полного update):
+
+```bash
+sudo olc-panel-refresh-local.sh
+```
+
+## 5. Полезные команды
+
+| Команда | Зачем |
+|---------|--------|
+| `sudo olc-feature tor on/off` | Tor |
+| `sudo olc-feature warp on/off` | WARP (обычно foreign VPS) |
+| `sudo olc-disk-check` | Место на диске |
+| `sudo olc-panel-verify` | Совпадает ли сборка с эталоном |
+| `sudo olc-vps-snapshot` | Снимок конфига VPS в репо |
+
+## 6. Режимы установки
+
+| Флаг | Когда |
+|------|--------|
+| (без флагов) | RU VPS: Tor + split + zapret |
+| `--no-tor` | Иностранный VPS, без Tor |
+| `--with-warp` | Foreign + Cloudflare WARP |
+| `--update` | Только обновить уже установленное |
+
+## 7. Если что-то сломалось
+
+- **Панель белая / «Ошибка панели» (React #300)** — обновите панель: `sudo olc-panel-refresh-local.sh` или `install.sh --update`, затем Ctrl+F5
+- **Нет места на диске** — `sudo olc-disk-check`, очистить `/var/backups/olc-vps/`, кэши
+- **Tor не работает при включённом WARP** — `sudo olc-feature warp off`
+- **Не создаётся локация** — проверьте Room ID (для Telemost — не URL, а ID)
+- **Дефолты инстансов** — «Настройки OlcRTC» → «Настройки инстансов по умолчанию…»; хранятся в `/var/lib/olcrtc/instance-defaults.json`
+
+Подробнее: [VPS-SETUP.md](VPS-SETUP.md), [FEATURES.md](FEATURES.md)

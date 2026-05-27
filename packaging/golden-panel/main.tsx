@@ -49,6 +49,55 @@ import {
 } from "lucide-react";
 import "./index.css";
 
+const OLC_PANEL_LANG_KEY = "olc-panel-lang-v1";
+type PanelLang = "ru" | "en";
+const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
+  ru: {
+    settings: "Настройки",
+    interface: "Интерфейс",
+    language: "Язык панели",
+    server: "Сервер",
+    serverName: "Название",
+    panelPort: "Порт панели",
+    subscriptions: "Подписки",
+    path: "Путь",
+    refreshInterval: "Интервал обновления",
+    adminPassword: "Пароль администратора",
+    close: "Закрыть",
+    saveSettings: "Сохранить настройки",
+    changePassword: "Сменить пароль",
+  },
+  en: {
+    settings: "Settings",
+    interface: "Interface",
+    language: "Panel language",
+    server: "Server",
+    serverName: "Name",
+    panelPort: "Panel port",
+    subscriptions: "Subscriptions",
+    path: "Path",
+    refreshInterval: "Refresh interval",
+    adminPassword: "Administrator password",
+    close: "Close",
+    saveSettings: "Save settings",
+    changePassword: "Change password",
+  },
+};
+
+function readPanelLang(): PanelLang {
+  try {
+    const v = localStorage.getItem(OLC_PANEL_LANG_KEY);
+    if (v === "en" || v === "ru") return v;
+  } catch {
+    /* ignore */
+  }
+  return "ru";
+}
+
+function panelT(key: string, lang: PanelLang): string {
+  return PANEL_I18N[lang][key] ?? PANEL_I18N.ru[key] ?? key;
+}
+
 type LocationState = {
   name: string;
   room_id: string;
@@ -255,23 +304,64 @@ function emptyInstanceDefaults(): InstanceDefaultsV1 {
   return { globalPort: "", carriers: out };
 }
 
-function loadInstanceDefaults(): InstanceDefaultsV1 {
+let instanceDefaultsCache: InstanceDefaultsV1 | null = null;
+
+function parseInstanceDefaults(raw: Partial<InstanceDefaultsV1> | null | undefined): InstanceDefaultsV1 {
+  const base = emptyInstanceDefaults();
+  if (!raw) return base;
+  return {
+    globalPort: String(raw.globalPort ?? ""),
+    carriers: { ...base.carriers, ...(raw.carriers ?? {}) },
+  };
+}
+
+function loadInstanceDefaultsFromLS(): InstanceDefaultsV1 {
   try {
     const raw = localStorage.getItem(INSTANCE_DEFAULTS_LS);
     if (!raw) return emptyInstanceDefaults();
-    const parsed = JSON.parse(raw) as InstanceDefaultsV1;
-    const base = emptyInstanceDefaults();
-    return {
-      globalPort: String(parsed.globalPort ?? ""),
-      carriers: { ...base.carriers, ...parsed.carriers },
-    };
+    return parseInstanceDefaults(JSON.parse(raw) as InstanceDefaultsV1);
   } catch {
     return emptyInstanceDefaults();
   }
 }
 
-function saveInstanceDefaults(cfg: InstanceDefaultsV1) {
-  localStorage.setItem(INSTANCE_DEFAULTS_LS, JSON.stringify(cfg));
+function loadInstanceDefaults(): InstanceDefaultsV1 {
+  return instanceDefaultsCache ?? loadInstanceDefaultsFromLS();
+}
+
+function setInstanceDefaultsCache(cfg: InstanceDefaultsV1) {
+  instanceDefaultsCache = cfg;
+  try {
+    localStorage.setItem(INSTANCE_DEFAULTS_LS, JSON.stringify(cfg));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function fetchInstanceDefaultsFromAPI(): Promise<InstanceDefaultsV1> {
+  try {
+    const res = await fetch("/api/instance-defaults", { cache: "no-store" });
+    if (!res.ok) return loadInstanceDefaultsFromLS();
+    const body = (await res.json()) as { defaults?: Partial<InstanceDefaultsV1> };
+    const cfg = parseInstanceDefaults(body.defaults);
+    setInstanceDefaultsCache(cfg);
+    return cfg;
+  } catch {
+    return loadInstanceDefaultsFromLS();
+  }
+}
+
+async function saveInstanceDefaults(cfg: InstanceDefaultsV1): Promise<void> {
+  setInstanceDefaultsCache(cfg);
+  const res = await fetch("/api/instance-defaults", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ defaults: cfg }),
+  });
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new Error(raw || `HTTP ${res.status}`);
+  }
 }
 
 function mergeInstanceDefaults(loc: ClientLocationForm): ClientLocationForm {
@@ -312,6 +402,20 @@ function clampPayloadIfMax(
 function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
   const [cfg, setCfg] = useState<InstanceDefaultsV1>(() => loadInstanceDefaults());
   const [saved, setSaved] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchInstanceDefaultsFromAPI().then((next) => {
+      if (!cancelled) {
+        setCfg(next);
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setGlobalPort = (v: string) => setCfg((c) => ({ ...c, globalPort: v }));
   const globalActive = cfg.globalPort.trim() !== "";
@@ -394,6 +498,10 @@ function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClos
         <button type="button" className="text-xs text-primary hover:underline" onClick={onBack}>
           ← Назад к настройкам OlcRTC
         </button>
+        {loading ? (
+          <p className="text-xs text-muted-foreground">Загрузка…</p>
+        ) : (
+        <>
         <label className="grid gap-1 text-muted-foreground">
           Общий порт для всех провайдеров (если заполнен — индивидуальные порты ниже отключены)
           <input
@@ -439,15 +547,24 @@ function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClos
           </button>
           <button
             type="button"
-            className="rounded border border-primary bg-primary/20 px-3 py-1 text-xs text-primary"
+            className="rounded border border-primary bg-primary/20 px-3 py-1 text-xs text-primary disabled:opacity-60"
+            disabled={loading}
             onClick={() => {
-              saveInstanceDefaults(cfg);
-              setSaved("Сохранено в браузере (применяется к новым инстансам)");
+              void (async () => {
+                try {
+                  await saveInstanceDefaults(cfg);
+                  setSaved("Сохранено на сервере (применяется к новым инстансам)");
+                } catch (e) {
+                  setSaved(e instanceof Error ? e.message : String(e));
+                }
+              })();
             }}
           >
             Сохранить
           </button>
         </div>
+        </>
+        )}
       </div>
     </Modal>
   );
@@ -2023,9 +2140,9 @@ function ComponentSettingsModal({
   const [msg, setMsg] = useState("");
   const [instanceDefaultsOpen, setInstanceDefaultsOpen] = useState(false);
 
-  if (feature === "olcrtc" && instanceDefaultsOpen) {
-    return <InstanceDefaultsModal onBack={() => setInstanceDefaultsOpen(false)} onClose={onClose} />;
-  }
+  useEffect(() => {
+    setInstanceDefaultsOpen(false);
+  }, [feature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2052,6 +2169,10 @@ function ComponentSettingsModal({
       cancelled = true;
     };
   }, [apiName]);
+
+  if (feature === "olcrtc" && instanceDefaultsOpen) {
+    return <InstanceDefaultsModal onBack={() => setInstanceDefaultsOpen(false)} onClose={onClose} />;
+  }
 
   const save = async () => {
     setSaving(true);
@@ -2542,24 +2663,6 @@ function HeaderNetworkToggles() { // NetworkUIV3
   };
 
   useEffect(() => {
-    const openMini = () => {
-      setOpen(false);
-      setPrefsOpen(true);
-    };
-    window.addEventListener("olc-open-autodetect-mini", openMini);
-    return () => window.removeEventListener("olc-open-autodetect-mini", openMini);
-  }, []);
-
-  useEffect(() => {
-    const openMini = () => {
-      setOpen(false);
-      setPrefsOpen(true);
-    };
-    window.addEventListener("olc-open-autodetect-mini", openMini);
-    return () => window.removeEventListener("olc-open-autodetect-mini", openMini);
-  }, []);
-
-  useEffect(() => {
     void load();
     const onChange = () => void load();
     window.addEventListener("olc-features-changed", onChange);
@@ -2658,6 +2761,8 @@ function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
       return false;
     }
   });
+  const [logFeature, setLogFeature] = useState<FeatureName | null>(null);
+  const [settingsFeature, setSettingsFeature] = useState<FeatureName | null>(null);
 
   const load = async () => {
     try {
@@ -2676,9 +2781,6 @@ function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
     window.addEventListener("olc-features-changed", onChange);
     return () => window.removeEventListener("olc-features-changed", onChange);
   }, []);
-
-  const [logFeature, setLogFeature] = useState<FeatureName | null>(null);
-  const [settingsFeature, setSettingsFeature] = useState<FeatureName | null>(null);
 
   const toggle = async (name: FeatureName, enabled: boolean) => {
     setBusy(name);
@@ -3722,6 +3824,7 @@ function App() {
   const [clientLogTarget, setClientLogTarget] = useState<ClientState | null>(null);
   const [qrTarget, setQrTarget] = useState<{ clientID: string; location: LocationState } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [uiLang, setUiLang] = useState<PanelLang>(() => readPanelLang());
   const [showAutodetectInline, setShowAutodetectInline] = useState(false);
   const [autodetectMiniOpen, setAutodetectMiniOpen] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -3805,7 +3908,9 @@ function App() {
 
   useEffect(() => {
     if (!authenticated) return;
-    Promise.all([loadState(), loadSettings(), loadMetrics(), loadAudit()]).catch((err) => setNotice(err.message));
+    Promise.all([loadState(), loadSettings(), loadMetrics(), loadAudit(), fetchInstanceDefaultsFromAPI()]).catch((err) =>
+      setNotice(err.message),
+    );
   }, [authenticated]);
 
   useEffect(() => {
@@ -4572,13 +4677,36 @@ function App() {
 
       {autodetectMiniOpen && <NotificationPreferencesModal onClose={() => setAutodetectMiniOpen(false)} />}
       {showSettings && (
-        <Modal title="Настройки" onClose={() => setShowSettings(false)}>
+        <Modal title={panelT("settings", uiLang)} onClose={() => setShowSettings(false)}>
           <div className="grid gap-5 p-5">
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">Сервер</div>
+              <div className="text-sm font-medium text-foreground">{panelT("interface", uiLang)}</div>
+              <label className="grid gap-2 text-sm text-muted-foreground">
+                {panelT("language", uiLang)}
+                <select
+                  className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
+                  value={uiLang}
+                  onChange={(event) => {
+                    const next = event.target.value === "en" ? "en" : "ru";
+                    setUiLang(next);
+                    try {
+                      localStorage.setItem(OLC_PANEL_LANG_KEY, next);
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                >
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+            </section>
+
+            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
+              <div className="text-sm font-medium text-foreground">{panelT("server", uiLang)}</div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2 text-sm text-muted-foreground">
-                  Название
+                  {panelT("serverName", uiLang)}
                   <input
                     className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                     value={settingsForm.name}
@@ -4587,7 +4715,7 @@ function App() {
                   />
                 </label>
                 <label className="grid gap-2 text-sm text-muted-foreground">
-                  Порт панели
+                  {panelT("panelPort", uiLang)}
                   <input
                     className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                     type="number"
@@ -4604,9 +4732,9 @@ function App() {
             </section>
 
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">Подписки</div>
+              <div className="text-sm font-medium text-foreground">{panelT("subscriptions", uiLang)}</div>
               <label className="grid gap-2 text-sm text-muted-foreground">
-                Путь
+                {panelT("path", uiLang)}
                 <input
                   className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                   value={settingsForm.subscription_path}
@@ -4614,7 +4742,7 @@ function App() {
                 />
               </label>
               <label className="grid gap-2 text-sm text-muted-foreground">
-                Интервал обновления
+                {panelT("refreshInterval", uiLang)}
                 <input
                   className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                   value={settingsForm.refresh}
@@ -4624,17 +4752,13 @@ function App() {
               </label>
             </section>
 
-            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              {showAutodetectInline && (
-                <div className="rounded-md border border-dashed border-border bg-card p-3">
-                  <AutodetectNotificationSettingsPanel />
-                </div>
-              )}
-            </section>
-
+            <MainSettingsAutodetectLink
+              expanded={showAutodetectInline}
+              onToggle={() => setShowAutodetectInline((v) => !v)}
+            />
 
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">Пароль администратора</div>
+              <div className="text-sm font-medium text-foreground">{panelT("adminPassword", uiLang)}</div>
               {settings?.admin_user && <div className="text-xs text-muted-foreground">Пользователь: {settings.admin_user}</div>}
               <label className="grid gap-2 text-sm text-muted-foreground">
                 Текущий пароль
@@ -4675,7 +4799,7 @@ function App() {
                   onClick={changePassword}
                 >
                   <KeyRound className="h-4 w-4" />
-                  Сменить пароль
+                  {panelT("changePassword", uiLang)}
                 </button>
               </div>
             </section>
@@ -4685,7 +4809,7 @@ function App() {
                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                 onClick={() => { setShowAutodetectInline(false); setShowSettings(false); }}
               >
-                Закрыть
+                {panelT("close", uiLang)}
               </button>
               <button
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-black hover:bg-primary/90 disabled:opacity-60"
@@ -4693,7 +4817,7 @@ function App() {
                 onClick={saveSettings}
               >
                 <Settings className="h-4 w-4" />
-                Сохранить настройки
+                {panelT("saveSettings", uiLang)}
               </button>
             </div>
           </div>
