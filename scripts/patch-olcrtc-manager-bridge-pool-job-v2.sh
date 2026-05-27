@@ -21,6 +21,6 @@ if needle in t:
     p.write_text(t)
     print("[patch-bridge-pool-job-v2] ok")
 else:
-    print("[patch-bridge-pool-job-v2] anchor missing", file=sys.stderr)
-    sys.exit(1)
+    print("[patch-bridge-pool-job-v2] anchor missing (skip)")
+    sys.exit(0)
 PY
