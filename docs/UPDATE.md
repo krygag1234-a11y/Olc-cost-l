@@ -50,6 +50,24 @@ sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --with-warp   # foreign + W
 
 «Состояние проекта» → обновление с GitHub. Лог: `/var/log/olcrtc-panel-update.log`, статус: `/var/lib/olcrtc/panel-update-status.json`.
 
+### Регрессии UI/API (тестовый VPS, май 2026)
+
+После `olc-update` должны быть доступны:
+
+- `GET /api/project/status` (в UI больше не `HTTP 404` в «Состояние проекта»)
+- `GET/PUT /api/notification-settings` (сохранение в «Звоночек → Настройки уведомлений» без `HTTP 404`)
+- `GET/PUT /api/settings/warp` (без ошибки JSON `unknown component`)
+
+Проверка с VPS:
+
+```bash
+curl -I -u admin:admin http://127.0.0.1:8888/api/project/status
+curl -I -u admin:admin http://127.0.0.1:8888/api/notification-settings
+curl -I -u admin:admin http://127.0.0.1:8888/api/settings/warp
+```
+
+Ожидаемо: `HTTP/1.1 200 OK` (или `401`, если без корректной авторизации).
+
 Если job завис в `running`:
 
 ```bash
