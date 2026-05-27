@@ -118,6 +118,18 @@ if 'MainSettingsAutodetectLink expanded={showAutodetectInline}' not in t:
             1,
         )
 
+# Fallback: inject autodetect block right before admin password section.
+if 'MainSettingsAutodetectLink expanded={showAutodetectInline}' not in t:
+    pw_anchor = """            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
+              <div className="text-sm font-medium text-foreground">Пароль администратора</div>
+"""
+    if pw_anchor in t:
+        t = t.replace(
+            pw_anchor,
+            '\n            <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />\n\n' + pw_anchor,
+            1,
+        )
+
 if "olc-panel-hotfix-v5" not in t:
     marker = "/* olc-panel-hotfix-v4 */"
     if marker in t:
