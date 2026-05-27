@@ -25,6 +25,10 @@ usage() {
 
   После скрипта: git add, git commit, git push (вручную или попроси агента).
 
+  ВАЖНО: скрипт обновляет только файлы в /opt/Olc-cost-l (репозиторий на диске).
+  Работающая панель на ЭТОМ же сервере (olcrtc-manager) НЕ пересобирается.
+  Чтобы увидеть изменения на root: install.sh --update или olc-panel-refresh-local.sh
+
 EOF
 }
 
@@ -77,16 +81,24 @@ remote "systemctl list-unit-files 'olcrtc-*' --no-pager 2>/dev/null | head -40" 
 remote "cd /opt/Olc-cost-l && git log -1 --oneline 2>/dev/null" >"$SNAP_DIR/olc-cost-l-commit.txt" || true
 date -u +"%Y-%m-%dT%H:%M:%SZ" >"$SNAP_DIR/exported-at.txt"
 
-# 3) Verify
-export OLC_REPO_ROOT="$REPO_ROOT"
-export OLCRTC_MGR_REPO="$REMOTE_PANEL"
-if [[ -d "$REMOTE_PANEL/src" ]]; then
-  bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: verify на локальной копии panel — запустите после apply на VPS"
+# 3) Verify эталона (только packaging/golden-panel, не /tmp на этой машине)
+if (cd "$GOLDEN_DIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+  log "SHA256 эталона: ok"
 else
-  log "локально $REMOTE_PANEL нет — verify пропущен"
+  log "WARN: SHA256 эталона не сошёлся — пересоздайте SHA256SUMS"
+fi
+if grep -q videochannel "$GOLDEN_DIR/main.tsx" 2>/dev/null; then
+  log "WARN: в эталоне ещё есть videochannel — на тестовом VPS пересоберите панель без него"
+else
+  log "эталон: videochannel отсутствует (ok)"
 fi
 
-log "готово. Дальше:"
+log ""
+log "Синк в репозиторий завершён. Панель на ЭТОМ сервере не менялась."
+log "Чтобы применить эталон здесь: sudo olc-panel-refresh-local.sh"
+log "  или: curl …/install.sh | sudo bash -s -- --update"
+log ""
+log "Дальше (git):"
 echo "  cd $REPO_ROOT"
 echo "  git add packaging/golden-panel packaging/vps-snapshot"
 echo "  git status"

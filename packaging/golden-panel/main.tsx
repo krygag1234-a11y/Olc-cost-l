@@ -219,6 +219,240 @@ const payloadFields: Record<string, Array<{ key: string; label: string; defaultV
   ],
 };
 
+/* --- Дефолты инстансов (localStorage, v1) --- */
+const INSTANCE_DEFAULTS_LS = "olc-instance-defaults-v1";
+
+type TransportDefCfg = {
+  port: string;
+  payload: Record<string, string>;
+  maxValues: boolean;
+};
+
+type CarrierDefCfg = {
+  port: string;
+  transports: Record<string, TransportDefCfg>;
+};
+
+type InstanceDefaultsV1 = {
+  globalPort: string;
+  carriers: Record<string, CarrierDefCfg>;
+};
+
+function defaultTransportCfg(transport: string): TransportDefCfg {
+  const fields = payloadFields[transport] ?? [];
+  const payload: Record<string, string> = {};
+  for (const f of fields) payload[f.key] = f.defaultValue;
+  return { port: "", payload, maxValues: false };
+}
+
+function emptyInstanceDefaults(): InstanceDefaultsV1 {
+  const out: Record<string, CarrierDefCfg> = {};
+  for (const c of carriers) {
+    const transports: Record<string, TransportDefCfg> = {};
+    for (const t of transportOptions(c)) transports[t] = defaultTransportCfg(t);
+    out[c] = { port: "", transports };
+  }
+  return { globalPort: "", carriers: out };
+}
+
+function loadInstanceDefaults(): InstanceDefaultsV1 {
+  try {
+    const raw = localStorage.getItem(INSTANCE_DEFAULTS_LS);
+    if (!raw) return emptyInstanceDefaults();
+    const parsed = JSON.parse(raw) as InstanceDefaultsV1;
+    const base = emptyInstanceDefaults();
+    return {
+      globalPort: String(parsed.globalPort ?? ""),
+      carriers: { ...base.carriers, ...parsed.carriers },
+    };
+  } catch {
+    return emptyInstanceDefaults();
+  }
+}
+
+function saveInstanceDefaults(cfg: InstanceDefaultsV1) {
+  localStorage.setItem(INSTANCE_DEFAULTS_LS, JSON.stringify(cfg));
+}
+
+function mergeInstanceDefaults(loc: ClientLocationForm): ClientLocationForm {
+  const cfg = loadInstanceDefaults();
+  const carrier = loc.carrier || "jitsi";
+  const transport = loc.transport || transportOptions(carrier)[0];
+  const cCfg = cfg.carriers[carrier];
+  if (!cCfg) return loc;
+  const tCfg = cCfg.transports[transport];
+  if (!tCfg) return loc;
+  const port = cfg.globalPort.trim() || tCfg.port.trim() || cCfg.port.trim();
+  const payload = { ...loc.payload };
+  for (const field of payloadFields[transport] ?? []) {
+    const def = tCfg.payload[field.key] ?? field.defaultValue;
+    if (!payload[field.key]?.trim()) payload[field.key] = def;
+  }
+  const dns = loc.dns?.trim() && loc.dns !== "1.1.1.1:53" ? loc.dns : port || loc.dns || "1.1.1.1:53";
+  return { ...loc, carrier, transport, payload, dns };
+}
+
+function clampPayloadIfMax(
+  carrier: string,
+  transport: string,
+  key: string,
+  value: string,
+): string {
+  const cfg = loadInstanceDefaults();
+  const tCfg = cfg.carriers[carrier]?.transports[transport];
+  if (!tCfg?.maxValues) return value;
+  const cap = tCfg.payload[key];
+  if (cap === undefined || cap === "") return value;
+  const n = Number(value);
+  const m = Number(cap);
+  if (!Number.isNaN(n) && !Number.isNaN(m) && n > m) return cap;
+  return value;
+}
+
+function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
+  const [cfg, setCfg] = useState<InstanceDefaultsV1>(() => loadInstanceDefaults());
+  const [saved, setSaved] = useState("");
+
+  const setGlobalPort = (v: string) => setCfg((c) => ({ ...c, globalPort: v }));
+  const globalActive = cfg.globalPort.trim() !== "";
+
+  const updateCarrierPort = (carrier: string, port: string) =>
+    setCfg((c) => ({
+      ...c,
+      carriers: { ...c.carriers, [carrier]: { ...c.carriers[carrier], port } },
+    }));
+
+  const updateTransport = (
+    carrier: string,
+    transport: string,
+    patch: Partial<TransportDefCfg>,
+  ) =>
+    setCfg((c) => ({
+      ...c,
+      carriers: {
+        ...c.carriers,
+        [carrier]: {
+          ...c.carriers[carrier],
+          transports: {
+            ...c.carriers[carrier].transports,
+            [transport]: { ...c.carriers[carrier].transports[transport], ...patch },
+          },
+        },
+      },
+    }));
+
+  const renderTransportBlock = (carrier: string, transport: string) => {
+    const tCfg = cfg.carriers[carrier]?.transports[transport] ?? defaultTransportCfg(transport);
+    const fields = payloadFields[transport] ?? [];
+    return (
+      <div key={transport} className="rounded border border-border bg-background p-3">
+        <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">{transport}</div>
+        {!globalActive && (
+          <label className="mb-2 grid gap-1 text-xs text-muted-foreground">
+            Порт по умолчанию (DNS host:port)
+            <input
+              className="h-8 rounded border border-border bg-card px-2 font-mono text-xs"
+              value={tCfg.port}
+              onChange={(e) => updateTransport(carrier, transport, { port: e.target.value })}
+              placeholder="1.1.1.1:53"
+            />
+          </label>
+        )}
+        {fields.length > 0 && (
+          <div className="grid gap-2 md:grid-cols-2">
+            {fields.map((field) => (
+              <label key={field.key} className="grid gap-1 text-xs text-muted-foreground">
+                {field.label}
+                <input
+                  className="h-8 rounded border border-border bg-card px-2 text-xs"
+                  value={tCfg.payload[field.key] ?? ""}
+                  onChange={(e) =>
+                    updateTransport(carrier, transport, {
+                      payload: { ...tCfg.payload, [field.key]: e.target.value },
+                    })
+                  }
+                />
+              </label>
+            ))}
+          </div>
+        )}
+        <label className="mt-2 flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={tCfg.maxValues}
+            onChange={(e) => updateTransport(carrier, transport, { maxValues: e.target.checked })}
+          />
+          Это максимальные значения? (нельзя выставить выше при создании)
+        </label>
+      </div>
+    );
+  };
+
+  return (
+    <Modal title="Настройки инстансов по умолчанию" onClose={onClose}>
+      <div className="max-h-[75vh] space-y-4 overflow-y-auto overscroll-contain p-4 text-sm" onWheel={(e) => e.stopPropagation()}>
+        <button type="button" className="text-xs text-primary hover:underline" onClick={onBack}>
+          ← Назад к настройкам OlcRTC
+        </button>
+        <label className="grid gap-1 text-muted-foreground">
+          Общий порт для всех провайдеров (если заполнен — индивидуальные порты ниже отключены)
+          <input
+            className="h-9 rounded-md border border-border bg-background px-2 font-mono text-xs"
+            value={cfg.globalPort}
+            onChange={(e) => setGlobalPort(e.target.value)}
+            placeholder="пусто = порты по провайдерам"
+          />
+        </label>
+        {(["jitsi", "wbstream", "telemost"] as const).map((carrier) => (
+          <section key={carrier} className="grid gap-2 rounded-md border border-border p-3">
+            <div className="font-medium capitalize">{carrier}</div>
+            {!globalActive && carrier !== "jitsi" && (
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                Порт по умолчанию ({carrier})
+                <input
+                  className="h-8 rounded border border-border bg-card px-2 font-mono text-xs disabled:opacity-50"
+                  disabled={globalActive}
+                  value={cfg.carriers[carrier]?.port ?? ""}
+                  onChange={(e) => updateCarrierPort(carrier, e.target.value)}
+                />
+              </label>
+            )}
+            {carrier === "jitsi" && !globalActive && (
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                Порт (datachannel)
+                <input
+                  className="h-8 rounded border border-border bg-card px-2 font-mono text-xs"
+                  value={cfg.carriers.jitsi?.transports.datachannel?.port ?? ""}
+                  onChange={(e) => updateTransport("jitsi", "datachannel", { port: e.target.value })}
+                />
+              </label>
+            )}
+            <div className="grid gap-2">
+              {transportOptions(carrier).map((t) => renderTransportBlock(carrier, t))}
+            </div>
+          </section>
+        ))}
+        {saved && <p className="text-xs text-emerald-400">{saved}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="rounded border border-border px-3 py-1 text-xs hover:bg-muted" onClick={onBack}>
+            Назад
+          </button>
+          <button
+            type="button"
+            className="rounded border border-primary bg-primary/20 px-3 py-1 text-xs text-primary"
+            onClick={() => {
+              saveInstanceDefaults(cfg);
+              setSaved("Сохранено в браузере (применяется к новым инстансам)");
+            }}
+          >
+            Сохранить
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 async function request(path: string, options?: RequestInit) {
   const res = await fetch(path, options);
   if (!res.ok) {
@@ -430,12 +664,12 @@ function normalizeLocationForm(location: ClientLocationForm): ClientLocationForm
     if (!payload[field.key]?.trim()) payload[field.key] = field.defaultValue;
   }
   const link = (location.link?.trim() || "tor").toLowerCase();
-  return {
+  return mergeInstanceDefaults({
     ...location,
     transport,
     payload,
     link: link === "direct" ? "direct" : "tor",
-  };
+  });
 }
 
 function normalizeForm(form: ClientForm): ClientForm {
@@ -1027,7 +1261,12 @@ function LocationFormFields({
                     set({
                       payload: {
                         ...location.payload,
-                        [field.key]: event.target.value,
+                        [field.key]: clampPayloadIfMax(
+                          location.carrier,
+                          location.transport,
+                          field.key,
+                          event.target.value,
+                        ),
                       },
                     })
                   }
@@ -1782,6 +2021,11 @@ function ComponentSettingsModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [instanceDefaultsOpen, setInstanceDefaultsOpen] = useState(false);
+
+  if (feature === "olcrtc" && instanceDefaultsOpen) {
+    return <InstanceDefaultsModal onBack={() => setInstanceDefaultsOpen(false)} onClose={onClose} />;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -2060,6 +2304,13 @@ function ComponentSettingsModal({
             )}
             {feature === "olcrtc" && (
               <>
+                <button
+                  type="button"
+                  className="w-fit rounded-md border border-border bg-muted px-3 py-2 text-xs hover:bg-muted/80"
+                  onClick={() => setInstanceDefaultsOpen(true)}
+                >
+                  Настройки инстансов по умолчанию…
+                </button>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={Boolean(settings.jitsi_insecure_tls)} onChange={(e) => setBool("jitsi_insecure_tls", e.target.checked)} />
                   OLCRTC_JITSI_INSECURE_TLS (самоподписанные сертификаты Jitsi)
