@@ -16,6 +16,7 @@ Z4R_REPO_URL="${Z4R_REPO_URL:-https://github.com/IndeecFOX/zapret4rocket.git}"
 Z4R_BRANCH="${Z4R_BRANCH:-master}"
 Z4R_SRC="${Z4R_SRC:-$REPO_ROOT/data/zapret4rocket}"
 PINS_FILE="${UPSTREAM_PINS:-$REPO_ROOT/data/upstream-pins.json}"
+LOCK_FILE="${Z4R_LOCK_FILE:-/var/lock/olc-sync-z4r.lock}"
 APPLY=0
 APPLY_CONFIG=0
 
@@ -34,6 +35,37 @@ while [[ $# -gt 0 ]]; do
 done
 
 log() { echo "[sync-z4r] $*"; }
+
+realpath_safe() {
+  python3 - <<'PY' "$1"
+from pathlib import Path
+import sys
+print(str(Path(sys.argv[1]).resolve()))
+PY
+}
+
+validate_paths() {
+  local repo z4r
+  repo="$(realpath_safe "$REPO_ROOT")"
+  z4r="$(realpath_safe "$Z4R_SRC")"
+
+  [[ -n "$repo" && -n "$z4r" ]] || { log "bad paths"; exit 1; }
+  [[ "$repo" != "/" ]] || { log "REPO_ROOT cannot be /"; exit 1; }
+
+  # Critical safety: never allow target outside repo data/
+  case "$z4r" in
+    "$repo"/data/*) ;;
+    *)
+      log "REFUSE: Z4R_SRC outside repo data/: $z4r"
+      exit 1
+      ;;
+  esac
+
+  if [[ "$z4r" == "$repo" || "$z4r" == "$repo/data" || "$z4r" == "$repo/scripts" ]]; then
+    log "REFUSE: dangerous Z4R_SRC target: $z4r"
+    exit 1
+  fi
+}
 
 remote_sha() {
   curl -fsSL "https://api.github.com/repos/IndeecFOX/zapret4rocket/commits/${Z4R_BRANCH}?per_page=1" \
@@ -86,6 +118,14 @@ apply_zapret_config() {
 }
 
 main() {
+  validate_paths
+  mkdir -p "$(dirname "$LOCK_FILE")"
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    log "lock busy: another sync-z4r is already running"
+    exit 1
+  fi
+
   local rsha lsha
   rsha="$(remote_sha)"
   lsha="$(local_sha || true)"
@@ -114,3 +154,4 @@ main() {
 }
 
 main "$@"
+
