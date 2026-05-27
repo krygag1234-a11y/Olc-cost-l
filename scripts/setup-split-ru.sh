@@ -12,7 +12,18 @@ source "$SCRIPT_DIR/safety-lib.sh"
 }
 
 echo "[setup-split-ru] RU CIDR (geoip)…"
-bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
+if [[ "${1:-}" == "--quick" ]] || [[ "${OLCRTC_SPLIT_QUICK:-0}" == "1" ]]; then
+  echo "[setup-split-ru] quick: skip heavy upstream fetches"
+  export OLCRTC_SKIP_GEOSITE_FETCH=1
+  export OLCRTC_SKIP_BLOCKED_TOR_FETCH=1
+  if [[ -s /var/lib/olcrtc/ru-cidrs.txt ]]; then
+    echo "[setup-split-ru] skip fetch-ru-cidrs (existing file)"
+  else
+    bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
+  fi
+else
+  bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
+fi
 
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 EXTRA_DST="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"

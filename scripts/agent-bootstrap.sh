@@ -189,7 +189,21 @@ setup_split_routing() {
     log "skip split lists (foreign VPS or --no-split or --no-tor)"
     return 0
   fi
-  OLCRTC_RU_VPS=1 bash "$SCRIPT_DIR/setup-split-ru.sh"
+  local quick=0
+  local max_age="${OLCRTC_SPLIT_LISTS_MAX_AGE:-604800}"
+  if [[ "$UPDATE" -eq 1 ]] && [[ "${OLCRTC_SPLIT_FORCE_REFRESH:-0}" != "1" ]] && [[ -s /var/lib/olcrtc/ru-direct-domains.txt ]]; then
+    local age=$(( $(date +%s) - $(stat -c %Y /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0) ))
+    if [[ "$age" -lt "$max_age" ]]; then
+      quick=1
+      log "split: quick update (lists ${age}s old) — OLCRTC_SPLIT_FORCE_REFRESH=1 for full refresh"
+    fi
+  fi
+  if [[ "$quick" -eq 1 ]]; then
+    OLCRTC_RU_VPS=1 OLCRTC_SKIP_GEOSITE_FETCH=1 OLCRTC_SKIP_BLOCKED_TOR_FETCH=1 \
+      bash "$SCRIPT_DIR/setup-split-ru.sh" --quick
+  else
+    OLCRTC_RU_VPS=1 bash "$SCRIPT_DIR/setup-split-ru.sh"
+  fi
 }
 
 setup_sysctl() {

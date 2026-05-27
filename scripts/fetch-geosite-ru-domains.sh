@@ -17,6 +17,19 @@ trap 'rm -rf "$TMP"' EXIT
 
 log() { echo "[geosite-ru] $*"; }
 
+max_age="${OLCRTC_GEOSITE_MAX_AGE_SEC:-604800}"
+if [[ "${OLCRTC_SKIP_GEOSITE_FETCH:-0}" == "1" ]] && [[ -s "$OUT" ]]; then
+  log "skip fetch ($OUT exists, OLCRTC_SKIP_GEOSITE_FETCH=1)"
+  exit 0
+fi
+if [[ -s "$OUT" ]] && [[ "$max_age" -gt 0 ]]; then
+  age=$(( $(date +%s) - $(stat -c %Y "$OUT" 2>/dev/null || echo 0) ))
+  if [[ "$age" -lt "$max_age" ]]; then
+    log "skip fetch ($OUT fresh ${age}s < ${max_age}s)"
+    exit 0
+  fi
+fi
+
 # Categories from https://github.com/GrimbirdUsers/ru-routing-dat
 CATEGORIES=(
   category-ru category-ru-all category-gov-ru category-ru-whitelist

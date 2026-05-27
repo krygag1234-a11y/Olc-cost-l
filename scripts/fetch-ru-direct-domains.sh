@@ -14,10 +14,27 @@ EXTRA="${RU_DOMAINS_EXTRA:-/var/lib/olcrtc/ru-domains-extra.txt}"
 EMBED="${RU_EMBED_BALANCERS:-$REPO_ROOT/data/ru-embed-balancers.txt}"
 PLAYER="${RU_PLAYER_DOMAINS:-/var/lib/olcrtc/ru-player-cdn-domains.txt}"
 
-bash "$SCRIPT_DIR/fetch-geosite-ru-domains.sh"
-bash "$SCRIPT_DIR/fetch-player-cdn-domains.sh"
-bash "$SCRIPT_DIR/fetch-force-tor-domains.sh"
 FORCE="${FORCE_TOR_DOMAINS:-/var/lib/olcrtc/force-tor-domains.txt}"
+
+geosite_fetch() {
+  if [[ "${OLCRTC_SKIP_GEOSITE_FETCH:-0}" == "1" ]] && [[ -s "$GEOSITE" ]]; then
+    echo "[fetch-ru-direct] skip geosite ($GEOSITE exists)"
+    return 0
+  fi
+  bash "$SCRIPT_DIR/fetch-geosite-ru-domains.sh"
+}
+
+player_fetch() {
+  if [[ "${OLCRTC_SKIP_GEOSITE_FETCH:-0}" == "1" ]] && [[ -s "$PLAYER" ]]; then
+    echo "[fetch-ru-direct] skip player-cdn ($PLAYER exists)"
+    return 0
+  fi
+  bash "$SCRIPT_DIR/fetch-player-cdn-domains.sh"
+}
+
+geosite_fetch
+player_fetch
+bash "$SCRIPT_DIR/fetch-force-tor-domains.sh"
 
 tmp="$(mktemp)"
 {
@@ -60,8 +77,9 @@ def blocked(host, exact, suffix):
         return False
     if host in exact:
         return True
-    for e in exact:
-        if host == e or host.endswith("." + e):
+    parts = host.split(".")
+    for i in range(len(parts) - 1):
+        if ".".join(parts[i:]) in exact:
             return True
     for s in suffix:
         if not s.startswith("."):

@@ -15,6 +15,19 @@ trap 'rm -rf "$TMP"' EXIT
 
 log() { echo "[blocked-tor] $*"; }
 
+max_age="${OLCRTC_BLOCKED_TOR_MAX_AGE_SEC:-604800}"
+if [[ "${OLCRTC_SKIP_BLOCKED_TOR_FETCH:-0}" == "1" ]] && [[ -s "$OUT" ]]; then
+  log "skip fetch ($OUT exists, OLCRTC_SKIP_BLOCKED_TOR_FETCH=1)"
+  exit 0
+fi
+if [[ -s "$OUT" ]] && [[ "$max_age" -gt 0 ]]; then
+  age=$(( $(date +%s) - $(stat -c %Y "$OUT" 2>/dev/null || echo 0) ))
+  if [[ "$age" -lt "$max_age" ]]; then
+    log "skip fetch ($OUT fresh ${age}s)"
+    exit 0
+  fi
+fi
+
 # Re:filter + antifilter community lists
 REFILTER="${REFILTER_DOMAINS_URL:-https://github.com/1andrevich/Re-filter-lists/releases/latest/download/domains_all.lst}"
 ANTIFILTER="${ANTIFILTER_DOMAINS_URL:-https://community.antifilter.download/list/domains.lst}"
@@ -27,13 +40,12 @@ curl -fsSL --max-time 120 "$ANTIFILTER" -o "$TMP/antifilter.lst" 2>/dev/null || 
   [[ -f "$SEED" ]] && grep -v '^#' "$SEED" | awk 'NF'
   for lst in "$TMP/refilter.lst" "$TMP/antifilter.lst"; do
     [[ -f "$lst" ]] || continue
-    while IFS= read -r d; do
+    # Only .ru/.su/.рф — grep is ~100x faster than bash while-read on huge lists
+    grep -iE '\.(ru|su|рф|xn--p1ai)$' "$lst" 2>/dev/null | while IFS= read -r d; do
       d="$(echo "$d" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-      [[ -z "$d" || "$d" == \#* ]] && continue
-      case "$d" in
-        *.ru|*.su|*.рф|*.xn--p1ai) echo "exact:${d}" ;;
-      esac
-    done <"$lst"
+      [[ -z "$d" ]] && continue
+      echo "exact:${d}"
+    done
   done
 } | awk '!seen[$0]++' >"$OUT"
 
