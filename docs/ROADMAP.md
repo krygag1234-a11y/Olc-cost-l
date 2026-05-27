@@ -1,7 +1,7 @@
 # Olc-cost-l — мастер-план разработки панели
 
 > **Назначение:** единый живой документ. При работе над задачей — открывать этот файл, отмечать статус, не терять контекст на длинных сессиях.  
-> **Последнее обновление плана:** 2026-05-26  
+> **Последнее обновление плана:** 2026-05-27 (полная сверка с репо `a65d9c9` + тест-VPS)  
 > **Текущая версия панели (репо):** `0.9.0-pre-alpha.1` (см. `version.json`)
 
 ## Легенда статусов
@@ -9,10 +9,41 @@
 | Статус | Значение |
 |--------|----------|
 | `[ ]` | не начато |
-| `[~]` | в работе |
+| `[~]` | частично / альтернатива вместо полного ТЗ |
 | `[x]` | сделано в репо + задеплоено на тест |
 | `[!]` | блокер / нужно решение |
 | `[-]` | отменено / не делаем |
+
+---
+
+## Сводка сверки (2026-05-27)
+
+Сверка: патчи `scripts/patch-olcrtc-manager-*`, shell-скрипты, `data/deploy-profiles/`, состояние тест-VPS (`ru-full`, `olc-update` OK, компоненты установлены, toggles в `features.env` часто `0`).
+
+| Фаза | Готово | Частично | Не сделано | Комментарий |
+|------|--------|----------|------------|-------------|
+| **0** | 8/8 | — | — | Закрыта |
+| **1** | 5/5 | — | — | Профиль + инкрементальный update работают |
+| **2** | 3/3 | — | — | `GET /api/capabilities` |
+| **3** | 8 | 14 | 9 | Формы есть; не хватает пресетов zapret, CIDR-only, PT-чекбоксов |
+| **4** | 6/7 | — | 1 | ± drawer + jobs; нет combined confirm мосты+split |
+| **5** | 6 | 3 | 1 | Релизы + update из UI; нет фонового poll 6–24 ч |
+| **6** | 7 | 4 | 2 | Shell-scan вместо Go detector; нет `olc-error-match.sh` |
+| **7** | 0 | 4 | 3 | Hub настроек не собран |
+| **8** | 1 | 2 | 2 | Perf-полировка в backlog |
+
+**Частые альтернативы (уже на VPS, не дублировать в UI):**
+
+| В ROADMAP | Сделано иначе |
+|-----------|----------------|
+| Go `errorDetector` | `scripts/olc-error-scan.sh` + `POST /api/notifications/scan` |
+| Whitelist nfqws поля | Raw `nfqws_config` → `data/zapret-olcrtc.config` |
+| Редактор всех split-списков | Textarea кастомных доменов + `olc-update` / cron для полного refresh |
+| PT checkboxes в UI | `BRIDGE_TYPES` + `tor-bridge-pool.sh` + тип моста в bridge-profiles |
+| `--set-profile` в olc-update | `olc-profile set <id>` |
+| Lock 503 на все мутации | Lockfile update + 409 на install во время update |
+
+---
 
 ## Принципы (не нарушать)
 
@@ -29,378 +60,247 @@
 
 | ID | Задача | Статус | Файлы / заметки |
 |----|--------|--------|-----------------|
-| 0.1 | **Копировать** в логах инстансов не работает | `[x]` | `copyLogs` теперь с `navigator.clipboard` + textarea/`execCommand` fallback (работает на http) |
-| 0.2 | В логах **патчей** (Zp/Tor/Sp/Мосты): кнопки **Копировать** + **Обновить** (не live stream) | `[x]` | `FeatureLogsModal`: кнопки «Обновить» и «Копировать» с fallback |
-| 0.3 | **Некорректный client_id** ломает всю панель (белый экран) | `[x]` | strict `client_id` + `normalizePanelState` + `PanelErrorBoundary` |
-| 0.4 | **Jitsi URL** без `https://` / мусор (`аыпвпв`) | `[x]` | `validateRoomIDStrict` + `sanitizeConfigInvalidLocations` на load |
+| 0.1 | **Копировать** в логах инстансов не работает | `[x]` | `patch-olcrtc-manager-panel-ui-v3.sh` — clipboard + fallback |
+| 0.2 | В логах **патчей** (Zp/Tor/Sp/Мосты): **Копировать** + **Обновить** | `[x]` | `FeatureLogsModal` |
+| 0.3 | **Некорректный client_id** ломает панель | `[x]` | `normalizePanelState` + `PanelErrorBoundary` |
+| 0.4 | **Jitsi URL** без `https://` / мусор | `[x]` | `validateRoomIDStrict` |
 | 0.5 | Синхронизация header ↔ «Сеть и обход» | `[x]` | `olc-features-changed` (v3) |
 | 0.6 | Split только при включённом Tor | `[x]` | UI + `olc-feature.sh` |
-| 0.7 | Удаление локации не блокирует всю панель | `[x]` | `pendingLocations` + async reload |
+| 0.7 | Удаление локации не блокирует панель | `[x]` | `pendingLocations` + async delete |
 | 0.8 | Tor/Split toggle без HTTP 500 | `[x]` | deferred restart + api-v2 |
 
-**Критерий приёмки фазы 0:** тестовый VPS, Ctrl+Shift+R; создать клиента `вркпгшкургш` → ошибка в toast, панель жива; копировать логи инстанса и zapret работает.
+**Критерий приёмки:** Ctrl+Shift+R; bad `client_id` → toast, панель жива; копирование логов работает.
 
 ---
 
-## Фаза 1 — Инфраструктура: «отпечаток» сценария и умный update
+## Фаза 1 — Профиль сценария и умный update
 
-Сейчас `olc-update` → всегда `agent-bootstrap.sh --update` (полный сценарий для RU VPS). Нужен **профиль установки**, который записывается при первом install и читается при каждом update.
+`olc-update` → `agent-bootstrap.sh --update` **с учётом** `/etc/olcrtc-manager/deploy-profile.json` (инкрементально: foreign не тянет zapret/split).
 
 ### 1.1 Файл отпечатка
 
 | Поле | Путь | Описание |
 |------|------|----------|
-| Профиль | `/etc/olcrtc-manager/deploy-profile.json` | JSON, версия схемы |
-| Зеркало в репо | `data/deploy-profiles/*.json` | шаблоны |
+| Профиль | `/etc/olcrtc-manager/deploy-profile.json` | JSON, schema 1 |
+| Шаблоны | `data/deploy-profiles/*.json` | ru-full, foreign-*, custom |
 
-**Пример `deploy-profile.json`:**
+### 1.2 Запись и чтение профиля
 
-```json
-{
-  "schema": 1,
-  "profile_id": "ru-full",
-  "label": "RU VPS: Tor + Split + Zapret + Мосты",
-  "components": {
-    "tor": true,
-    "split": true,
-    "zapret": true,
-    "bridges": true,
-    "webtunnel": true
-  },
-  "update_mode": "incremental",
-  "created_at": "2026-05-26T12:00:00Z",
-  "install_script_fingerprint": "install.sh:--no-tor"
-}
-```
+| ID | Задача | Статус | Заметки |
+|----|--------|--------|---------|
+| 1.2.1 | Запись профиля при первом install | `[x]` | `agent-bootstrap.sh` → `profile_from_flags` (не напрямую в `install.sh`) |
+| 1.2.2 | `--update` читает профиль, пропускает лишние шаги | `[x]` | `state_step_profile`, `profile_apply_env` |
+| 1.2.3 | `olc-update.sh` — `--show-profile`, `--profile <id>` | `[x]` | Смена профиля: `olc-profile set` |
+| 1.2.4 | `/usr/local/bin/olc-profile` | `[x]` | symlink из `install.sh` |
+| 1.2.5 | Документация | `[x]` | `FEATURES.md`, `VPS-SETUP.md`, `UPDATE.md`, `WARP-OPTIONAL.md` |
 
-### 1.2 Запись отпечатка (первым делом в скриптах)
+**Профили:** `ru-full`, `ru-no-zapret`, `foreign-minimal`, `foreign-tor`, `foreign-warp`, `custom`.
 
-| ID | Задача | Статус |
-|----|--------|--------|
-| 1.2.1 | `install.sh` — после разбора argv писать профиль (`--no-tor`, `--no-zapret`, `--no-split`, …) | `[~]` bootstrap пишет при первом install |
-| 1.2.2 | `agent-bootstrap.sh` — при `--update` читать профиль, пропускать чужие шаги | `[x]` `state_step_profile` + `profile_apply_env` |
-| 1.2.3 | `olc-update.sh` — опции `--profile`, `--set-profile`, `--show-profile` | `[x]` `--show-profile`, `--profile <id>` |
-| 1.2.4 | Симлинк/хелпер `olc-profile` — смена профиля без переустановки | `[x]` `/usr/local/bin/olc-profile` |
-| 1.2.5 | Документация в `docs/VPS-SETUP.md`, `docs/FEATURES.md` | `[~]` |
-
-**Профили (минимум):**
-
-| `profile_id` | Tor | Split | Zapret | Мосты | Когда |
-|--------------|-----|-------|--------|-------|-------|
-| `ru-full` | ✓ | ✓ | ✓ | ✓ | RU VPS по умолчанию |
-| `ru-no-zapret` | ✓ | ✓ | ✗ | ✓ | тест без DPI |
-| `foreign-minimal` | ✗ | ✗ | ✗ | ✗ | зарубежный relay |
-| `foreign-tor` | ✓ | ✗ | ✗ | ✓ | Tor-only |
-| `foreign-warp` | ✗ | ✗ | ✗ | ✗ (+WARP) | зарубежный relay + Cloudflare WARP |
-| `custom` | … | … | … | … | из UI «±» |
-
-**Критерий:** `olc-update` на foreign VPS не тянет 6 минут zapret/split; на RU — тянет только включённые компоненты.
+**На тест-VPS:** `profile_id: ru-full`, `update_mode: incremental`, `olc-update --show-profile` OK.
 
 ---
 
-## Фаза 2 — Capability API (что показывать в UI)
-
-Единый endpoint для всей панели (не плодить десятки страниц):
+## Фаза 2 — Capability API
 
 ```
 GET /api/capabilities
 ```
 
-**Ответ (черновик):**
-
-```json
-{
-  "panel_version": "0.9.0-alpha",
-  "repo_sha": "39f4c61",
-  "components": {
-    "zapret": { "installed": true, "enabled": true, "configurable": true },
-    "tor": { "installed": true, "enabled": false, "configurable": true },
-    "split": { "installed": true, "enabled": true, "requires": ["tor"] },
-    "bridges": { "installed": true, "enabled": true, "label": "Мосты" },
-    "olcrtc": { "version": "...", "branch": "fix/all" }
-  },
-  "deploy_profile": "ru-full",
-  "update_available": false
-}
-```
-
-| ID | Задача | Статус |
-|----|--------|--------|
-| 2.1 | Go: `capabilitiesHandler` — читает `features.env`, systemd, файлы, `install-state` | `[x]` |
-| 2.2 | UI: `useCapabilities()` — скрывает блоки Zp/Tor/Sp/Мосты | `[x]` |
-| 2.3 | При `split` без `tor` — split скрыт или disabled с tooltip | `[x]` splitBlocked + requires tor |
+| ID | Задача | Статус | Evidence |
+|----|--------|--------|----------|
+| 2.1 | `capabilitiesHandler` | `[x]` | `patch-olcrtc-manager-capabilities.sh` |
+| 2.2 | `useCapabilities()` в UI | `[x]` | `patch-olcrtc-manager-panel-capabilities.sh` |
+| 2.3 | Split без Tor — disabled + tooltip | `[x]` | `requires: ["tor"]` |
 
 ---
 
-## Фаза 3 — Реальные настройки слоёв (модалки)
+## Фаза 3 — Настройки слоёв (модалки)
 
-Заменить `FeatureSettingsModal` (сейчас только текст-подсказка) на **формы с сохранением**.
+Паттерн backend: `GET/PUT /api/settings/{component}` (`patch-olcrtc-manager-component-settings*.sh`, `settings-actions.sh`).
 
-Общий паттерн UI: `FeatureSettingsDrawer` → вкладки «Основное | Списки | Расширенное | Опасная зона».
+UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui-v6`–`v10` — **не** полноценный drawer с вкладками «Опасная зона».
 
-Общий паттерн backend:
+### 3.1 Zapret
 
-```
-GET  /api/settings/{component}     → текущие значения (без секретов)
-PUT  /api/settings/{component}     → применить (валидация + backup + reload если нужно)
-POST /api/settings/{component}/test → dry-run / проверка синтаксиса списков
-```
-
-### 3.1 Zapret (источник: [zapret4rocket](https://github.com/IndeecFOX/zapret4rocket))
-
-| ID | Настройка | Реализация | Статус |
-|----|-----------|------------|--------|
-| 3.1.1 | Вкл/выкл, reload | уже `olc-feature` | `[x]` |
-| 3.1.2 | Выбор **стратегии** / пресета (из `data/zapret4rocket`, `lib/strategies.sh`) | UI select → запись в managed snippet `/etc/olcrtc-manager/zapret.override` | `[ ]` |
-| 3.1.3 | Параметры nfqws (repeats, fooling, …) — ограниченный whitelist полей | форма + валидация | `[ ]` |
-| 3.1.4 | **Кастом хосты/IP**: include / exclude / «только через zapret» | файлы в `/var/lib/olcrtc/zapret-custom/` + merge в `zapret-sync-excludes.sh` | `[x]` textarea + save |
-| 3.1.5 | Автообновление z4r / списков (cron) | toggle + `OLCRTC_ZAPRET_AUTO_SYNC` | `[ ]` |
-| 3.1.4b | Reload после save | `zapret-sync-excludes.sh --reload-zapret` | `[x]` |
-| 3.1.6 | Полная переустановка | кнопка с confirm → `OLCRTC_ZAPRET_REINSTALL=1` + lock | `[ ]` |
-| 3.1.7 | Предупреждение: restart zapret → краткий разрыв DPI | modal | `[ ]` |
-
-**Изучить:** `data/zapret4rocket/lib/strategies.sh`, `lib/actions.sh`, `z4r.sh`, наш `install-zapret-vps.sh`, `zapret-sync-excludes.sh`.
+| ID | Настройка | Статус | Реально на VPS / в репо |
+|----|-----------|--------|-------------------------|
+| 3.1.1 | Вкл/выкл, reload | `[x]` | `olc-feature zapret` |
+| 3.1.2 | Выбор **стратегии** / пресета | `[ ]` | Только **read-only** имя стратегии; нет select → `zapret.override` |
+| 3.1.3 | nfqws параметры (whitelist) | `[~]` | Raw textarea `nfqws_config` → `data/zapret-olcrtc.config` |
+| 3.1.4 | Кастом include/exclude хосты | `[x]` | textarea + `/var/lib/olcrtc/zapret-custom/` |
+| 3.1.4b | Reload после save | `[x]` | `zapret-sync-excludes.sh --reload-zapret` |
+| 3.1.5 | Авто sync списков (cron) | `[x]` | Toggle `auto_sync` → `/etc/cron.d/olcrtc-zapret-sync` |
+| 3.1.6 | Полная переустановка из UI | `[~]` | Только подсказка CLI: `OLCRTC_ZAPRET_REINSTALL=1 olc-update` |
+| 3.1.7 | Warning: restart → разрыв DPI | `[~]` | Статический текст в форме, не отдельный modal |
 
 ### 3.2 Tor
 
-| ID | Настройка | Статус |
-|----|-----------|--------|
-| 3.2.1 | SOCKS порт (default 9050) | `[ ]` — смена → warning + restart all instances |
-| 3.2.2 | ExitNodes / ExcludeExitNodes | `[~]` ExitNodes в UI + `configure-tor-exit` |
-| 3.2.3 | Кастом **direct** / **force-tor** домены и CIDR | `[ ]` — файлы + merge с split lists |
-| 3.2.4 | Автообновление bridge pool / webtunnel binary | `[ ]` |
-| 3.2.5 | Экспериментальные PT (obfs4, snowflake, webtunnel) | `[ ]` — чекбоксы в `bridges.conf` |
-| 3.2.6 | Отключение Tor → auto-off split | `[x]` — `tor_off` вызывает `split_off` |
+| ID | Настройка | Статус | Реально |
+|----|-----------|--------|---------|
+| 3.2.1 | SOCKS порт | `[~]` | Редактирование `SocksPort` + текст про restart инстансов |
+| 3.2.2 | ExitNodes / ExcludeExitNodes | `[x]` | UI + `configure-tor-exit.sh` |
+| 3.2.3 | Кастом direct / force-tor / CIDR | `[~]` | Редакторы в **split**, не в tor-модалке |
+| 3.2.4 | Авто pool / webtunnel binary | `[~]` | Timers `olcrtc-tor-bridge-*` + кнопка «Обновить пул»; нет одного toggle |
+| 3.2.5 | PT checkboxes (obfs4/snowflake/wt) | `[~]` | `BRIDGE_TYPES` в скриптах + select типа в bridge-profiles; snowflake **не** на VPS |
+| 3.2.6 | Tor off → split off | `[x]` | `olc-feature.sh` |
 
-**Изучить:** `install-tor-pluggable-transports.sh`, `tor-bridge-pool.sh`, `docs/TOR-BRIDGES.md`.
+**На тест-VPS:** ~23 моста в `bridges.conf`, webtunnel+obfs4, pool ~500 строк, mirror-cry binary.
 
 ### 3.3 Split routing
 
-| ID | Настройка | Статус |
-|----|-----------|--------|
-| 3.3.1 | Вкл/выкл (quick vs full refresh) | `[x]` partial |
-| 3.3.2 | Редактор **ru-direct-domains**, **panel-carrier-hosts**, CDN lists | `[ ]` |
-| 3.3.3 | Кастом direct / force-tor / blocked-tor | `[ ]` |
-| 3.3.4 | CIDR-only mode toggle | `[ ]` — `setup-split-ru.sh` |
-| 3.3.5 | Кнопка «полное обновление списков» → фоновый job + progress | `[~]` POST refresh_lists → setup-split-ru |
-| 3.3.6 | Зависимость от Tor | `[x]` |
+| ID | Настройка | Статус | Реально |
+|----|-----------|--------|---------|
+| 3.3.1 | Вкл/выкл | `[x]` | `olc-feature split` |
+| 3.3.2 | Редактор ru-direct / CDN / carrier hosts | `[~]` | `panel_hosts`, `custom_direct_domains`; счётчик `ru_direct_count` read-only |
+| 3.3.3 | force-tor / blocked-tor / custom direct | `[~]` | Textarea → файлы в `/var/lib/olcrtc/` |
+| 3.3.4 | CIDR-only mode toggle | `[ ]` | `cidr_only` только display |
+| 3.3.5 | «Полное обновление списков» + progress | `[~]` | `refresh_lists` → `setup-split-ru.sh` в фоне; **без** progress bar |
+| 3.3.6 | Зависимость от Tor | `[x]` | |
 
-**Изучить:** `setup-split-ru.sh`, `patches/olcrtc-routing-*.go`, player CDN lists.
+### 3.4 Мосты
 
-### 3.4 Мосты (переименовать WebTunnel → **«Мосты»**)
+| ID | Настройка | Статус | Реально |
+|----|-----------|--------|---------|
+| 3.4.1 | UI «Мосты» (не WebTunnel) | `[x]` | |
+| 3.4.2 | Список по типам PT | `[~]` | Tail `bridges.conf` + stats pool; не таблица obfs4/wt |
+| 3.4.3 | Добавить свой `Bridge …` | `[x]` | append `bridges.conf` |
+| 3.4.4 | Приоритет / ротация | `[~]` | `tor-bridge-pool.sh`, rotate, bridge-profiles — **CLI/timers** |
+| 3.4.5 | Delete bridge + hint про split | `[ ]` | |
+| 3.4.6 | Warning: только PT, нет exit | `[~]` | Warning если нет webtunnel-client |
 
-| ID | Настройка | Статус |
-|----|-----------|--------|
-| 3.4.1 | Переименование в UI (Wt → **Мосты** или **Br**) | `[x]` |
-| 3.4.2 | Список мостов: obfs4 / snowflake / webtunnel | `[ ]` |
-| 3.4.3 | Добавить свой мост (строка `Bridge …`) | `[x]` — append `bridges.conf` |
-| 3.4.4 | Приоритет / ротация / pool service | `[ ]` |
-| 3.4.5 | Удаление мостов → confirm + рекомендация удалить split | `[ ]` |
-| 3.4.6 | Предупреждение: нет нод, только Tor PT | `[ ]` |
+### 3.5 OlcRTC
 
-### 3.5 OlcRTC (сервер / инстансы)
+| ID | Настройка | Статус | Реально |
+|----|-----------|--------|---------|
+| 3.5.1 | panel.env (TLS, URL, timeouts) | `[~]` | OlcRTC settings modal — часть полей |
+| 3.5.2 | VP8/SEI defaults | `[x]` | `panel-vp8-defaults.sh` |
+| 3.5.3 | Reconnect debounce в UI | `[~]` | Только server patches olcrtc, не в панели |
+| 3.5.4 | Клиент olcbox | `[-]` | |
+| 3.5.5 | Jitsi join retry / fail-fast | `[x]` | `patch-jitsi-*` |
 
-| ID | Настройка | Источник | Статус |
-|----|-----------|----------|--------|
-| 3.5.1 | `panel.env`: `OLCRTC_JITSI_INSECURE_TLS`, reconnect, timeouts | manager settings | `[~]` частично |
-| 3.5.2 | Дефолты VP8/SEI (fps, batch, frag, ack-ms) | [olcbox](https://github.com/alananisimov/olcbox), panel transports | `[x]` defaults |
-| 3.5.3 | Глобальные лимиты reconnect / debounce | olcrtc `fix/all` server patches | `[ ]` — только если есть в server config |
-| 3.5.4 | Поведение для **клиента olcbox** | olcbox README — subscription export only; **не дублировать** клиентский UI | `[-]` |
-| 3.5.5 | jitsi join retry, fail-fast hosts | наш `patch-jitsi-*` | `[x]` |
-
-**Изучить:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) `/api/settings`, [olcrtc fix/all](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) `docs/`, [j](https://github.com/zarazaex69/j) — только carrier-specific опции.
-
-**Критерий фазы 3:** каждая модалка «Настройки» сохраняет на диск и отражается после reload; секреты (пароли) не отдаются в GET.
+**Критерий фазы 3 (не достигнут полностью):** не все модалки = полные формы с вкладками; zapret strategy и CIDR-only — главные дыры.
 
 ---
 
-## Фаза 4 — Панель «±» (добавление/удаление компонентов)
+## Фаза 4 — Панель «±»
 
-Кнопка в шапке **слева от Panel mem** (символ ± или `Layers` icon).
+| ID | Задача | Статус | Заметки |
+|----|--------|--------|---------|
+| 4.1 | Drawer Tor/Zapret/Split/Мосты/**WARP** | `[x]` | `panel-phase456-ui`, warp patches |
+| 4.2 | installed / enabled / version | `[x]` | capabilities |
+| 4.3 | Install → `olc-component-job.sh` | `[x]` | `POST /api/components/{name}/install` |
+| 4.3b | Job log + polling | `[x]` | TTL ~2 мин UI + ~3 мин API (`components-jobs-v3`, `ui-ttl`) |
+| 4.4 | Uninstall → feature off | `[x]` | |
+| 4.5 | Combined confirm мосты+split | `[ ]` | |
+| 4.6 | Обновление `deploy-profile.json` | `[x]` | `profile_after_component_job` |
 
-| ID | Задача | Статус |
-|----|--------|--------|
-| 4.1 | Drawer «Компоненты VPS» — карточки Tor, Zapret, Split, Мосты, **WARP** | `[x]` кнопка ± в шапке |
-| 4.2 | Показать установлено / включено / версия | `[x]` — из `capabilities` |
-| 4.3 | **Добавить** компонент → confirm → `olc-component-job.sh install` | `[x]` |
-| 4.3b | Job log inline + статус после F5 (`GET /api/components/jobs`) | `[x]` |
-| 4.4 | **Удалить** → confirm → `olc-feature` off | `[x]` |
-| 4.5 | Удаление мостов → объединённый confirm мосты+split | `[ ]` |
-| 4.6 | После изменения — обновить `deploy-profile.json` | `[x]` `profile_after_component_job` в `olc-component-job.sh` |
-
-**Backend:**
-
-```
-POST /api/components/{name}/install
-POST /api/components/{name}/uninstall
-```
-
-Долгие операции → `202` + `job_id` + polling `/api/jobs/{id}` (логи в JSON lines).
+**На тест-VPS:** все компоненты **установлены**, toggles в `features.env` = `0` (выкл в UI, пакеты остаются).
 
 ---
 
-## Фаза 5 — Обновление панели из UI + релизы
+## Фаза 5 — Update из UI + релизы
 
-### 5.1 GitHub Releases (рекомендуется)
-
-| Вопрос | Ответ |
-|--------|-------|
-| Обязательны ли релизы? | **Нет** для `git pull` update; **да** для удобной проверки версии и артефактов |
-| Что в релизе | `version.json`, опционально prebuilt `olcrtc-manager` + checksum; основной путь — `git pull` + build на VPS |
-| Версия | semver + суффикс `-alpha.N` / `-prealpha.N` |
+### 5.1 GitHub Releases
 
 | ID | Задача | Статус |
 |----|--------|--------|
-| 5.1.1 | `version.json` в репо: `{ "panel": "0.9.0-alpha.1", "min_manager": "...", "channel": "alpha" }` | `[x]` |
-| 5.1.2 | GitHub Action: tag → release notes + attach `version.json` | `[x]` |
-| 5.1.3 | `GET /api/updates/check` → release API + git behind `origin/main` | `[x]` |
+| 5.1.1 | `version.json` + stack | `[x]` |
+| 5.1.2 | GitHub Action / `create-github-release.sh` | `[x]` |
+| 5.1.3 | `GET /api/updates/check` | `[x]` prerelease-safe + `github.env` на VPS |
 
 ### 5.2 UI «Состояние проекта»
 
-Кнопка рядом с «Обновить» (или внутри неё) → **большая модалка**:
+| Элемент | Статус |
+|---------|--------|
+| Модалка: версия, SHA, профиль, компоненты | `[x]` `panel-project-ui-v2` |
+| Проверить обновления / Обновить сейчас | `[x]` |
+| Релиз стека `v0.9.0-pre-alpha.1` | `[x]` на тест-VPS |
 
-- версия панели, olcrtc sha, профиль deploy, компоненты
-- кнопка **Проверить обновления**
-- кнопка **Обновить сейчас** (основная)
+### 5.3 Процесс update
 
-### 5.3 Процесс update из UI
-
-| Шаг | Поведение |
-|-----|-----------|
-| 1 | Confirm: блокировка панели N мин, переподключение инстансов |
-| 2 | `POST /api/updates/run` → создаёт lockfile `/var/lib/olcrtc/update.lock` |
-| 3 | Фон: `olc-update` с профилем; stdout/stderr в `/var/log/olcrtc-panel-update.log` |
-| 4 | UI: сворачиваемый лог + progress timer (оценка из истории `install-state`) |
-| 5 | Polling раз в 3–5 с; по завершении — снять lock, reload page |
-
-| ID | Задача | Статус |
-|----|--------|--------|
-| 5.3.1 | Lock middleware в manager — 503 на мутации кроме `/api/updates/*` | `[~]` lockfile при update |
-| 5.3.2 | Фоновый runner (systemd transient unit или `nohup` с pidfile) | `[x]` `olc-panel-update-run.sh` |
-| 5.3.3 | UI UpdateModal | `[x]` кнопка «Проект» |
-| 5.3.4 | Периодическая проверка обновлений (раз в 6–24 ч, настраивается) | `[ ]` |
-| 5.3.5 | Mini-toast «доступно обновление» — не исчезает сам, есть ✕ | `[ ]` |
+| ID | Задача | Статус | Реально |
+|----|--------|--------|---------|
+| 5.3.1 | Lock на мутации | `[~]` | `panel-update.lock` + 409; **нет** global 503 middleware |
+| 5.3.2 | Фоновый runner | `[x]` | `olc-panel-update-run.sh` |
+| 5.3.3 | UI UpdateModal / «Проект» | `[x]` | |
+| 5.3.4 | Фоновая проверка 6–24 ч | `[ ]` | Только ручная «Проверить» |
+| 5.3.5 | Persistent toast «есть update» | `[~]` | Индикатор в модалке «Проект», не mini-toast |
 
 ---
 
-## Фаза 6 — Уведомления и автодетектор ошибок
+## Фаза 6 — Уведомления и автодетектор
 
-### 6.1 Справочник ошибок
-
-| Путь | Назначение |
-|------|------------|
-| `data/error-catalog.json` | Паттерны regex → title, meaning, fixes[] |
-| `data/error-catalog.md` | Человекочитаемая версия для контрибьюторов |
-
-**Пример записи:**
-
-```json
-{
-  "id": "jitsi-xmpp-auth-fail",
-  "pattern": "not-authorized|service-unavailable",
-  "sources": ["instance", "olcrtc"],
-  "title": "Jitsi: нет anonymous XMPP",
-  "meaning": "Хост не даёт гостевой вход",
-  "fixes": ["Сменить carrier/хост", "Проверить room_id"],
-  "severity": "warning"
-}
-```
-
-| ID | Задача | Статус |
-|----|--------|--------|
-| 6.1.1 | Создать `data/error-catalog.json` с известными ошибками из сессий | `[x]` |
-| 6.1.2 | `scripts/olc-error-match.sh` — тест паттерна на строке | `[ ]` |
-| 6.1.3 | Go: `errorDetector` — scan tail logs (инстансы, zapret, tor, journal) | `[x]` `olc-error-scan.sh` |
-| 6.1.4 | Cron или goroutine каждые 60 с (настраивается) | `[~]` UI poll 60s + POST scan |
-| 6.1.5 | `GET /api/notifications` — список активных | `[x]` |
-| 6.1.6 | `PATCH /api/notifications/{id}` — dismiss / read | `[x]` |
-
-### 6.2 UI уведомлений
-
-| Элемент | Описание |
-|---------|----------|
-| Колокольчик справа сверху | Счётчик непрочитанных |
-| Drawer уведомлений | Список; клик → развернуть detail + скрытые логи |
-| Toast | Короткий текст, обрезка; крестик скрывает до следующего refresh |
-| Настройки уведомлений | Звук, автодетект on/off, интервал, severity filter |
-
-| ID | Задача | Статус |
-|----|--------|--------|
-| 6.2.1 | `NotificationBell` + `NotificationsDrawer` | `[x]` dropdown |
-| 6.2.2 | `NotificationSettingsModal` (из колокольчика и из Settings) | `[ ]` |
-| 6.2.3 | В главных Settings — секция «Автодетектор ошибок» | `[ ]` |
-
-### 6.3 Панель «Ошибки» (справа от «Выйти»)
-
-| ID | Задача | Статус |
-|----|--------|--------|
-| 6.3.1 | Кнопка «Ошибки» — отдельный drawer | `[x]` ErrorsSummaryButton |
-| 6.3.2 | Источники: инстансы / zapret / tor / split / мосты / olcrtc | `[x]` via catalog sources |
-| 6.3.3 | Только срабатывавшие с severity ≥ warning | `[~]` фильтр error в UI |
-| 6.3.4 | Разворот → логи **только строки с match** (+ кнопка «полный лог») | `[ ]` |
-| 6.3.5 | Ссылка на настройки автодетектора | `[ ]` |
+| ID | Задача | Статус | Реально |
+|----|--------|--------|---------|
+| 6.1.1 | `data/error-catalog.json` | `[x]` | |
+| 6.1.2 | `scripts/olc-error-match.sh` | `[ ]` | **Файла нет** |
+| 6.1.3 | Scan логов | `[x]` | **`olc-error-scan.sh`** (shell), не Go goroutine |
+| 6.1.4 | Интервал scan | `[x]` | UI poll 60s + `scan_interval_sec` в notification-settings |
+| 6.1.5 | `GET /api/notifications` | `[x]` | |
+| 6.1.6 | `PATCH /api/notifications/{id}` | `[x]` | |
+| 6.2.1 | NotificationBell + drawer | `[x]` | |
+| 6.2.2 | NotificationSettingsModal | `[x]` | `notification-settings.sh`, `panel-ui-v7` |
+| 6.2.3 | Автодетектор в главных Settings | `[~]` | Inline panel + event `olc-open-autodetect-settings` |
+| 6.3.1 | Кнопка «Ошибки» | `[x]` | |
+| 6.3.2 | Источники из catalog | `[x]` | |
+| 6.3.3 | severity ≥ warning | `[~]` | UI фильтрует только `error`, warnings скрыты |
+| 6.3.4 | Matched log lines в drawer | `[ ]` | |
+| 6.3.5 | Ссылка на настройки из Errors | `[~]` | Через колокольчик |
 
 ---
 
-## Фаза 7 — Расширенные настройки панели (кнопка «Настройки»)
+## Фаза 7 — Hub «Настройки»
 
-Сейчас: пароль, subscription path, panel.env частично.
-
-| ID | Задача | Источник | Статус |
-|----|--------|----------|--------|
-| 7.1 | Аудит логов (retention, max lines) | manager-panel | `[ ]` |
-| 7.2 | Публичный URL / TLS insecure | panel.env | `[~]` |
-| 7.3 | Дефолты transport/link для новых локаций | manager-panel | `[ ]` |
-| 7.4 | Session / auth timeout | `[ ]` |
-| 7.5 | Ссылка → Notification settings | `[ ]` |
-| 7.6 | Ссылка → Error detector settings | `[ ]` |
-| 7.7 | Оптимизация: интервал metrics poll | `[ ]` |
+| ID | Задача | Статус |
+|----|--------|--------|
+| 7.1 | Log retention / max lines | `[ ]` |
+| 7.2 | PUBLIC_URL / insecure TLS | `[~]` в OlcRTC settings |
+| 7.3 | Default transport/link для новых локаций | `[~]` в OlcRTC modal, не в hub |
+| 7.4 | Session timeout | `[ ]` |
+| 7.5 | Link → Notification settings | `[~]` |
+| 7.6 | Link → Error detector | `[~]` |
+| 7.7 | Metrics poll interval | `[ ]` |
 
 ---
 
-## Фаза 8 — Оптимизация нагрузки
+## Фаза 8 — Оптимизация
 
-| ID | Мера | Статус |
-|----|------|--------|
-| 8.1 | `/api/metrics` — интервал 10–30 с, pause when tab hidden | `[ ]` |
-| 8.2 | Error detector — один проход / мин, дедуп по fingerprint | `[ ]` |
-| 8.3 | Update log tail — max 500 KB | `[ ]` |
-| 8.4 | Capabilities cache 30 с | `[ ]` |
-| 8.5 | Location delete reload — уже async | `[x]` |
+| ID | Мера | Статус | Реально |
+|----|------|--------|---------|
+| 8.1 | Metrics interval + tab hidden | `[ ]` | |
+| 8.2 | Error dedup / throttle | `[~]` | fingerprint в `olc-error-scan.sh` |
+| 8.3 | Update log tail limit | `[~]` | **500 строк**, не 500 KB |
+| 8.4 | Capabilities cache 30s | `[ ]` | `cache: "no-store"` |
+| 8.5 | Async location delete | `[x]` | |
 
 ---
 
-## Порядок реализации (рекомендуемый)
+## Порядок реализации (актуальный backlog)
 
 ```
-Фаза 0 (баги) ──► Фаза 1 (профиль) + Фаза 2 (capabilities)
-        │                    │
-        │                    ▼
-        │            Фаза 5.3 (UI update) — можно параллельно
-        ▼
-Фаза 3 по одному: Zapret → Tor → Split → Мосты → OlcRTC
-        │
-        ▼
-Фаза 4 (± компоненты)
-        │
-        ▼
-Фаза 6 (уведомления + каталог) ──► Фаза 7 (settings hub)
-        │
-        ▼
-Фаза 8 (полировка perf)
+Закрыто: Фаза 0, 1, 2, 4 (кроме 4.5)
+Дальше по приоритету:
+  3.1.2 zapret strategy select
+  3.3.4 CIDR-only toggle
+  3.1.6 zapret reinstall button + lock
+  4.5 bridges+split confirm
+  5.3.4 фоновый check updates
+  6.1.2 olc-error-match.sh (dev/test catalog)
+  6.3.4 matched lines в Errors drawer
+  7.x settings hub
+  8.x perf
 ```
 
 ---
 
-## Чеклист перед каждым релизом в репо
+## Чеклист перед релизом
 
-- [ ] `BUILD=1 bash scripts/apply-olcrtc-patches.sh` без ошибок
-- [ ] `scripts/smoke-test.sh` (если применимо)
-- [ ] Обновить `docs/ROADMAP.md` (статусы)
-- [ ] Обновить `version.json` + `data/upstream-pins.json` при смене pin
-- [ ] `docs/FEATURES.md` / `PATCHES.md`
-- [ ] Тест на foreign profile (`--no-tor --no-zapret`) и ru-full
-- [ ] `sudo olc-update` на чистом/демо VPS (см. [PUBLIC-DEMO-VPS.md](./PUBLIC-DEMO-VPS.md))
+- [x] `BUILD=1 bash scripts/apply-olcrtc-patches.sh` на тест-VPS
+- [ ] `scripts/smoke-test.sh` (если есть)
+- [x] Обновить этот `ROADMAP.md`
+- [x] `version.json` / `upstream-pins.json` актуальны для pre-alpha.1
+- [x] `olc-update` на demo VPS (см. [PUBLIC-DEMO-VPS.md](./PUBLIC-DEMO-VPS.md))
+- [ ] Smoke foreign profile (`--no-tor --no-zapret`) на отдельном хосте
 
 ---
 
@@ -408,21 +308,23 @@ POST /api/components/{name}/uninstall
 
 | Документ | Содержание |
 |----------|------------|
-| [FEATURES.md](./FEATURES.md) | CLI `olc-feature`, текущий UI |
-| [PATCHES.md](../patches/PATCHES.md) | Патчи olcrtc |
-| [VPS-SETUP.md](./VPS-SETUP.md) | Установка |
-| [TOR-BRIDGES.md](./TOR-BRIDGES.md) | Мосты |
+| [FEATURES.md](./FEATURES.md) | CLI `olc-feature`, deploy-profile |
+| [PATCHES.md](../patches/PATCHES.md) | Патчи olcrtc / manager |
+| [VPS-SETUP.md](./VPS-SETUP.md) | Установка, timers |
+| [TOR-BRIDGES.md](./TOR-BRIDGES.md) | Пул, mirror-cry, IPv4+url |
+| [UPDATE.md](./UPDATE.md) | olc-update, olc-git-push |
+| [PUBLIC-DEMO-VPS.md](./PUBLIC-DEMO-VPS.md) | Общий VPS без секретов |
 | [RESUME-INSTALL.md](./RESUME-INSTALL.md) | install-state |
 
-## Upstream для изучения
+## Upstream
 
 | Репозиторий | Зачем |
 |-------------|-------|
-| [zapret4rocket](https://github.com/IndeecFOX/zapret4rocket) | стратегии, списки, UI-идеи |
-| [olcrtc fix/all](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) | сервер, routing, carriers |
-| [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) | базовая панель, settings API |
-| [olcbox](https://github.com/alananisimov/olcbox) | клиент: транспорты, VP8/SEI (не сервер) |
-| [j](https://github.com/zarazaex69/j) | Jitsi carrier |
+| [olcrtc fix/all](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) | сервер, routing |
+| [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) | базовая панель |
+| [zapret4rocket](https://github.com/IndeecFOX/zapret4rocket) | стратегии DPI |
+| [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry) | webtunnel-client binary |
+| [olcbox](https://github.com/alananisimov/olcbox) | клиент |
 
 ---
 
@@ -430,5 +332,6 @@ POST /api/components/{name}/uninstall
 
 | Дата | Изменение |
 |------|-----------|
-| 2026-05-26 | Создан документ; зафиксированы фазы 0–8; v3 UI отмечен частично готовым |
-| 2026-05-27 | Доки: fix/all, olc-update, PUBLIC-DEMO-VPS; TTL component jobs; без IP/SSH в репо |
+| 2026-05-26 | Создан документ; фазы 0–8 |
+| 2026-05-27 | Доки: fix/all, olc-update, PUBLIC-DEMO-VPS; TTL component jobs |
+| 2026-05-27 | **Полная сверка** с репо + тест-VPS: статусы, таблица альтернатив, backlog |
