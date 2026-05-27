@@ -119,16 +119,27 @@ if 'MainSettingsAutodetectLink expanded={showAutodetectInline}' not in t:
         )
 
 # Fallback: inject autodetect block right before admin password section.
-if 'MainSettingsAutodetectLink expanded={showAutodetectInline}' not in t:
+if "/* autodetect-settings-inline-v5 */" not in t:
     pw_anchor = """            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
               <div className="text-sm font-medium text-foreground">Пароль администратора</div>
 """
+    inject = """
+            {/* autodetect-settings-inline-v5 */}
+            <section className="grid gap-3 rounded-md border border-border bg-background p-4">
+              <div className="text-sm font-medium text-foreground">Автодетектор</div>
+              <p className="text-xs text-muted-foreground">Периодически ищет ошибки в логах и состоянии сервисов.</p>
+              <button type="button" className="w-fit rounded border border-border px-3 py-2 text-xs hover:bg-muted" onClick={() => setShowAutodetectInline((v) => !v)}>
+                Настройки уведомлений автодетектора
+              </button>
+              {showAutodetectInline && (
+                <div className="rounded-md border border-dashed border-border bg-card p-3">
+                  <AutodetectNotificationSettingsPanel />
+                </div>
+              )}
+            </section>
+"""
     if pw_anchor in t:
-        t = t.replace(
-            pw_anchor,
-            '\n            <MainSettingsAutodetectLink expanded={showAutodetectInline} onToggle={() => setShowAutodetectInline((v) => !v)} />\n\n' + pw_anchor,
-            1,
-        )
+        t = t.replace(pw_anchor, inject + "\n" + pw_anchor, 1)
 
 if "olc-panel-hotfix-v5" not in t:
     marker = "/* olc-panel-hotfix-v4 */"
