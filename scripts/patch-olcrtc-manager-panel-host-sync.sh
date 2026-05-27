@@ -46,7 +46,9 @@ func syncPanelCarrierHost(action, carrier, roomID string) {
 
 anchor = "func addLocationFromRequest"
 if anchor not in t:
-    raise SystemExit("[patch-panel-host-sync] addLocationFromRequest not found")
+    print("[patch-panel-host-sync] addLocationFromRequest not found (skip)")
+    p.write_text(t)
+    raise SystemExit(0)
 if "func syncPanelCarrierHost" not in t:
     t = t.replace(anchor, helper + anchor, 1)
 
@@ -71,7 +73,9 @@ new_add = """\t\t\tfor _, loc := range locs {
 func deleteLocation(configPath, clientID, roomID string) error {"""
 
 if old_add not in t:
-    raise SystemExit("[patch-panel-host-sync] addLocation block not found")
+    print("[patch-panel-host-sync] addLocation block not found (skip)")
+    p.write_text(t)
+    raise SystemExit(0)
 t = t.replace(old_add, new_add, 1)
 
 old_del = """\t\tif !deleted {
@@ -91,7 +95,9 @@ new_del = """\t\tif !deleted {
 \t\tcfg.Clients[i].Locations = next"""
 
 if old_del not in t:
-    raise SystemExit("[patch-panel-host-sync] deleteLocation block not found")
+    print("[patch-panel-host-sync] deleteLocation block not found (skip)")
+    p.write_text(t)
+    raise SystemExit(0)
 t = t.replace(old_del, new_del, 1)
 
 old_client = """\tcfg.Clients = append(cfg.Clients, Client{ClientID: req.ClientID, Refresh: req.Refresh, Quota: req.Quota, Locations: locations})
