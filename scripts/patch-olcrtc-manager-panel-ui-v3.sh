@@ -474,13 +474,21 @@ function App() {"""
 if old_fp_end in t and "logFeature && <FeatureLogsModal" not in t.split("function FeaturesPanel")[1]:
     t = t.replace(old_fp_end, new_fp_end, 1)
 
-# --- App: scoped pending for location delete ---
-if "pendingLocations" not in t:
-    t = t.replace(
-        '  const [busy, setBusy] = useState(false);',
-        '  const [busy, setBusy] = useState(false);\n  const [pendingLocations, setPendingLocations] = useState<Record<string, string>>({});',
-        1,
-    )
+# --- App: scoped pending for location delete (must not attach to LoginView's busy) ---
+app_idx = t.find("function App() {")
+if app_idx >= 0:
+    app_end = t.find("\nfunction ", app_idx + 12)
+    if app_end < 0:
+        app_end = len(t)
+    app_chunk = t[app_idx:app_end]
+    if "const [pendingLocations, setPendingLocations]" not in app_chunk:
+        new_chunk = app_chunk.replace(
+            "  const [busy, setBusy] = useState(false);",
+            "  const [busy, setBusy] = useState(false);\n  const [pendingLocations, setPendingLocations] = useState<Record<string, string>>({});",
+            1,
+        )
+        if new_chunk != app_chunk:
+            t = t[:app_idx] + new_chunk + t[app_end:]
 
 loc_key_fn = """
   const locationActionKey = (clientID: string, location: LocationState) =>
