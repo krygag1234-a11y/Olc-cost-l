@@ -74,6 +74,12 @@ clone_repos() {
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
     olc_git_safe_register "$MGR_REPO"
   fi
+  if [[ ! -f "$MGR_REPO/cmd/olcrtc-manager/main.go" ]]; then
+    log "WARN: manager clone incomplete (нет main.go) — переклонируем"
+    rm -rf "$MGR_REPO"
+    git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
+    olc_git_safe_register "$MGR_REPO"
+  fi
 }
 
 apply_olcrtc() {
@@ -254,6 +260,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v23.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Эталон с тестового VPS — финальное выравнивание UI и main.go (поверх всех hotfix).
+  bash "$SCRIPT_DIR/apply-golden-panel.sh" "$MGR_REPO"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
@@ -263,6 +271,7 @@ apply_manager() {
       rm -rf "$MGR_REPO/web/dist"
       (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install)
       (cd "$MGR_REPO" && npm run build) || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
+      bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
     fi
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already
