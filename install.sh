@@ -16,7 +16,7 @@ INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
 REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
 BRANCH="${OLC_REPO_BRANCH:-main}"
 
-[[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo "[install] ОШИБКА: запустите от root (sudo bash …)" >&2; exit 1; }
 
 # Быстрая проверка до git clone (curl | bash — репо ещё может не быть на диске)
 if command -v df >/dev/null 2>&1; then
@@ -73,7 +73,7 @@ if [[ "$SHOW_STATE" -eq 1 ]]; then
       cat /var/lib/olcrtc/install-state.json
     fi
   else
-    echo "no install state yet"
+    echo "[install] состояние установки ещё не сохранено (первый запуск?)"
   fi
   exit 0
 fi
@@ -90,33 +90,33 @@ resilient_git() {
     if [[ $rc -eq 0 ]]; then
       return 0
     fi
-    echo "[install] git $op attempt $attempt failed (rc=$rc), retrying…" >&2
+    echo "[install] git $op: попытка $attempt не удалась (код $rc), повтор…" >&2
     sleep $((attempt * 5))
   done
-  echo "[install] git $op failed after 3 attempts" >&2
+  echo "[install] git $op: три попытки исчерпаны — проверьте сеть и DNS" >&2
   return 1
 }
 
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
-  echo "[install] clone $REPO_URL → $INSTALL_DIR"
+  echo "[install] клонирование $REPO_URL → $INSTALL_DIR"
   rm -rf "$INSTALL_DIR.partial"
   resilient_git clone clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR.partial" || {
-    echo "[install] FATAL: cannot clone repo. Retry: $0 (network?)" >&2
+    echo "[install] СТОП: не удалось клонировать репозиторий. Повторите: curl … | sudo bash (сеть? DNS?)" >&2
     rm -rf "$INSTALL_DIR.partial"
     exit 1
   }
   mv "$INSTALL_DIR.partial" "$INSTALL_DIR"
 else
-  echo "[install] git fetch+update $INSTALL_DIR (resilient)"
+  echo "[install] git fetch+обновление $INSTALL_DIR (с повторами при обрыве)"
   if ! resilient_git fetch -C "$INSTALL_DIR" fetch --depth 50 origin "$BRANCH"; then
-    echo "[install] WARN: fetch failed — using existing working tree" >&2
+    echo "[install] внимание: fetch не удался — продолжаем с локальной копией на VPS" >&2
   fi
   if git -C "$INSTALL_DIR" diff --quiet 2>/dev/null && git -C "$INSTALL_DIR" diff --cached --quiet 2>/dev/null; then
     git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH" 2>/dev/null \
       || git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null \
       || true
   else
-    echo "[install] local changes on VPS — reset to origin/$BRANCH"
+    echo "[install] на VPS были локальные правки — сброс к origin/$BRANCH"
     git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null || \
       git -C "$INSTALL_DIR" reset --hard "$BRANCH" 2>/dev/null || true
   fi
@@ -160,7 +160,7 @@ case "$FORCE_MODE" in
     ;;
 esac
 
-echo "[install] detect=$STATE → mode=$MODE"
+echo "[install] обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
 
 if [[ "$MODE" == "update" ]]; then
   exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --update "${BOOT_ARGS[@]}"

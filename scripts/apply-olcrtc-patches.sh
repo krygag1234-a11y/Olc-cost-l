@@ -279,7 +279,7 @@ apply_manager() {
       log "build manager admin UI (web/dist)"
       rm -rf "$MGR_REPO/web/dist"
       (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install)
-      (cd "$MGR_REPO" && npm run build) || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
+      (cd "$MGR_REPO" && npm run build) || { log "ERROR: сборка панели (npm run build) не удалась — проверьте node/npm и повторите"; exit 1; }
     fi
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already
