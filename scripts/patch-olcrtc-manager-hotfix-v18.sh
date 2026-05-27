@@ -6,6 +6,7 @@ MAIN_GO="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/cmd/olcrtc-manager/m
 grep -q 'olc-manager-hotfix-v18' "$MAIN_GO" && { echo "[patch-manager-hotfix-v18] already applied"; exit 0; }
 
 python3 - "$MAIN_GO" <<'PY'
+import re
 import sys
 from pathlib import Path
 
@@ -25,25 +26,30 @@ func fileContainsDoneMarker(path string) bool {
 '''
     t = t.replace("func componentJobStale(st map[string]any, mod time.Time) bool {", helper + "func componentJobStale(st map[string]any, mod time.Time) bool {", 1)
 
-needle = r'''\t\tif status, _ := st["status"].(string); (status == "done" || status == "failed") && st["finished_at"] == nil {
-\t\t\tst["finished_at"] = info.ModTime().Format(time.RFC3339)
-\t\t}'''
+pat = re.compile(
+    r'(\s*if status, _ := st\["status"\]\.\(string\); \(status == "done" \|\| status == "failed"\) && st\["finished_at"\] == nil \{\n'
+    r'\s*st\["finished_at"\] = info\.ModTime\(\)\.Format\(time\.RFC3339\)\n'
+    r'\s*\})',
+    re.M,
+)
 
-patch = r'''\t\tif status, _ := st["status"].(string); status == "failed" {
-\t\t\tlogPath, _ := st["log_path"].(string)
-\t\t\tif logPath != "" && fileContainsDoneMarker(logPath) {
-\t\t\t\tst["status"] = "done"
-\t\t\t\tst["exit_code"] = 0
-\t\t\t\tst["error"] = ""
-\t\t\t\tstatus = "done"
-\t\t\t}
-\t\t}
-\t\tif status, _ := st["status"].(string); (status == "done" || status == "failed") && st["finished_at"] == nil {
-\t\t\tst["finished_at"] = info.ModTime().Format(time.RFC3339)
-\t\t}'''
+replacement = r'''
+		if status, _ := st["status"].(string); status == "failed" {
+			logPath, _ := st["log_path"].(string)
+			if logPath != "" && fileContainsDoneMarker(logPath) {
+				st["status"] = "done"
+				st["exit_code"] = 0
+				st["error"] = ""
+				status = "done"
+			}
+		}
+		if status, _ := st["status"].(string); (status == "done" || status == "failed") && st["finished_at"] == nil {
+			st["finished_at"] = info.ModTime().Format(time.RFC3339)
+		}'''
 
-if needle in t:
-    t = t.replace(needle, patch, 1)
+t2, n = pat.subn(replacement, t, count=1)
+if n:
+    t = t2
 else:
     print("[patch-manager-hotfix-v18] target block not found", file=sys.stderr)
     sys.exit(1)
