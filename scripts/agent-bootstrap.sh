@@ -47,6 +47,8 @@ source "$SCRIPT_DIR/lib-install-state.sh"
 source "$SCRIPT_DIR/lib-git-safe.sh"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
+# shellcheck source=lib-disk-preflight.sh
+source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-vps-backup.sh
 source "$SCRIPT_DIR/lib-vps-backup.sh"
 
@@ -297,6 +299,7 @@ EOF
 
 # --- main ---
 require_root
+olc_preflight_disk_space "agent-bootstrap" || exit 1
 olc_preflight_vps_backup "agent-bootstrap" || true
 olc_git_safe_register "${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 ensure_install_symlink

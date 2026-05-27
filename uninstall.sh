@@ -12,6 +12,11 @@ INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
 REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
 BRANCH="${OLC_REPO_BRANCH:-main}"
 
+if [[ -f "$INSTALL_DIR/scripts/lib-disk-preflight.sh" ]]; then
+  # shellcheck source=scripts/lib-disk-preflight.sh
+  source "$INSTALL_DIR/scripts/lib-disk-preflight.sh"
+  olc_preflight_disk_space "uninstall" || exit 1
+fi
 if [[ -f "$INSTALL_DIR/scripts/lib-vps-backup.sh" ]]; then
   # shellcheck source=scripts/lib-vps-backup.sh
   source "$INSTALL_DIR/scripts/lib-vps-backup.sh"

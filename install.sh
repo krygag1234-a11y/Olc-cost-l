@@ -18,6 +18,21 @@ BRANCH="${OLC_REPO_BRANCH:-main}"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
 
+# Быстрая проверка до git clone (curl | bash — репо ещё может не быть на диске)
+if command -v df >/dev/null 2>&1; then
+  _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
+  _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
+  if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
+    echo "" >&2
+    echo "[install] ОШИБКА: на диске / почти нет места (~${_avail} МБ свободно, занято ${_use}%)." >&2
+    echo "[install] Скрипт не сможет клонировать репозиторий (в логах: No space left on device)." >&2
+    echo "[install] Сначала освободите место: df -h / ; du -xh / --max-depth=1 | sort -hr | head" >&2
+    echo "" >&2
+    exit 1
+  fi
+  unset _avail _use
+fi
+
 # curl | bash: BASH_SOURCE[0] is unset under set -u
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,12 +51,6 @@ else
   }
 fi
 safety_check_install_dir "$INSTALL_DIR"
-
-if [[ -f "$SCRIPT_DIR/scripts/lib-vps-backup.sh" ]]; then
-  # shellcheck source=scripts/lib-vps-backup.sh
-  source "$SCRIPT_DIR/scripts/lib-vps-backup.sh"
-  olc_preflight_vps_backup "install" || true
-fi
 
 FORCE_MODE=""
 BOOT_ARGS=()
@@ -114,6 +123,12 @@ else
 fi
 
 export OLC_REPO_ROOT="$INSTALL_DIR"
+# shellcheck source=scripts/lib-disk-preflight.sh
+source "$INSTALL_DIR/scripts/lib-disk-preflight.sh"
+olc_preflight_disk_space "install (перед bootstrap)" || exit 1
+# shellcheck source=scripts/lib-vps-backup.sh
+source "$INSTALL_DIR/scripts/lib-vps-backup.sh"
+olc_preflight_vps_backup "install" || true
 # shellcheck source=scripts/lib-git-safe.sh
 source "$INSTALL_DIR/scripts/lib-git-safe.sh"
 olc_git_safe_register "$INSTALL_DIR"
@@ -124,6 +139,7 @@ ln -sfn "$INSTALL_DIR/scripts/olc-feature.sh" /usr/local/bin/olc-feature 2>/dev/
 ln -sfn "$INSTALL_DIR/scripts/olc-sync-panel-host.sh" /usr/local/bin/olc-sync-panel-host 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-profile.sh" /usr/local/bin/olc-profile 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-vps-backup.sh" /usr/local/bin/olc-vps-backup 2>/dev/null || true
+ln -sfn "$INSTALL_DIR/scripts/olc-disk-check.sh" /usr/local/bin/olc-disk-check 2>/dev/null || true
 
 DETECT="$INSTALL_DIR/scripts/olc-detect-install.sh"
 STATE="fresh"

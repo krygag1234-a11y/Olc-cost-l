@@ -40,6 +40,11 @@ run() {
 
 log() { echo "[purge] $*"; }
 
+if [[ -f "$SCRIPT_DIR/lib-disk-preflight.sh" ]]; then
+  # shellcheck source=lib-disk-preflight.sh
+  source "$SCRIPT_DIR/lib-disk-preflight.sh"
+  olc_preflight_disk_space "purge" || exit 1
+fi
 if [[ -f "$SCRIPT_DIR/lib-vps-backup.sh" ]]; then
   # shellcheck source=lib-vps-backup.sh
   source "$SCRIPT_DIR/lib-vps-backup.sh"

@@ -20,6 +20,16 @@ ssh -i /root/.ssh/yandex_bm_test_key kryga@89.169.186.195
 
 IP может измениться — обновите в `.cursor/rules/olc-olcrtc-workflow.mdc`.
 
+## Проверка диска
+
+Перед install/update скрипты проверяют место на `/` и `/tmp`. При нехватке — сообщение **на русском** (не только `No space left on device`).
+
+```bash
+sudo olc-disk-check
+```
+
+Переменные: `OLC_DISK_MIN_MB_ROOT`, `OLC_DISK_CHECK_DISABLE=1`, `OLC_DISK_CHECK_WARN_ONLY=1`.
+
 ## Пути на VPS
 
 | Путь | Назначение |

@@ -9,10 +9,13 @@ PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
 source "$SCRIPT_DIR/safety-lib.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-disk-preflight.sh
+source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-vps-backup.sh
 source "$SCRIPT_DIR/lib-vps-backup.sh"
 olc_git_safe_register "$REPO_ROOT"
 if [[ "$(id -u)" -eq 0 ]]; then
+  olc_preflight_disk_space "apply-olcrtc-patches" || exit 1
   olc_preflight_vps_backup "apply-patches" || true
 fi
 
@@ -287,7 +290,9 @@ fi
   install -m 0755 "$SCRIPT_DIR/olc-component-job.sh" /usr/local/bin/olc-component-job 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-component-remove.sh" /usr/local/bin/olc-component-remove 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-vps-backup.sh" /usr/local/bin/olc-vps-backup 2>/dev/null || true
+  install -m 0644 "$SCRIPT_DIR/lib-disk-preflight.sh" /opt/Olc-cost-l/scripts/lib-disk-preflight.sh 2>/dev/null || true
   install -m 0644 "$SCRIPT_DIR/lib-vps-backup.sh" /opt/Olc-cost-l/scripts/lib-vps-backup.sh 2>/dev/null || true
+  install -m 0755 "$SCRIPT_DIR/olc-disk-check.sh" /usr/local/bin/olc-disk-check 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-error-match.sh" /usr/local/bin/olc-error-match 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-zapret-apply-strategy.sh" /usr/local/bin/olc-zapret-apply-strategy 2>/dev/null || true
   log "done"
