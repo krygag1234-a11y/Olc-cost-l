@@ -56,24 +56,26 @@ function MainSettingsAutodetectLink() {
 
 # Collapse duplicate JSX blocks (multiline + single-line from stacked v7/v8 patches).
 def dedupe_autodetect_settings_jsx(src: str) -> str:
+    """Вставлять autodetect только в модалку «Настройки», не в QR и не во весь файл."""
     canon = '\n            ' + AUTODETECT_JSX + '\n'
     pwd = '<div className="text-sm font-medium text-foreground">Пароль администратора</div>'
-    idx_pwd = src.find(pwd)
-    if idx_pwd < 0:
+    settings_anchor = '{showSettings && (\n        <Modal title="Настройки"'
+    idx_settings = src.find(settings_anchor)
+    idx_pwd = src.find(pwd, idx_settings if idx_settings >= 0 else 0)
+    if idx_settings < 0 or idx_pwd < 0 or idx_pwd <= idx_settings:
         return src
-    head = src[:idx_pwd]
+    before = src[:idx_settings]
+    mid = src[idx_settings:idx_pwd]
     tail = src[idx_pwd:]
-    head = re.sub(r'\s*<MainSettingsAutodetectLink[\s\S]*?/>', '', head)
-    insert_at = head.rfind('</button>')
+    mid = re.sub(r'\s*<MainSettingsAutodetectLink[\s\S]*?/>', '', mid)
+    save_row = '                Сохранить настройки\n              </button>\n            </div>'
+    insert_at = mid.find(save_row)
     if insert_at < 0:
         return src
-    insert_at = head.find('\n', insert_at)
-    if insert_at < 0:
-        return src
-    # Close surrounding save-actions div, then one autodetect block.
-    head = head[: insert_at + 1] + '\n' + canon + head[insert_at + 1 :]
-    head = re.sub(r'\n{4,}', '\n\n\n', head)
-    return head + tail
+    insert_at += len(save_row)
+    mid = mid[:insert_at] + canon + mid[insert_at:]
+    mid = re.sub(r'\n{4,}', '\n\n\n', mid)
+    return before + mid + tail
 
 t = dedupe_autodetect_settings_jsx(t)
 

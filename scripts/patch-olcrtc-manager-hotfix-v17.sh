@@ -52,7 +52,11 @@ new_flp = r'''func featureLogPaths(name string) []string {
 	}
 }'''
 
-if "case \"olcrtc\":" not in t.split("func featureLogPaths")[1].split("func tailFileLines")[0]:
+_flp_parts = t.split("func featureLogPaths")
+_flp_body = _flp_parts[1].split("func tailFileLines")[0] if len(_flp_parts) > 1 else ""
+if "func featureLogPaths" not in t:
+    print("[patch-manager-hotfix-v17] featureLogPaths not found (skip)")
+elif "case \"olcrtc\":" not in _flp_body:
     t2, n = re.subn(
         r"func featureLogPaths\(name string\) \[\]string \{[\s\S]*?\n\}",
         new_flp,
@@ -73,7 +77,9 @@ if 'if !allowed && (name == "olcrtc" || name == "warp")' not in t:
         1,
     )
 
-if "st.Size() == 0" not in t.split("func featuresLogsHandler")[1].split("func featuresListHandler")[0]:
+_flh_parts = t.split("func featuresLogsHandler")
+_flh_body = _flh_parts[1].split("func featuresListHandler")[0] if len(_flh_parts) > 1 else ""
+if "func featuresLogsHandler" in t and "st.Size() == 0" not in _flh_body:
     old_tail = """\t\tfor _, path := range featureLogPaths(name) {
 \t\t\tgot, err := tailFileLines(path, 200)
 \t\t\tif err != nil {
