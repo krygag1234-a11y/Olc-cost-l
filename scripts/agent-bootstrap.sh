@@ -89,10 +89,22 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --full) FULL=1 ;;
+    --full) 
+      FULL=1
+      # Если указан --full, инициализируем всё по умолчанию
+      ENABLE_TOR=1
+      ENABLE_SPLIT=1
+      RU_VPS=1
+      export OLCRTC_ENABLE_ZAPRET=1
+      ENABLE_WARP=0
+      ;;
+    --tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
+    --split) 
+      ENABLE_SPLIT=1; RU_VPS=1; FULL=1
+      ;;
+    --zapret) export OLCRTC_ENABLE_ZAPRET=1; RU_VPS=1; FULL=1 ;;
     --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0; ENABLE_WARP=0 ;;
-    --with-warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
-    --with-tor) ENABLE_TOR=1; RU_VPS=1 ;;
+    --with-warp|--warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
     --no-split) ENABLE_SPLIT=0; RU_VPS=1 ;;
     --no-zapret) export OLCRTC_ENABLE_ZAPRET=0 ;;
     --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1 ;;
@@ -113,6 +125,16 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# Проверка конфликтов флагов
+if [[ "${ENABLE_TOR:-1}" -eq 1 && "${ENABLE_WARP:-0}" -eq 1 ]]; then
+  echo "[install] ОШИБКА: Нельзя комбинировать Tor (--tor/--full) и WARP (--warp). Выберите что-то одно." >&2
+  exit 1
+fi
+if [[ "${ENABLE_SPLIT:-1}" -eq 1 && "${ENABLE_TOR:-1}" -eq 0 ]]; then
+  echo "[install] ОШИБКА: --split требует установки Tor (--tor или --full). Маршрутизация без Tor не имеет смысла." >&2
+  exit 1
+fi
 
 if [[ -n "$PROFILE_ID" ]]; then
   profile_install_template "$PROFILE_ID"
@@ -388,8 +410,9 @@ if [[ "$FULL" -eq 1 ]]; then
 else
   if [[ ! -x /usr/local/bin/olcrtc ]] || [[ ! -x /usr/local/bin/olcrtc-manager ]]; then
     log "binaries missing — building patched versions"
-    state_step patches      run_patches
-    state_step webtunnel    build_webtunnel
+    state_step packages       install_deps
+    state_step patches        run_patches
+    state_step webtunnel      build_webtunnel
   fi
 fi
 
