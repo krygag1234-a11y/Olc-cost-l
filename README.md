@@ -2,8 +2,6 @@
 
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
-**Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
-
 ## Upstream (2026-05)
 
 | Компонент | Ветка / источник | Ссылка |
