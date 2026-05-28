@@ -60,6 +60,9 @@ clone_repos() {
     olc_git_safe_register "$OLCRTC_REPO"
   fi
   if [[ -d "$MGR_REPO/.git" ]]; then
+    log "reset manager to clean state"
+    olc_git "$MGR_REPO" reset --hard HEAD 2>/dev/null || true
+    olc_git "$MGR_REPO" clean -fd 2>/dev/null || true
     if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
       log "refresh manager main"
       olc_git "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
