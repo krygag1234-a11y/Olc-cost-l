@@ -55,12 +55,13 @@ main() {
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
   
-  echo "Проверка актуальности репозитория..." >&2
+  echo "Проверка актуальности репозитория (ветка main)..." >&2
   local_sha="$(git rev-parse HEAD 2>/dev/null || true)"
   remote_sha="$(git ls-remote origin main 2>/dev/null | awk '{print $1}' || true)"
   
   if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
-    echo "Репозиторий уже актуален (последняя версия)." >&2
+    echo "Репозиторий уже актуален." >&2
+    git log -1 --format="Текущая версия: %h - %s (%cd)" --date=format:"%Y-%m-%d %H:%M" >&2
     if [ -t 0 ] || [ -c /dev/tty ]; then
       read -r -p "Всё равно запустить доустановку/обновление скриптов? (Да/Нет): " _ans </dev/tty || _ans="да"
       if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then

@@ -149,9 +149,10 @@ else
         local_sha="$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || true)"
         remote_sha="$(git ls-remote "$REPO_URL" "$BRANCH" 2>/dev/null | awk '{print $1}' || true)"
         if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
-          echo "Репозиторий уже актуален (последняя версия)." >&2
+          echo "Репозиторий уже актуален." >&2
+          git -C "$INSTALL_DIR" log -1 --format="Текущая версия: %h - %s (%cd)" --date=format:"%Y-%m-%d %H:%M" >&2
         else
-          echo "Доступны обновления репозитория." >&2
+          echo "Доступны обновления репозитория!" >&2
         fi
       fi
       echo "Olc-cost-l уже установлен ($STATE). Выберите действие:" >&2
