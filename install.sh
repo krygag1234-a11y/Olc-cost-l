@@ -24,13 +24,41 @@ if command -v df >/dev/null 2>&1; then
   _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
   if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
     echo "" >&2
-    echo "[install] ОШИБКА: на диске / почти нет места (~${_avail} МБ свободно, занято ${_use}%)." >&2
-    echo "[install] Скрипт не сможет клонировать репозиторий (в логах: No space left on device)." >&2
-    echo "[install] Сначала освободите место: df -h / ; du -xh / --max-depth=1 | sort -hr | head" >&2
-    echo "" >&2
-    exit 1
+    echo "[install] ВНИМАНИЕ: на диске / почти нет места (~${_avail} МБ свободно, занято ${_use}%)." >&2
+    echo "[install] Скрипт не сможет клонировать репозиторий или собрать панель." >&2
+    
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+      echo "" >&2
+      echo "Хотите очистить временные файлы (кэш Go, npm, apt, старые логи) прямо сейчас автоматически?" >&2
+      echo "- Да, очистить мусор" >&2
+      echo "- Нет, я сам решу эту проблему (установка будет прервана)" >&2
+      
+      read -r -p "Выберите (Да/Нет): " _ans </dev/tty || true
+      if [[ "${_ans,,}" == "1" || "${_ans,,}" == "да" || "${_ans,,}" == "-да" || "${_ans,,}" == "- да" ]]; then
+        echo "[install] Очистка..." >&2
+        [[ -d /var/backups/olc-vps ]] && find /var/backups/olc-vps -type f -name '*.tar.gz' -mtime +3 -delete 2>/dev/null
+        rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null
+        apt-get clean 2>/dev/null || true
+        find /var/log -type f -name '*.gz' -delete 2>/dev/null
+        
+        _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
+        _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
+        if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
+          echo "[install] ОШИБКА: место всё ещё мало (~${_avail} МБ). Прерывание." >&2
+          exit 1
+        else
+          echo "[install] Очистка помогла. Продолжаем установку (~${_avail} МБ свободно)." >&2
+        fi
+      else
+        echo "[install] Прерывание." >&2
+        exit 1
+      fi
+    else
+      echo "[install] ОШИБКА: нет интерактивного терминала для очистки. Сначала освободите место." >&2
+      exit 1
+    fi
   fi
-  unset _avail _use
+  unset _avail _use _ans
 fi
 
 # curl | bash: BASH_SOURCE[0] is unset under set -u
@@ -158,7 +186,21 @@ case "$FORCE_MODE" in
   --update) MODE=update ;;
   *)
     if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
-      MODE=update
+      if [ -t 0 ] || [ -c /dev/tty ]; then
+        echo ""
+        echo "Olc-cost-l уже установлен ($STATE). Выберите действие:"
+        echo "1) Обновить (скачать изменения из Git и применить патчи, сохранить данные)"
+        echo "2) Переустановить полностью (может занять больше времени)"
+        local _ans2
+        read -r -p "Введите 1 или 2 (по умолчанию 1): " _ans2 </dev/tty || _ans2="1"
+        if [[ "$_ans2" == "2" ]]; then
+          MODE=full
+        else
+          MODE=update
+        fi
+      else
+        MODE=update
+      fi
     else
       MODE=full
     fi

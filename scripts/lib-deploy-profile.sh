@@ -173,6 +173,31 @@ profile_apply_env() {
   ru="$(jq -r '.ru_vps // true' "$OLCRTC_DEPLOY_PROFILE")"
   warp="$(jq -r '.components.warp // false' "$OLCRTC_DEPLOY_PROFILE")"
 
+  # Если есть features.env, он имеет больший приоритет (пользователь менял через UI)
+  if [[ -f /etc/olcrtc-manager/features.env ]]; then
+    local _f_tor _f_split _f_zapret _f_warp
+    _f_tor="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_TOR=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_split="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_SPLIT=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_zapret="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_ZAPRET=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_warp="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WARP=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    
+    [[ "$_f_tor" == "1" ]] && tor="true"
+    [[ "$_f_tor" == "0" ]] && tor="false"
+    [[ "$_f_split" == "1" ]] && split="true"
+    [[ "$_f_split" == "0" ]] && split="false"
+    [[ "$_f_zapret" == "1" ]] && zapret="true"
+    [[ "$_f_zapret" == "0" ]] && zapret="false"
+    [[ "$_f_warp" == "1" ]] && warp="true"
+    [[ "$_f_warp" == "0" ]] && warp="false"
+    
+    # Синхронизируем изменения обратно в deploy-profile.json
+    local tmp
+    tmp="$(mktemp)"
+    jq --argjson t "$tor" --argjson s "$split" --argjson z "$zapret" --argjson w "$warp" \
+      '.components.tor = $t | .components.split = $s | .components.zapret = $z | .components.warp = $w' \
+      "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  fi
+
   [[ "$tor" == "true" ]] && ENABLE_TOR=1 || ENABLE_TOR=0
   [[ "$split" == "true" ]] && ENABLE_SPLIT=1 || ENABLE_SPLIT=0
   [[ "$zapret" == "true" ]] && export OLCRTC_ENABLE_ZAPRET=1 || export OLCRTC_ENABLE_ZAPRET=0

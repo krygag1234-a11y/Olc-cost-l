@@ -2,6 +2,8 @@
 
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
+**Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
+
 ## Upstream (2026-05)
 
 | Компонент | Ветка / источник | Ссылка |
@@ -11,6 +13,8 @@
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
+**Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
+
 Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.md](docs/CLIENT.md)
 
 ---
@@ -18,11 +22,16 @@ Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.m
 ## Быстрая установка
 
 ```bash
+# Установка по умолчанию (RU VPS: Tor + Split + Zapret):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
 # Иностранный VPS (без Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-tor
 # Иностранный VPS + Cloudflare WARP (proxy, без Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --with-warp
+# RU VPS (без разделения маршрутов, весь трафик через Tor):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-split
+# RU VPS (без Zapret DPI обхода):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-zapret
 # Только обновление:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
