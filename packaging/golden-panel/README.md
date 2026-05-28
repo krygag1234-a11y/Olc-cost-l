@@ -6,15 +6,8 @@
 
 ## Обновить эталон после правок на тестовом VPS
 
-```bash
-sudo bash /opt/Olc-cost-l/scripts/olc-export-golden-panel.sh
-cd /opt/Olc-cost-l && git add packaging/golden-panel && git commit -m "sync: golden panel from test VPS"
-```
+Синхронизация происходит через внутренние скрипты разработчика (расположенные вне репозитория).
 
 ## Проверка
-
-```bash
-sudo bash /opt/Olc-cost-l/scripts/olc-panel-verify.sh
-```
 
 Ожидаемый JS-bundle (vite hash): `index-BgVOK4FZ.js` (может измениться после правок эталона).

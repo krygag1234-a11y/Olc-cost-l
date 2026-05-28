@@ -86,4 +86,4 @@ sudo olc-panel-refresh-local.sh
 - **Дефолты инстансов** — «Настройки OlcRTC» → «Настройки инстансов по умолчанию…»; хранятся в `/var/lib/olcrtc/instance-defaults.json`
 - **Мосты: пул обновился, в конфиге только obfs4** — нужен полный цикл pool (не только fetch). В панели: «Настройки → Мосты → Обновить сейчас»; вручную: `sudo FETCH_MAX_AGE_SEC=0 BRIDGE_TYPES=obfs4,webtunnel bash /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --types obfs4,webtunnel`. В `/etc/tor/bridges.conf` должны быть строки `Bridge webtunnel` и `ClientTransportPlugin webtunnel`.
 
-Подробнее: [VPS-SETUP.md](VPS-SETUP.md), [FEATURES.md](FEATURES.md), [OLC-SYNC.md](OLC-SYNC.md)
+Подробнее: [VPS-SETUP.md](VPS-SETUP.md), [FEATURES.md](FEATURES.md)
