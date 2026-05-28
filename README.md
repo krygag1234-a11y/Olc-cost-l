@@ -2,8 +2,7 @@
 
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor, Tor-мосты, split-маршрутизация, zapret, Warp. Olcbox.
 
-<img width="4058" height="2616" alt="ь" src="https://github.com/user-attachments/assets/b085595f-ea66-4a97-80a2-e44a356ed5b2" />
-
+<img width="1291" height="832" alt="ь" src="https://github.com/user-attachments/assets/20e9ca97-eedd-439d-b356-2b6d80314690" />
 
 
 ## Upstream (2026-05)
