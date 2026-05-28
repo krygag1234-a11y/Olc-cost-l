@@ -1,6 +1,6 @@
 # Эталон панели (тестовый VPS)
 
-Файлы `main.tsx` и `main.go` — **рабочая** панель с тестового VPS (`89.169.186.195`).
+Файлы `main.tsx` и `main.go` — **рабочая** панель с тестового VPS.
 
 При `install.sh --update` скрипт `scripts/apply-golden-panel.sh` копирует их в `/tmp/olcrtc-manager-panel` после цепочки hotfix-патчей, затем `npm run build` + `go build`.
 

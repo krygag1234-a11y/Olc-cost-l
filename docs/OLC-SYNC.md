@@ -32,7 +32,7 @@ sudo bash /opt/Olc-cost-l/scripts/olc-export-golden-panel.sh
 ## Тестовый VPS
 
 ```bash
-ssh -i /root/.ssh/yandex_bm_test_key kryga@89.169.186.195
+ssh -i ~/.ssh/test_vps_key user@test-vps-ip
 ```
 
 ## Установка с репо = тестовый UI

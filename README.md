@@ -106,25 +106,6 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 
 ---
 
-## Стек на RU VPS (текущее состояние)
-
-| Слой | Что делает |
-|------|------------|
-| **olcrtc-manager** | Панель :8888, подписки Olcbox, `link: tor` по умолчанию |
-| **olcrtc** | Туннель к Jitsi/WebRTC; split: RU/CDN direct, остальное → Tor SOCKS |
-| **Tor** | `tor@default` + `bridges.conf` (webtunnel **первые**, obfs4 запас) |
-| **Пул мостов** | igareck + [Tor-Bridges-Collector](https://github.com/Delta-Kronecker/Tor-Bridges-Collector) (`data/bridge-extra-urls.txt`) |
-| **Мониторинг** | healthcheck */10, monitor */20, pool */6h, **deep check** раз в неделю |
-| **zapret** | DPI на direct egress для заблокированных `.ru` |
-| **WARP** (опц.) | Cloudflare SOCKS5 на foreign VPS вместо Tor — [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) |
-| **Списки** | `*.ru`, CDN, `2ipcore`, force-tor (YouTube), geosite |
-
-```text
-Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
-```
-
----
-
 ## Roadmap
 
 Мастер-план задач (настройки Zp/Tor/Split/Мосты, update из UI, уведомления, баги): **[docs/ROADMAP.md](docs/ROADMAP.md)**.

@@ -1,7 +1,7 @@
 # Инвентаризация репозитория Olc-cost-l
 
 **Дата:** 2026-05-28  
-**Эталон UI:** `packaging/golden-panel/` (синк с тестового VPS `kryga@89.169.186.195`)
+**Эталон UI:** `packaging/golden-panel/` (синк с тестового VPS `user@test-vps-ip`)
 
 ## Golden panel (фаза 3)
 

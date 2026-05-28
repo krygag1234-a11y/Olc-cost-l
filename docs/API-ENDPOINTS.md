@@ -1,6 +1,6 @@
 # OlcRTC Manager — API endpoints (golden panel)
 
-Эталон: `packaging/golden-panel/main.go` (тестовый VPS 89.169.186.195, синк через `olc-sync-from-vps.sh`).
+Эталон: `packaging/golden-panel/main.go` (тестовый VPS, синк через `olc-sync-from-vps.sh`).
 
 Все `/api/*` (кроме auth login/setup) требуют сессию администратора.
 

@@ -4,8 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-SSH_KEY="${OLC_SYNC_SSH_KEY:-/root/.ssh/yandex_bm_test_key}"
-SSH_HOST="${OLC_SYNC_HOST:-kryga@89.169.186.195}"
+SSH_KEY="${OLC_SYNC_SSH_KEY:-~/.ssh/test_vps_key}"
+SSH_HOST="${OLC_SYNC_HOST:-user@test-vps-ip}"
 REMOTE_PANEL="${OLC_REMOTE_PANEL:-/tmp/olcrtc-manager-panel}"
 DRY_RUN=0
 
@@ -18,7 +18,7 @@ usage() {
     - packaging/vps-snapshot/ (features.env, panel.env без секретов, units list)
 
   Опции:
-    --host USER@IP     SSH хост (по умолчанию kryga@89.169.186.195)
+    --host USER@IP     SSH хост (по умолчанию user@test-vps-ip)
     --key PATH         SSH ключ
     --dry-run          только показать, что будет скопировано
     -h, --help

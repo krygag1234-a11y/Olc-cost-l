@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hotfix v20: VPS-stable panel fixes (2026-05-27 test VPS 89.169.186.195)
+# Hotfix v20: VPS-stable panel fixes (2026-05-27 test VPS)
 # - JOB_MSG_TTL_MS hoisted; waitForComponentJobDone; reloadCaps after jobs
 # - effectiveInstalled drawer buttons (fixes v19 showInstallBtn without defs)
 # - log join \\n fix; WARP settings UI block
