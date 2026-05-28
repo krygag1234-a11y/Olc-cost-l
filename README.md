@@ -5,7 +5,7 @@
 <table width="100%">
   <tr>
     <td>
-      <img src="https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/%D1%8C.jpg" width="100%">
+      <img src="https://github.com/krygag1234-a11y/Olc-cost-l/blob/main/%D1%8C.png" width="100%">
     </td>
   </tr>
 </table>
