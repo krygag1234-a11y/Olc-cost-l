@@ -17,6 +17,10 @@ if [[ -f "$INSTALL_DIR/scripts/lib-disk-preflight.sh" ]]; then
   source "$INSTALL_DIR/scripts/lib-disk-preflight.sh"
   olc_preflight_disk_space "uninstall" || exit 1
 fi
+if [[ -f "$INSTALL_DIR/scripts/lib-cache-cleanup.sh" ]]; then
+  # shellcheck source=scripts/lib-cache-cleanup.sh
+  source "$INSTALL_DIR/scripts/lib-cache-cleanup.sh"
+fi
 if [[ -f "$INSTALL_DIR/scripts/lib-vps-backup.sh" ]]; then
   # shellcheck source=scripts/lib-vps-backup.sh
   source "$INSTALL_DIR/scripts/lib-vps-backup.sh"

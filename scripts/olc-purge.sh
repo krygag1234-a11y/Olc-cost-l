@@ -45,6 +45,10 @@ if [[ -f "$SCRIPT_DIR/lib-disk-preflight.sh" ]]; then
   source "$SCRIPT_DIR/lib-disk-preflight.sh"
   olc_preflight_disk_space "purge" || exit 1
 fi
+if [[ -f "$SCRIPT_DIR/lib-cache-cleanup.sh" ]]; then
+  # shellcheck source=lib-cache-cleanup.sh
+  source "$SCRIPT_DIR/lib-cache-cleanup.sh"
+fi
 if [[ -f "$SCRIPT_DIR/lib-vps-backup.sh" ]]; then
   # shellcheck source=lib-vps-backup.sh
   source "$SCRIPT_DIR/lib-vps-backup.sh"
@@ -106,6 +110,11 @@ run rm -rf /var/lib/olcrtc
 run rm -f /var/log/olcrtc-healthcheck.log
 run find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
 run rm -rf /tmp/olcrtc-src /tmp/olcrtc-manager-panel
+
+log "remove build caches"
+if [[ "$DRY_RUN" -eq 0 ]] && declare -f olc_cleanup_purge_caches >/dev/null 2>&1; then
+  olc_cleanup_purge_caches
+fi
 
 log "remove sysctl drop-in"
 run rm -f /etc/sysctl.d/99-olcrtc-performance.conf

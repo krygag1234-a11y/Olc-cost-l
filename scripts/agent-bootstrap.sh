@@ -57,6 +57,8 @@ source "$SCRIPT_DIR/lib-git-safe.sh"
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
+# shellcheck source=lib-cache-cleanup.sh
+source "$SCRIPT_DIR/lib-cache-cleanup.sh"
 # shellcheck source=lib-vps-backup.sh
 source "$SCRIPT_DIR/lib-vps-backup.sh"
 
@@ -308,7 +310,7 @@ EOF
 
 install_cli_symlinks() {
   local s
-  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-vps-backup.sh olc-vps-snapshot.sh olc-panel-verify.sh olc-panel-refresh-local.sh olc-purge.sh; do
+  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-vps-backup.sh olc-vps-snapshot.sh olc-panel-verify.sh olc-panel-refresh-local.sh olc-cleanup-caches.sh olc-purge.sh; do
     [[ -f "$SCRIPT_DIR/$s" ]] || continue
     ln -sfn "$SCRIPT_DIR/$s" "/usr/local/bin/${s%.sh}" 2>/dev/null || true
   done
@@ -365,10 +367,14 @@ run_patches() {
 }
 run_community_lists() { bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true; }
 run_restart_manager() { systemctl restart olcrtc-manager; }
-run_cleanup_tmp() { find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true; }
+run_cleanup_tmp() {
+  find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
+  olc_cleanup_build_caches "agent-bootstrap"
+}
 
 if [[ "$REBUILD_ONLY" -eq 1 ]]; then
   run_patches
+  run_cleanup_tmp
   run_restart_manager
   exit 0
 fi
@@ -429,6 +435,7 @@ state_step_profile fetch-community-lists run_community_lists
 state_step_profile zapret                setup_zapret
 state_step systemd               setup_systemd
 state_step cron                  setup_cron
+state_step cleanup-tmp           run_cleanup_tmp
 state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager'
 state_finish
 

@@ -9,6 +9,8 @@ PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
 source "$SCRIPT_DIR/safety-lib.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-cache-cleanup.sh
+source "$SCRIPT_DIR/lib-cache-cleanup.sh"
 olc_git_safe_register "$REPO_ROOT"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
@@ -305,4 +307,7 @@ fi
   install -m 0755 "$SCRIPT_DIR/olc-component-remove.sh" /usr/local/bin/olc-component-remove 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-error-match.sh" /usr/local/bin/olc-error-match 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-zapret-apply-strategy.sh" /usr/local/bin/olc-zapret-apply-strategy 2>/dev/null || true
+  if [[ "${OLC_CLEANUP_AFTER_BUILD:-1}" == "1" ]]; then
+    olc_cleanup_build_caches "apply-patches"
+  fi
   log "done"

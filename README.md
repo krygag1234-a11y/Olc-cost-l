@@ -1,8 +1,8 @@
 # Olc-cost-l
 
-Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor, Tor-мосты, split-маршрутизация, zapret, Warp. Olcbox.
+Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
 
-<img width="4096" height="2640" alt="ь" src="https://github.com/user-attachments/assets/6d6b0ae5-4be1-48fd-acab-583ff9829639" />
+**Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
 
 ## Upstream (2026-05)
 
@@ -13,15 +13,16 @@
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
+**Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
+
 Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.md](docs/CLIENT.md)
 
 ---
 
 ## Быстрая установка
 
- - Быстрая установка одной командой (устанавливает всё: Tor, Split, Zapret, Warp, мосты и панель с кастомным ui)
-
 ```bash
+# Быстрая установка одной командой (устанавливает всё: Tor, Split, Zapret, мосты и исправления панели)
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 ```
 
@@ -103,6 +104,17 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 > sudo olc-purge
 > ```
 
+## Очистка кэшей
+
+После `--full`, `--update` и пересборки панель/Go могут временно занимать много места в `/tmp`, Go build cache и npm cache. Эти файлы не нужны для работы установленной панели; они только ускоряют повторную сборку.
+
+```bash
+# Очистить только сборочные кэши, без удаления панели и сервисов:
+sudo olc-cleanup-caches
+```
+
+Скрипты установки и обновления теперь чистят временные сборочные кэши автоматически. `sudo olc-purge` и `uninstall.sh` тоже удаляют эти кэши при полном удалении. По умолчанию Go module cache (`/root/go/pkg/mod`) сохраняется; если нужно очистить и его, запустите с `OLC_CLEAN_GO_MOD_CACHE=1`.
+
 ---
 
 ## Roadmap
@@ -149,6 +161,31 @@ sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
 ```
 
 Таймеры: `olcrtc-tor-bridge-pool.timer`, `olcrtc-tor-bridge-monitor.timer`, `olcrtc-tor-bridge-deep.timer`
+
+---
+
+## Режимы bootstrap (установки)
+
+Флаги можно комбинировать! Например, `--bridges --zapret` установит панель только с мостами и запретом. Или `--full --no-bridges --no-zapret` установит всё, но без мостов и запрета. Неправильные конфигурации будут отклонены скриптом с понятной ошибкой.
+
+| Флаг | Результат |
+|------|-----------|
+| **ВСЕ, НО БЕЗ ..** | |
+| `--full` | **Полная установка:** Панель + исправления + Tor + мосты + split + zapret |
+| `--full --no-tor` | Иностранный VPS: Устанавливает всё, кроме Tor и мостов |
+| `--full --no-split` | Без разделения: весь трафик идёт через Tor |
+| `--full --no-zapret` | Без DPI-обхода (zapret не устанавливается) |
+| `--full --no-bridges`| Без мостов для Tor (только прямой Tor) |
+| **ТОЛЬКО С ..** | |
+| `--warp` | Устанавливается только WARP + панель (без Tor) |
+| `--tor` | Устанавливается только Tor + панель |
+| `--split` | Устанавливается только Split + панель (требует Tor) |
+| `--zapret` | Устанавливается только Zapret + панель |
+| `--bridges`| Устанавливается только мосты для Tor + панель |
+| **ДРУГОЕ** | |
+| `--update` | Обновление: git pull, пересборка, обновление списков и служб или доустановка |
+
+В `config.json`: **`link: tor`** (по умолчанию) или **`link: direct`** (без SOCKS для этой локации).
 
 ---
 
