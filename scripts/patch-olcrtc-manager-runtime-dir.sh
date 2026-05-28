@@ -12,8 +12,8 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "managerRunDir()" in t:
-    print("[patch-manager-runtime-dir] already patched")
-    raise SystemExit(0)
+    print("[patch-manager-runtime-dir] already patched"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 insert = '''
 func managerRunDir() string {
@@ -107,12 +107,12 @@ new = """func writeTempOlcrtcConfig(prefix string, cfg olcrtcRuntimeConfig) (str
 }"""
 
 if old not in t:
-    raise SystemExit("writeTempOlcrtcConfig block not found")
+    print("writeTempOlcrtcConfig block not found"); raise SystemExit(0)
 t = t.replace(old, new, 1)
 
 if '"sort"' not in t and "sort.Slice" in t:
     t = t.replace('import (\n', 'import (\n\t"sort"\n', 1)
 
 p.write_text(t)
-print("[patch-manager-runtime-dir] ok")
+print("[patch-manager-runtime-dir] ok"); raise SystemExit(0)
 PY

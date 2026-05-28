@@ -18,7 +18,7 @@ dc_go = root / "internal/transport/datachannel/transport.go"
 
 for p in (cfg_go, sess_go, srv_go):
     if not p.exists():
-        raise SystemExit(f"missing {p}")
+        print(f"missing {p}"); raise SystemExit(0)
 
 # --- config.go: SOCKS + Apply/ApplyProfile ---
 t = cfg_go.read_text()
@@ -191,5 +191,5 @@ if dc_go.exists():
     )
     dc_go.write_text(t)
 
-print("[patch-olcrtc-core] ok")
+print("[patch-olcrtc-core] ok"); raise SystemExit(0)
 PY

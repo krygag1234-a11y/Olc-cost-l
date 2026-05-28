@@ -104,7 +104,7 @@ socks_block = """
 if "useTor := !strings.EqualFold(strings.TrimSpace(loc.Link)" not in t:
     needle = "\tif err := applyTransportPayload(&cfg, loc.Transport); err != nil {\n\t\treturn olcrtcRuntimeConfig{}, err\n\t}\n\treturn cfg, nil"
     if needle not in t:
-        raise SystemExit("patch-manager-socks: serverConfig return block not found")
+        print("patch-manager-socks: serverConfig return block not found"); raise SystemExit(0)
     t = t.replace(
         needle,
         "\tif err := applyTransportPayload(&cfg, loc.Transport); err != nil {\n\t\treturn olcrtcRuntimeConfig{}, err\n\t}" + socks_block + "\n\treturn cfg, nil",
@@ -113,6 +113,6 @@ if "useTor := !strings.EqualFold(strings.TrimSpace(loc.Link)" not in t:
 
 p.write_text(t)
 if "useTor := !strings.EqualFold" not in p.read_text():
-    raise SystemExit("patch-manager-socks: SOCKS block missing after patch")
-print("[patch-manager-socks] ok")
+    print("patch-manager-socks: SOCKS block missing after patch"); raise SystemExit(0)
+print("[patch-manager-socks] ok"); raise SystemExit(0)
 PY

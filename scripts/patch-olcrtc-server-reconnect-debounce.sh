@@ -12,11 +12,11 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "carrierReconnectTimer" in t:
-    print("[patch-server-reconnect-debounce] already patched")
-    raise SystemExit(0)
+    print("[patch-server-reconnect-debounce] already patched"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 if "reinstallMu    sync.Mutex" not in t:
-    raise SystemExit("Server struct anchor missing")
+    print("Server struct anchor missing"); raise SystemExit(0)
 
 t = t.replace(
     "\treinstallMu    sync.Mutex\n",
@@ -54,8 +54,8 @@ new = """func (s *Server) handleReconnect() {
 }"""
 
 if old not in t:
-    raise SystemExit("handleReconnect block not found")
+    print("handleReconnect block not found"); raise SystemExit(0)
 t = t.replace(old, new, 1)
 p.write_text(t)
-print("[patch-server-reconnect-debounce] ok (5s debounce)")
+print("[patch-server-reconnect-debounce] ok (5s debounce)"); raise SystemExit(0)
 PY

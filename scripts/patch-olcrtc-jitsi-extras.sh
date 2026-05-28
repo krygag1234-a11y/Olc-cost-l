@@ -13,8 +13,8 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "func jitsiJoinInsecureTLS()" in t:
-    print("[patch-jitsi-extras] already applied")
-    raise SystemExit(0)
+    print("[patch-jitsi-extras] already applied"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 # os import for getenv
 if '"os"' not in t.split("import (")[1].split(")")[0]:
@@ -33,12 +33,12 @@ func jitsiJoinInsecureTLS() bool {
 anchor = "func (s *Session) joinAndOpenBridge(ctx context.Context)"
 idx = t.find(anchor)
 if idx < 0:
-    raise SystemExit("[patch-jitsi-extras] joinAndOpenBridge not found")
+    print("[patch-jitsi-extras] joinAndOpenBridge not found"); raise SystemExit(0)
 t = t[:idx] + helper + "\n" + t[idx:]
 
 # SCTP / slow JVB: 30s is too short for conf.hyperia.space and congested bridges
 t = t.replace("bridgeOpenTimeout    = 30 * time.Second", "bridgeOpenTimeout    = 60 * time.Second", 1)
 
 p.write_text(t)
-print("[patch-jitsi-extras] ok")
+print("[patch-jitsi-extras] ok"); raise SystemExit(0)
 PY

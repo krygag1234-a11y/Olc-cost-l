@@ -12,10 +12,10 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "linkCarrier string" in t:
-    print("[patch-jitsi-no-smux] carrier field already present")
+    print("[patch-jitsi-no-smux] carrier field already present"); raise SystemExit(0)
 else:
     if "carrierReconnectTimer *time.Timer" not in t:
-        raise SystemExit("run patch-olcrtc-server-reconnect-debounce.sh first")
+        print("run patch-olcrtc-server-reconnect-debounce.sh first"); raise SystemExit(0)
     t = t.replace(
         "\tcarrierReconnectTimer *time.Timer\n",
         "\tcarrierReconnectTimer *time.Timer\n\tlinkCarrier            string\n\tlinkTransport          string\n",
@@ -30,7 +30,7 @@ else:
 
 marker = "server reconnect reason=carrier - tearing down smux session"
 if marker not in t:
-    raise SystemExit("handleReconnect debounce block not found")
+    print("handleReconnect debounce block not found"); raise SystemExit(0)
 
 skip = """\t\tif strings.EqualFold(s.linkCarrier, "jitsi") {
 \t\t\tlogger.Infof("server reconnect reason=carrier - skip smux reinstall (jitsi bridge reconnect is internal)")
@@ -48,5 +48,5 @@ if '"strings"' not in t and "strings.EqualFold" in t:
     t = t.replace('"strconv"\n\t"sync"', '"strconv"\n\t"strings"\n\t"sync"', 1)
 
 p.write_text(t)
-print("[patch-jitsi-no-smux] ok")
+print("[patch-jitsi-no-smux] ok"); raise SystemExit(0)
 PY

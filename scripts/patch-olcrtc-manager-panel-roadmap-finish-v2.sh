@@ -56,5 +56,5 @@ if 'function UpdateAvailableToast' in t and 'useCallback(async' in t:
         t = t.replace(old_toast, new_toast, 1)
 
 p.write_text(t)
-print("[patch-panel-roadmap-finish-v2] ok")
+print("[patch-panel-roadmap-finish-v2] ok"); print(0); raise SystemExit(0)
 PY

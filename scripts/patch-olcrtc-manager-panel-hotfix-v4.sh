@@ -60,5 +60,5 @@ if "olc-panel-hotfix-v4" not in t:
         t = "/* olc-panel-hotfix-v4 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v4] ok")
+print("[patch-panel-hotfix-v4] ok"); print(0); raise SystemExit(0)
 PY

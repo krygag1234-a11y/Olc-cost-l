@@ -228,5 +228,5 @@ if 'olc-open-notification-settings' not in t.split('function SettingsModal')[1][
             )
 
 p.write_text(t)
-print("[patch-panel-roadmap-finish-v1] ok")
+print("[patch-panel-roadmap-finish-v1] ok"); print(0); raise SystemExit(0)
 PY

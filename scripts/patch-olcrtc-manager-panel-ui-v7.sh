@@ -487,5 +487,5 @@ if 'socks_listen_address' not in t.split('feature === "tor"')[1][:2800]:
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v7] ok")
+print("[patch-panel-ui-v7] ok"); print(0); raise SystemExit(0)
 PY

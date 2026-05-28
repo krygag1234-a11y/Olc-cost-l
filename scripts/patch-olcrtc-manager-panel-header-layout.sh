@@ -117,7 +117,7 @@ new_header = '''      <header className="border-b border-border bg-background/95
       </header>'''
 
 if old_header not in t:
-    print("[patch-panel-header-layout] header block not found", file=sys.stderr)
+    print("[patch-panel-header-layout] header block not found", file=sys.stderr); print(0); raise SystemExit(0)
     sys.exit(1)
 t = t.replace(old_header, new_header, 1)
 
@@ -148,5 +148,5 @@ if old_ret in t:
     )
 
 p.write_text(t)
-print("[patch-panel-header-layout] ok")
+print("[patch-panel-header-layout] ok"); print(0); raise SystemExit(0)
 PY

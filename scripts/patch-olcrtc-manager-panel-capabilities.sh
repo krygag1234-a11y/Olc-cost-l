@@ -103,5 +103,5 @@ t = t.replace('label: "Wt"', 'label: "Мосты"', 2)
 t = t.replace('title: "WebTunnel"', 'title: "Мосты"', 1)
 
 p.write_text(t)
-print("[patch-panel-capabilities] ok")
+print("[patch-panel-capabilities] ok"); print(0); raise SystemExit(0)
 PY

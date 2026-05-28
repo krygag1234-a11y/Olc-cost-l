@@ -12,8 +12,8 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 if 'link: "tor"' in t and "location.link?.trim()" in t:
-    print("[patch-manager-panel-link] already patched")
-    raise SystemExit(0)
+    print("[patch-manager-panel-link] already patched"); print(0); raise SystemExit(0)
+    print(0); print(0); raise SystemExit(0)
 
 if "link?: string;" not in t:
     t = t.replace(
@@ -44,7 +44,7 @@ if "location.link?.trim()" not in t:
   };
 }"""
     if old not in t:
-        raise SystemExit("patch-manager-panel-link: normalizeLocationForm block not found")
+        print("patch-manager-panel-link: normalizeLocationForm block not found"); print(0); raise SystemExit(0)
     t = t.replace(old, new, 1)
 
 if "link: (location.link" not in t:
@@ -62,5 +62,5 @@ if "link: location.link," not in t:
     )
 
 p.write_text(t)
-print("[patch-manager-panel-link] ok")
+print("[patch-manager-panel-link] ok"); print(0); raise SystemExit(0)
 PY

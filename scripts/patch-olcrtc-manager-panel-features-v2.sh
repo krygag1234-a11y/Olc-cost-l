@@ -31,5 +31,5 @@ t = t.replace('{busy === row.name ? "…" : enabled ? "Disable" : "Enable"}',
 t = t.replace("function FeaturesPanel() {", "function FeaturesPanel() { // FeaturesPanelV2", 1)
 
 p.write_text(t)
-print("[patch-panel-features-v2] ok")
+print("[patch-panel-features-v2] ok"); print(0); raise SystemExit(0)
 PY

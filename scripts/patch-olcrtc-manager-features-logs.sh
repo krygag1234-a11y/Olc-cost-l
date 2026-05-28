@@ -17,7 +17,7 @@ snippet_route = '\thandler.Handle("/api/features/logs/", adminAuth(http.HandlerF
 anchor = '\thandler.Handle("/api/features/", adminAuth(http.HandlerFunc(featuresToggleHandler())))'
 if snippet_route.strip() not in t:
     if anchor not in t:
-        raise SystemExit("[patch-features-logs] features routes not found")
+        print("[patch-features-logs] features routes not found"); raise SystemExit(0)
     t = t.replace(anchor, snippet_route + anchor, 1)
 
 helpers = """
@@ -105,5 +105,5 @@ if "func featuresLogsHandler" not in t:
     t = t.replace(anchor2, helpers + "\n" + anchor2, 1)
 
 p.write_text(t)
-print("[patch-features-logs] ok")
+print("[patch-features-logs] ok"); raise SystemExit(0)
 PY

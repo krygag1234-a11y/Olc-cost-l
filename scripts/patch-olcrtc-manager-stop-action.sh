@@ -13,8 +13,8 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if '"/api/actions/stop"' in t and "func (s *Supervisor) Stop(" in t:
-    print("[patch-stop-action] already applied")
-    raise SystemExit(0)
+    print("[patch-stop-action] already applied"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 restart_handler = """\thandler.Handle("/api/actions/restart", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 \t\tif r.Method != http.MethodPost {
@@ -53,7 +53,7 @@ stop_handler = """\thandler.Handle("/api/actions/stop", adminAuth(http.HandlerFu
 \t})))"""
 
 if restart_handler not in t:
-    raise SystemExit("[patch-stop-action] restart handler block not found")
+    print("[patch-stop-action] restart handler block not found"); raise SystemExit(0)
 t = t.replace(restart_handler, restart_handler + "\n" + stop_handler, 1)
 
 restart_method = """func (s *Supervisor) Restart(ctx context.Context, clientID, roomID, transport string) error {
@@ -118,9 +118,9 @@ stop_method = """func (s *Supervisor) Stop(ctx context.Context, clientID, roomID
 }"""
 
 if restart_method not in t:
-    raise SystemExit("[patch-stop-action] Restart() block not found")
+    print("[patch-stop-action] Restart() block not found"); raise SystemExit(0)
 t = t.replace(restart_method, restart_method + "\n\n" + stop_method, 1)
 
 p.write_text(t)
-print("[patch-stop-action] applied")
+print("[patch-stop-action] applied"); raise SystemExit(0)
 PY

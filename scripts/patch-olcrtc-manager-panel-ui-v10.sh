@@ -131,5 +131,5 @@ if "className=\"mt-2 h-2 w-full overflow-hidden rounded bg-zinc-700/50\"" not in
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v10] ok")
+print("[patch-panel-ui-v10] ok"); print(0); raise SystemExit(0)
 PY

@@ -41,7 +41,7 @@ function componentJobUiVisible(j?: { status?: string; finished_at?: string }): b
 }
 '''
 
-if "COMPONENT_JOB_UI_TTL_MS" not in t:
+if "COMPONENT_JOB_UI_TTL_MS = 120_000;" not in t:
     t = t.replace(
         "const COMPONENT_DRAWER_ITEMS = [",
         const_block + "\nconst COMPONENT_DRAWER_ITEMS = [",
@@ -146,5 +146,5 @@ if "/* olc-components-jobs-ui-ttl */" not in t:
         t = t.replace("function ComponentsDrawerButton() {", "/* olc-components-jobs-ui-ttl */\nfunction ComponentsDrawerButton() {", 1)
 
 p.write_text(t)
-print("[patch-panel-components-jobs-ui-ttl] ok")
+print("[patch-panel-components-jobs-ui-ttl] ok"); print(0); raise SystemExit(0)
 PY

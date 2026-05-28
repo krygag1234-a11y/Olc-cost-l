@@ -145,5 +145,5 @@ else:
     t = "/* olc-panel-hotfix-v13 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v13] ok")
+print("[patch-panel-hotfix-v13] ok"); print(0); raise SystemExit(0)
 PY

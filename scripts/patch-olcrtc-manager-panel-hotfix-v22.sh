@@ -154,5 +154,5 @@ if "/* olc-panel-hotfix-v22 */" not in t:
         t = "/* olc-panel-hotfix-v22 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v22] ok")
+print("[patch-panel-hotfix-v22] ok"); print(0); raise SystemExit(0)
 PY

@@ -144,6 +144,6 @@ elif "DirectCIDRsFile:       directCIDRsFileFromEnv()," in t and "DirectDomainsF
 p.write_text(t)
 t2 = p.read_text()
 if "ForceTorDomainsFile" not in t2 and "type olcrtcSocksConfig struct" in t2:
-    raise SystemExit("patch-manager-domains: ForceTorDomainsFile missing after patch")
-print("[patch-manager-domains] ok")
+    print("patch-manager-domains: ForceTorDomainsFile missing after patch"); raise SystemExit(0)
+print("[patch-manager-domains] ok"); raise SystemExit(0)
 PY

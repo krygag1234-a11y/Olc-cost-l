@@ -46,12 +46,12 @@ if app_start >= 0:
             changed = True
 
 if marker not in t and not changed:
-    print("[patch-panel-pending-locations-v1] skip (nothing to fix)")
+    print("[patch-panel-pending-locations-v1] skip (nothing to fix)"); print(0); raise SystemExit(0)
     sys.exit(0)
 
 if marker not in t and changed:
     pass  # marker inserted with state
 
 p.write_text(t)
-print("[patch-panel-pending-locations-v1] ok")
+print("[patch-panel-pending-locations-v1] ok"); print(0); raise SystemExit(0)
 PY

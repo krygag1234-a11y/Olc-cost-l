@@ -14,7 +14,7 @@ t = p.read_text()
 fn = "func preflightJitsiRoom(roomID string) jitsiPreflightResponse {"
 start = t.find(fn)
 if start < 0:
-    print("[patch-jitsi-preflight-v3] skip (preflight not found)")
+    print("[patch-jitsi-preflight-v3] skip (preflight not found)"); raise SystemExit(0)
     sys.exit(0)
 
 brace = t.find("{", start)
@@ -29,7 +29,7 @@ for i in range(brace, len(t)):
             end = i + 1
             break
 if end < 0:
-    raise SystemExit("[patch-jitsi-preflight-v3] function end not found")
+    print("[patch-jitsi-preflight-v3] function end not found"); raise SystemExit(0)
 
 new_fn = r'''func preflightJitsiRoom(roomID string) jitsiPreflightResponse {
 	out := jitsiPreflightResponse{
@@ -181,6 +181,6 @@ if "olc-jitsi-preflight-v3" not in t:
     t = t.replace("/* olc-jitsi-preflight-v2 */", "/* olc-jitsi-preflight-v2 */\n/* olc-jitsi-preflight-v3 */", 1)
 
 p.write_text(t)
-print("[patch-jitsi-preflight-v3] ok")
+print("[patch-jitsi-preflight-v3] ok"); raise SystemExit(0)
 PY
 

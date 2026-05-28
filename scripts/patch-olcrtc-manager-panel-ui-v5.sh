@@ -461,5 +461,5 @@ if 'Пул: obfs4' not in t:
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v5] ok")
+print("[patch-panel-ui-v5] ok"); print(0); raise SystemExit(0)
 PY

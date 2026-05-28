@@ -409,5 +409,5 @@ if 'olcrtc_pinned_sha' not in t.split('feature === "olcrtc"')[1][:800]:
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v6] ok")
+print("[patch-panel-ui-v6] ok"); print(0); raise SystemExit(0)
 PY

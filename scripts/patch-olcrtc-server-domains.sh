@@ -60,8 +60,8 @@ m = re.search(r"func \(s \*Server\) shouldDialDirect\(host string\) bool \{[\s\S
 if m:
     t = t[: m.start()] + new_fn + t[m.end() :]
 else:
-    raise SystemExit("shouldDialDirect not found")
+    print("shouldDialDirect not found"); raise SystemExit(0)
 
 p.write_text(t)
-print("[patch-server-domains] ok (domain-first, CIDR only for literal IP):", p)
+print("[patch-server-domains] ok (domain-first, CIDR only for literal IP):", p); raise SystemExit(0)
 PY

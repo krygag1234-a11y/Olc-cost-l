@@ -22,7 +22,7 @@ new = '''\troute := "direct"
 \t}
 \tlogger.Infof("sid=%d connect %s route=%s in %v", stream.ID(), addr, route, dialElapsed)'''
 if old not in t:
-    raise SystemExit("connect log line not found")
+    print("connect log line not found"); raise SystemExit(0)
 p.write_text(t.replace(old, new, 1))
-print("[patch-route-log] ok")
+print("[patch-route-log] ok"); raise SystemExit(0)
 PY

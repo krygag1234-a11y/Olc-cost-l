@@ -59,5 +59,5 @@ if "olc-jitsi-preflight-ui-v3" not in t:
     t = t.replace("/* olc-jitsi-preflight-ui-v2 */", "/* olc-jitsi-preflight-ui-v2 */\n/* olc-jitsi-preflight-ui-v3 */", 1)
 
 p.write_text(t)
-print("[patch-panel-jitsi-preflight-v3] ok")
+print("[patch-panel-jitsi-preflight-v3] ok"); print(0); raise SystemExit(0)
 PY

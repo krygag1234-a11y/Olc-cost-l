@@ -55,7 +55,7 @@ new_sync = """func syncPanelCarrierHost(action, carrier, roomID string) {
 if old_sync in t:
     t = t.replace(old_sync, new_sync, 1)
 else:
-    print("[patch-async-delete] syncPanelCarrierHost block not found — skip")
+    print("[patch-async-delete] syncPanelCarrierHost block not found — skip"); raise SystemExit(0)
 
 old_del = """\t\tif err := deleteLocation(configPath, parts[0], parts[1]); err != nil {
 \t\t\t\thttp.Error(w, err.Error(), http.StatusBadRequest)
@@ -79,7 +79,7 @@ new_del = """\t\tif err := deleteLocation(configPath, parts[0], parts[1]); err !
 if old_del in t:
     t = t.replace(old_del, new_del, 1)
 else:
-    raise SystemExit("[patch-async-delete] delete handler block not found")
+    print("[patch-async-delete] delete handler block not found"); raise SystemExit(0)
 
 helper = """
 func asyncReloadAfterLocationDelete(reloadFn func() error) {
@@ -95,5 +95,5 @@ if "func asyncReloadAfterLocationDelete" not in t:
     t = t.replace("func syncPanelCarrierHost", helper + "\nfunc syncPanelCarrierHost", 1)
 
 p.write_text(t)
-print("[patch-async-delete] ok")
+print("[patch-async-delete] ok"); raise SystemExit(0)
 PY

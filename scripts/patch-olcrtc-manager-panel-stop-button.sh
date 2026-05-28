@@ -13,8 +13,8 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "const stopLocation = (clientID: string, location: LocationState)" in t:
-    print("[patch-panel-stop] already applied")
-    raise SystemExit(0)
+    print("[patch-panel-stop] already applied"); print(0); raise SystemExit(0)
+    print(0); print(0); raise SystemExit(0)
 
 restart_fn = """  const restartLocation = (clientID: string, location: LocationState) =>
     runAction(async () => {
@@ -43,7 +43,7 @@ stop_fn = """  const stopLocation = (clientID: string, location: LocationState) 
     }, `${clientID} остановлен`);"""
 
 if restart_fn not in t:
-    raise SystemExit("[patch-panel-stop] restart function block not found")
+    print("[patch-panel-stop] restart function block not found"); print(0); raise SystemExit(0)
 t = t.replace(restart_fn, restart_fn + "\n\n" + stop_fn, 1)
 
 restart_button = """                                    <button
@@ -64,10 +64,10 @@ stop_button = """                                    <button
                                     </button>"""
 
 if restart_button not in t:
-    print("[patch-panel-stop] skip (ui-v3 already has stop)")
-    raise SystemExit(0)
+    print("[patch-panel-stop] skip (ui-v3 already has stop)"); print(0); raise SystemExit(0)
+    print(0); print(0); raise SystemExit(0)
 t = t.replace(restart_button, restart_button + "\n" + stop_button, 1)
 
 p.write_text(t)
-print("[patch-panel-stop] applied")
+print("[patch-panel-stop] applied"); print(0); raise SystemExit(0)
 PY

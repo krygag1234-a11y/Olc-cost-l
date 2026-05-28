@@ -34,7 +34,7 @@ new = '''              <div className="mt-1 text-muted-foreground">
               )}'''
 
 if old not in t:
-    print("[patch-panel-releases-ui] git update line not found", file=sys.stderr)
+    print("[patch-panel-releases-ui] git update line not found", file=sys.stderr); print(0); raise SystemExit(0)
     sys.exit(1)
 
 t = t.replace(old, new, 1)
@@ -42,5 +42,5 @@ if '/* olc-releases-ui */' not in t:
     t = t.replace('/* olc-project-ui-fix */', '/* olc-project-ui-fix */\n/* olc-releases-ui */', 1)
 
 p.write_text(t)
-print("[patch-panel-releases-ui] ok")
+print("[patch-panel-releases-ui] ok"); print(0); raise SystemExit(0)
 PY

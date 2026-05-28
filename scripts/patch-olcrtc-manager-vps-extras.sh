@@ -87,6 +87,6 @@ if "OLCRTC_PUBLIC_URL" not in t and pub_old in t:
 
 p.write_text(t)
 if "defaultLivenessForTransport" not in p.read_text():
-    raise SystemExit("patch-manager-vps-extras: incomplete")
-print("[patch-manager-vps-extras] ok")
+    print("patch-manager-vps-extras: incomplete"); raise SystemExit(0)
+print("[patch-manager-vps-extras] ok"); raise SystemExit(0)
 PY

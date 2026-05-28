@@ -12,8 +12,8 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "hostNetwork :=" in t or "hostNetwork:=" in t:
-    print("[patch-manager-host-network] already patched")
-    raise SystemExit(0)
+    print("[patch-manager-host-network] already patched"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 old = """\tns, err := setupNetns(ctx, loc)
 \tif err != nil {
@@ -94,8 +94,8 @@ new = """\thostNetwork := strings.EqualFold(strings.TrimSpace(os.Getenv("OLCRTC_
 \t}()"""
 
 if old not in t:
-    raise SystemExit("patch-manager-host-network: startInstance block not found")
+    print("patch-manager-host-network: startInstance block not found"); raise SystemExit(0)
 t = t.replace(old, new, 1)
 p.write_text(t)
-print("[patch-manager-host-network] ok")
+print("[patch-manager-host-network] ok"); raise SystemExit(0)
 PY

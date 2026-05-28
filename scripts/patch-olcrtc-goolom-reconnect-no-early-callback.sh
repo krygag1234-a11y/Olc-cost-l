@@ -13,13 +13,13 @@ p = Path(sys.argv[1])
 t = p.read_text()
 # fix/all already removed the early callback; marker check is for old pins.
 if "// PATCH: no early onReconnect" in t:
-    print("[patch-goolom-reconnect-no-early-callback] already patched (old pin)")
-    raise SystemExit(0)
+    print("[patch-goolom-reconnect-no-early-callback] already patched (old pin)"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 # On fix/all the block simply no longer exists — nothing to do.
 if "s.onReconnect(nil)" not in t:
-    print("[patch-goolom-reconnect-no-early-callback] ok (fix/all already removed it)")
-    raise SystemExit(0)
+    print("[patch-goolom-reconnect-no-early-callback] ok (fix/all already removed it)"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 old = """\tif s.onReconnect != nil {
 \t\ts.onReconnect(nil)
@@ -34,8 +34,8 @@ new = """\t// PATCH: no early onReconnect before goolom reconnect completes
 \ttime.Sleep(3 * time.Second)"""
 
 if old not in t:
-    print("[patch-goolom-reconnect-no-early-callback] skip: block not found")
-    raise SystemExit(0)
+    print("[patch-goolom-reconnect-no-early-callback] skip: block not found"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 p.write_text(t.replace(old, new, 1))
-print("[patch-goolom-reconnect-no-early-callback] ok")
+print("[patch-goolom-reconnect-no-early-callback] ok"); raise SystemExit(0)
 PY

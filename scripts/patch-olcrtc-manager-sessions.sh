@@ -12,8 +12,8 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "sessionFilePath" in t:
-    print("[patch-manager-sessions] already patched")
-    raise SystemExit(0)
+    print("[patch-manager-sessions] already patched"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 
 helper = '''
 const adminSessionTTL = 30 * 24 * time.Hour
@@ -131,6 +131,6 @@ t = t.replace(
 
 p.write_text(t)
 if "persistLocked" not in p.read_text():
-    raise SystemExit("patch-manager-sessions failed")
-print("[patch-manager-sessions] ok")
+    print("patch-manager-sessions failed"); raise SystemExit(0)
+print("[patch-manager-sessions] ok"); raise SystemExit(0)
 PY

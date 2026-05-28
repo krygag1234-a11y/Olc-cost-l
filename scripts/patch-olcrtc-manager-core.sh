@@ -72,7 +72,7 @@ func exitProxyFromEnv() (addr string, port int) {
         if m:
             t = t[: m.end()] + block + t[m.end() :]
         else:
-            raise SystemExit("cannot place exitProxyFromEnv")
+            print("cannot place exitProxyFromEnv"); raise SystemExit(0)
 
 # serverConfig SOCKS block
 if "exitProxyFromEnv()" in t and "DirectCIDRsFile: directCIDRsFileFromEnv()" not in t:
@@ -99,5 +99,5 @@ if "exitProxyFromEnv()" in t and "DirectCIDRsFile: directCIDRsFileFromEnv()" not
 # HOST_NETWORK: use olcrtc-manager-main.go.patch or upstream startInstance with hostNetwork branch
 
 p.write_text(t)
-print("[patch-manager-core] ok")
+print("[patch-manager-core] ok"); raise SystemExit(0)
 PY

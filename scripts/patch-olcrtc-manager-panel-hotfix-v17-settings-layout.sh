@@ -54,7 +54,7 @@ fixed = """            <section className="grid gap-3 rounded-md border border-b
               <div className="text-sm font-medium text-foreground">Пароль администратора</div>"""
 
 if needle not in t:
-    print("[patch-v17-settings-layout] pattern not found (skip)")
+    print("[patch-v17-settings-layout] pattern not found (skip)"); print(0); raise SystemExit(0)
     sys.exit(0)
 
 t = t.replace(needle, fixed, 1)
@@ -93,7 +93,7 @@ footer_fixed = """              </div>
       {clientLogTarget && ("""
 
 if footer not in t:
-    print("[patch-v17-settings-layout] footer not found (skip)")
+    print("[patch-v17-settings-layout] footer not found (skip)"); print(0); raise SystemExit(0)
     sys.exit(0)
 t = t.replace(footer, footer_fixed, 1)
 
@@ -101,5 +101,5 @@ if "olc-panel-hotfix-v17-settings-layout" not in t:
     t = t.replace("/* olc-panel-hotfix-v17 */", "/* olc-panel-hotfix-v17 */\n/* olc-panel-hotfix-v17-settings-layout */", 1)
 
 p.write_text(t)
-print("[patch-v17-settings-layout] ok")
+print("[patch-v17-settings-layout] ok"); print(0); raise SystemExit(0)
 PY

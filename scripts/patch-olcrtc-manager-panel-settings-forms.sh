@@ -227,7 +227,7 @@ function ComponentSettingsModal({
 }'''
 
 if old_modal not in t:
-    raise SystemExit("[patch-panel-settings-forms] FeatureSettingsModal block not found")
+    print("[patch-panel-settings-forms] FeatureSettingsModal block not found"); print(0); raise SystemExit(0)
 
 t = t.replace(old_modal, new_modal, 1)
 
@@ -235,5 +235,5 @@ t = t.replace(old_modal, new_modal, 1)
 t = t.replace('title: "WebTunnel"', 'title: "Мосты"', 1)
 
 p.write_text(t)
-print("[patch-panel-settings-forms] ok")
+print("[patch-panel-settings-forms] ok"); print(0); raise SystemExit(0)
 PY

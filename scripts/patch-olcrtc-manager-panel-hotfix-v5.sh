@@ -171,7 +171,7 @@ if "olc-panel-hotfix-v5" not in t:
         t = "/* olc-panel-hotfix-v5 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v5] ok")
+print("[patch-panel-hotfix-v5] ok"); print(0); raise SystemExit(0)
 PY
 #!/usr/bin/env bash
 # Hotfix v5: dedicated autodetect mini-panel from Errors + settings layout cleanup.
@@ -274,5 +274,5 @@ if "olc-panel-hotfix-v5" not in t:
         t = "/* olc-panel-hotfix-v5 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v5] ok")
+print("[patch-panel-hotfix-v5] ok"); print(0); raise SystemExit(0)
 PY

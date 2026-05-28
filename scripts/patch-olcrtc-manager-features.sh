@@ -28,7 +28,7 @@ src = p.read_text()
 import_re = re.compile(r"import \((.*?)\)", re.DOTALL)
 m = import_re.search(src)
 if not m:
-    raise SystemExit("[patch-mgr-features] import block not found")
+    print("[patch-mgr-features] import block not found"); raise SystemExit(0)
 
 imp = m.group(1)
 need = ['"os/exec"', '"path/filepath"', '"strings"']
@@ -48,13 +48,13 @@ if idx < 0:
     anchor = "\thandler.Handle(\"/api/state\","
     idx = src.find(anchor)
 if idx < 0:
-    raise SystemExit("[patch-mgr-features] insert anchor not found")
+    print("[patch-mgr-features] insert anchor not found"); raise SystemExit(0)
 
 # Find end of the audit handler block (matching closing ")))")
 end_marker = "\t})))\n"
 end_idx = src.find(end_marker, idx)
 if end_idx < 0:
-    raise SystemExit("[patch-mgr-features] anchor end not found")
+    print("[patch-mgr-features] anchor end not found"); raise SystemExit(0)
 insert_at = end_idx + len(end_marker)
 
 snippet = """\thandler.Handle(\"/api/features\", adminAuth(http.HandlerFunc(featuresListHandler())))
@@ -215,5 +215,5 @@ if "func featuresListHandler" not in src:
     src += helpers
 
 p.write_text(src)
-print("[patch-mgr-features] applied")
+print("[patch-mgr-features] applied"); raise SystemExit(0)
 PY

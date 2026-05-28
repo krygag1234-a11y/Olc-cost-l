@@ -226,5 +226,5 @@ if 'name === "webtunnel" ? "bridges"' in t.split('function useCapabilities')[1]:
     )
 
 p.write_text(t)
-print("[patch-panel-ui-warp] ok")
+print("[patch-panel-ui-warp] ok"); print(0); raise SystemExit(0)
 PY

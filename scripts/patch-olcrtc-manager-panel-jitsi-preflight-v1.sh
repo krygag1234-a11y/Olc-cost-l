@@ -153,6 +153,6 @@ if old_loc in t and "JitsiPreflightNotice carrier={location.carrier}" not in t:
     t = t.replace(old_loc, new_loc, 1)
 
 p.write_text(t)
-print("[patch-panel-jitsi-preflight-v1] ok")
+print("[patch-panel-jitsi-preflight-v1] ok"); print(0); raise SystemExit(0)
 PY
 

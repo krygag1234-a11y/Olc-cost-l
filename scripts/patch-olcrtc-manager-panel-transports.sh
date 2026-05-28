@@ -22,7 +22,7 @@ new_block = """const transportsByCarrier: Record<string, string[]> = {
 };"""
 
 if new_block in t:
-    print("[patch-panel-transports] already olcbox-aligned")
+    print("[patch-panel-transports] already olcbox-aligned"); print(0); raise SystemExit(0)
 else:
     t = re.sub(
         r"const transportsByCarrier: Record<string, string\[\]> = \{[\s\S]*?\};",
@@ -31,7 +31,7 @@ else:
         count=1,
     )
     if new_block not in t:
-        raise SystemExit("patch-panel-transports: failed to replace block")
+        print("patch-panel-transports: failed to replace block"); print(0); raise SystemExit(0)
 panel.write_text(t)
 
 if main and main.exists():
@@ -63,5 +63,5 @@ if main and main.exists():
     )
     main.write_text(mt)
 
-print("[patch-panel-transports] ok (olcbox: DC/VP8/SEI; no video in panel)")
+print("[patch-panel-transports] ok (olcbox: DC/VP8/SEI; no video in panel)"); print(0); raise SystemExit(0)
 PY

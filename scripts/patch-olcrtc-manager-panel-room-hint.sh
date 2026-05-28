@@ -166,5 +166,5 @@ t = t.replace(
 )
 
 p.write_text(t)
-print("[patch-panel-room-hint] ok")
+print("[patch-panel-room-hint] ok"); print(0); raise SystemExit(0)
 PY

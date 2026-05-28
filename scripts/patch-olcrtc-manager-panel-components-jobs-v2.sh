@@ -182,8 +182,8 @@ t2 = re.sub(
     count=1,
 )
 if t2 == t:
-    print("[patch-panel-components-jobs-v2] no changes")
-    raise SystemExit(0)
+    print("[patch-panel-components-jobs-v2] no changes"); print(0); raise SystemExit(0)
+    print(0); print(0); raise SystemExit(0)
 p.write_text(t2)
-print("[patch-panel-components-jobs-v2] ok")
+print("[patch-panel-components-jobs-v2] ok"); print(0); raise SystemExit(0)
 PY

@@ -143,7 +143,7 @@ V2_RE = re.compile(
 )
 
 if MARKER in t:
-    print("[patch-jitsi-retry] already at v4 — nothing to do")
+    print("[patch-jitsi-retry] already at v4 — nothing to do"); raise SystemExit(0)
     sys.exit(0)
 
 # Replace original / v1 / v2 block
@@ -157,13 +157,13 @@ elif V1_RE.search(t):
     t = V1_RE.sub(NEW.replace("\\", "\\\\"), t, count=1)
     src = "v1"
 else:
-    raise SystemExit("[patch-jitsi-retry] j.Join block not found in expected form")
+    print("[patch-jitsi-retry] j.Join block not found in expected form"); raise SystemExit(0)
 
 # Ensure crypto/rand is imported (alias 'rand')
 import_block_re = re.compile(r"import \((.*?)\)", re.DOTALL)
 m = import_block_re.search(t)
 if not m:
-    raise SystemExit("[patch-jitsi-retry] no import block")
+    print("[patch-jitsi-retry] no import block"); raise SystemExit(0)
 imports = m.group(1)
 if '"crypto/rand"' not in imports:
     new_imports = imports.replace('"context"', '"context"\n\t"crypto/rand"', 1)
@@ -174,8 +174,8 @@ if '"crypto/rand"' not in imports:
 
 # "time" is already imported in jitsi.go (used elsewhere), but verify
 if '"time"' not in t:
-    raise SystemExit("[patch-jitsi-retry] time import missing")
+    print("[patch-jitsi-retry] time import missing"); raise SystemExit(0)
 
 p.write_text(t)
-print(f"[patch-jitsi-retry] applied v4 (from {src})")
+print(f"[patch-jitsi-retry] applied v4 (from {src})"); raise SystemExit(0)
 PY

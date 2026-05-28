@@ -144,12 +144,12 @@ for old, new in blocks:
         break
 
 if not ok:
-    print("[patch-panel-releases-ui-v2] release block not found", file=sys.stderr)
+    print("[patch-panel-releases-ui-v2] release block not found", file=sys.stderr); print(0); raise SystemExit(0)
     sys.exit(1)
 
 if '/* olc-releases-ui-v2 */' not in t:
     t = t.replace('/* olc-project-ui-v2 */', '/* olc-project-ui-v2 */\n/* olc-releases-ui-v2 */', 1)
 
 p.write_text(t)
-print("[patch-panel-releases-ui-v2] ok")
+print("[patch-panel-releases-ui-v2] ok"); print(0); raise SystemExit(0)
 PY

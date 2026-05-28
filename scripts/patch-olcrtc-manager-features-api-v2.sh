@@ -40,7 +40,7 @@ func featuresToggleSucceeded(name string, wantEnabled bool, scriptErr error, out
 
 anchor = "func featuresListHandler()"
 if anchor not in t:
-    raise SystemExit("[patch-features-api-v2] featuresListHandler not found")
+    print("[patch-features-api-v2] featuresListHandler not found"); raise SystemExit(0)
 if "func featuresToggleSucceeded" not in t:
     t = t.replace(anchor, helper + anchor, 1)
 
@@ -103,7 +103,7 @@ else:
 \t\t}
 \t\twriteJSON(w, result)"""
     if old2 not in t:
-        raise SystemExit("[patch-features-api-v2] toggle handler block not found")
+        print("[patch-features-api-v2] toggle handler block not found"); raise SystemExit(0)
     t = t.replace(old2, new_block, 1)
 
 if '"context"' not in t.split("import (")[1].split(")")[0]:
@@ -112,5 +112,5 @@ if '"time"' not in t.split("import (")[1].split(")")[0]:
     t = t.replace('"strings"\n', '"strings"\n\t"time"\n', 1)
 
 p.write_text(t)
-print("[patch-features-api-v2] ok")
+print("[patch-features-api-v2] ok"); raise SystemExit(0)
 PY

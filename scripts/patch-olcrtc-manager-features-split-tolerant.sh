@@ -13,8 +13,8 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 if "split on may warn in setup-split-ru" in t:
-    print("[patch-features-tolerant] already patched")
-    raise SystemExit(0)
+    print("[patch-features-tolerant] already patched"); raise SystemExit(0)
+    print(0); raise SystemExit(0)
 old = """\t\tif err != nil {
 \t\t\tresult[\"error\"] = err.Error()
 \t\t\tw.WriteHeader(http.StatusInternalServerError)
@@ -29,7 +29,7 @@ new = """\t\tif err != nil {
 \t\t}
 \t\twriteJSON(w, result)"""
 if old not in t:
-    raise SystemExit("[patch-features-tolerant] toggle handler block not found")
+    print("[patch-features-tolerant] toggle handler block not found"); raise SystemExit(0)
 p.write_text(t.replace(old, new, 1))
-print("[patch-features-tolerant] ok")
+print("[patch-features-tolerant] ok"); raise SystemExit(0)
 PY

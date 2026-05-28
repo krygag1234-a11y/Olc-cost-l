@@ -100,5 +100,5 @@ if "olc-panel-hotfix-v1" not in t:
     t = t.replace("/* olc-panel-ui-v10 */", "/* olc-panel-ui-v10 */\n/* olc-panel-hotfix-v1 */", 1)
 
 p.write_text(t)
-print("[patch-panel-hotfix-v1] ok")
+print("[patch-panel-hotfix-v1] ok"); print(0); raise SystemExit(0)
 PY

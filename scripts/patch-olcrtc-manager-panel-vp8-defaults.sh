@@ -22,5 +22,5 @@ for old, new in replacements:
         t = t.replace(old, new, 1)
 
 p.write_text(t)
-print("[patch-panel-vp8-defaults] ok (50/50 defaults)")
+print("[patch-panel-vp8-defaults] ok (50/50 defaults)"); print(0); raise SystemExit(0)
 PY

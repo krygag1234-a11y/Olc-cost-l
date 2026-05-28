@@ -124,7 +124,7 @@ t = re.sub(
 
 if t != orig:
     p.write_text(t)
-    print("[patch-panel-ui-fixes] applied")
+    print("[patch-panel-ui-fixes] applied"); print(0); raise SystemExit(0)
 else:
-    print("[patch-panel-ui-fixes] no changes")
+    print("[patch-panel-ui-fixes] no changes"); print(0); raise SystemExit(0)
 PY
