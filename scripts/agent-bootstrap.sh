@@ -97,17 +97,20 @@ while [[ $# -gt 0 ]]; do
       RU_VPS=1
       export OLCRTC_ENABLE_ZAPRET=1
       ENABLE_WARP=0
+      ENABLE_BRIDGES=1
       ;;
     --tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
-    --split) 
-      ENABLE_SPLIT=1; RU_VPS=1; FULL=1
-      ;;
+    --split) ENABLE_SPLIT=1; RU_VPS=1; FULL=1 ;;
     --zapret) export OLCRTC_ENABLE_ZAPRET=1; RU_VPS=1; FULL=1 ;;
-    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0; ENABLE_WARP=0 ;;
-    --with-warp|--warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; RU_VPS=0 ;;
-    --no-split) ENABLE_SPLIT=0; RU_VPS=1 ;;
+    --warp|--with-warp) ENABLE_WARP=1; RU_VPS=0; FULL=1 ;;
+    --bridges) ENABLE_BRIDGES=1; RU_VPS=1; FULL=1 ;;
+    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; ENABLE_WARP=0 ;;
+    --with-warp|--warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; FULL=0 ;;
+    --no-split) ENABLE_SPLIT=0 ;;
     --no-zapret) export OLCRTC_ENABLE_ZAPRET=0 ;;
-    --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1 ;;
+    --no-warp) ENABLE_WARP=0 ;;
+    --no-bridges) ENABLE_BRIDGES=0 ;;
+    --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1; ENABLE_BRIDGES=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
     --update) UPDATE=1 ;;
     --resume) export OLCRTC_RESUME=1 ;;
@@ -127,12 +130,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Проверка конфликтов флагов
-if [[ "${ENABLE_TOR:-1}" -eq 1 && "${ENABLE_WARP:-0}" -eq 1 ]]; then
-  echo "[install] ОШИБКА: Нельзя комбинировать Tor (--tor/--full) и WARP (--warp). Выберите что-то одно." >&2
+if [[ "${ENABLE_TOR:-0}" -eq 1 && "${ENABLE_WARP:-0}" -eq 1 ]]; then
+  echo "[install] ОШИБКА: Нельзя комбинировать Tor (--tor) и WARP (--warp). Выберите что-то одно." >&2
   exit 1
 fi
-if [[ "${ENABLE_SPLIT:-1}" -eq 1 && "${ENABLE_TOR:-1}" -eq 0 ]]; then
-  echo "[install] ОШИБКА: --split требует установки Tor (--tor или --full). Маршрутизация без Tor не имеет смысла." >&2
+if [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
+  echo "[install] ОШИБКА: --split требует установки Tor. Маршрутизация без Tor не имеет смысла." >&2
+  exit 1
+fi
+if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
+  echo "[install] ОШИБКА: --bridges требует установки Tor. Маршрутизация без Tor не имеет смысла." >&2
   exit 1
 fi
 

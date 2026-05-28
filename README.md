@@ -24,24 +24,70 @@ Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.m
 ```bash
 # Быстрая установка одной командой (устанавливает всё: Tor, Split, Zapret, мосты и исправления панели)
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
+```
 
-# Иностранный VPS (без Tor):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-tor
-# Иностранный VPS + Cloudflare WARP (proxy, без Tor):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --with-warp
+---
+
+## Примеры выборочных команд со флагами вида "ВСЕ, НО БЕЗ .."
+
+```bash
+# Иностранный VPS (без Tor и мостов):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-tor
+
 # RU VPS (без разделения маршрутов, весь трафик через Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-split
+
 # RU VPS (без Zapret DPI обхода):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-zapret
-# Только обновление:
+```
+
+---
+
+## Примеры выборочных команд со флагами вида "ТОЛЬКО С .."
+
+```bash
+# Иностранный VPS + Cloudflare WARP (proxy, без Tor):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --warp
+
+# Установить только Tor + Панель:
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --tor
+
+# Установить только Zapret + Панель:
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --zapret
+```
+
+## Команды обновления
+
+```bash
+# Обновление или доустановка:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
 
-> **Совет:** Вы можете комбинировать флаги, если хотите собрать кастомную конфигурацию. Базовый флаг `--full` означает полную установку со всеми компонентами, а флаги-исключения отключают ненужное.
-> Например, установить панель на RU VPS без разделения маршрутов и без DPI-обхода:
-> `curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-split --no-zapret`
-> 
-> **Короткая команда для обновлений:** После установки доступна утилита `olc-update`, которая позволяет быстро докачать обновления скриптов из GitHub и применить их, даже если предыдущая установка прервалась.
+> **Или короткая команда** (если репозиторий уже установлен):
+> ```bash
+> sudo olc-update
+> ```
+
+## Режимы bootstrap (установки)
+
+Флаги можно комбинировать! Например, `--bridges --zapret` установит панель только с мостами и запретом. Или `--full --no-bridges --no-zapret` установит всё, но без мостов и запрета. Неправильные конфигурации (например, `--full --split`) будут отклонены скриптом с понятной ошибкой.
+
+| Флаг | Результат |
+|------|-----------|
+| **ВСЕ, НО БЕЗ ..** | |
+| `--full` | **Полная установка:** Панель + исправления + Tor + мосты + split + zapret |
+| `--full --no-tor` | Устанавливает всё, кроме Tor и мостов |
+| `--full --no-split` | Без разделения: весь трафик идёт через Tor |
+| `--full --no-zapret` | Без DPI-обхода (zapret не устанавливается) |
+| `--full --no-bridges`| Без мостов для Tor (только прямой Tor) |
+| **ТОЛЬКО С ..** | |
+| `--warp` | Устанавливается только WARP + панель (без Tor) |
+| `--tor` | Устанавливается только Tor + панель |
+| `--split` | Устанавливается только Split + панель (требует Tor) |
+| `--zapret` | Устанавливается только Zapret + панель |
+| `--bridges`| Устанавливается только мосты для Tor + панель |
+| **ДРУГОЕ** | |
+| `--update` | Обновление: git pull, пересборка, обновление списков и служб или доустановка |
 
 Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [UPDATE.md](docs/UPDATE.md)
 
@@ -53,7 +99,10 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --purge-repo   # + удалить 
 curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить tor@default
 ```
 
-Из клонированного репо: `sudo bash /opt/Olc-cost-l/scripts/olc-purge.sh`
+> **Или короткая команда** (если репозиторий уже установлен):
+> ```bash
+> sudo bash /opt/Olc-cost-l/scripts/olc-purge.sh
+> ```
 
 ---
 
@@ -125,17 +174,24 @@ sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
 
 ## Режимы bootstrap (установки)
 
+Флаги можно комбинировать! Например, `--bridges --zapret` установит панель только с мостами и запретом. Или `--full --no-bridges --no-zapret` установит всё, но без мостов и запрета. Неправильные конфигурации будут отклонены скриптом с понятной ошибкой.
+
 | Флаг | Результат |
 |------|-----------|
+| **ВСЕ, НО БЕЗ ..** | |
 | `--full` | **Полная установка:** Панель + исправления + Tor + мосты + split + zapret |
-| `--no-tor`\|`--foreign` | Иностранный VPS: Устанавливает всё, кроме Tor и мостов |
-| `--with-warp`\|`--warp` | Зарубежный VPS с WARP proxy: устанавливает WARP вместо Tor |
-| `--no-split` | Без разделения: весь трафик идёт через Tor (или Warp) |
-| `--no-zapret` | Без DPI-обхода (zapret не устанавливается) |
-| `--tor` | Выборочно: только Панель + исправления + Tor |
-| `--split` | Выборочно: только Панель + исправления + Split (требует Tor) |
-| `--zapret` | Выборочно: только Панель + исправления + Zapret |
-| `--update` | Обновление: git pull, пересборка, обновление списков и служб |
+| `--full --no-tor` | Иностранный VPS: Устанавливает всё, кроме Tor и мостов |
+| `--full --no-split` | Без разделения: весь трафик идёт через Tor |
+| `--full --no-zapret` | Без DPI-обхода (zapret не устанавливается) |
+| `--full --no-bridges`| Без мостов для Tor (только прямой Tor) |
+| **ТОЛЬКО С ..** | |
+| `--warp` | Устанавливается только WARP + панель (без Tor) |
+| `--tor` | Устанавливается только Tor + панель |
+| `--split` | Устанавливается только Split + панель (требует Tor) |
+| `--zapret` | Устанавливается только Zapret + панель |
+| `--bridges`| Устанавливается только мосты для Tor + панель |
+| **ДРУГОЕ** | |
+| `--update` | Обновление: git pull, пересборка, обновление списков и служб или доустановка |
 
 В `config.json`: **`link: tor`** (по умолчанию) или **`link: direct`** (без SOCKS для этой локации).
 
