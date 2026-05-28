@@ -212,11 +212,15 @@ profile_apply_env() {
 profile_step_enabled() {
   local step="$1"
   case "$step" in
-    packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel|warp)
+    packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel)
       return 0
       ;;
     tor|bridges)
       [[ "${ENABLE_TOR:-1}" -eq 1 ]]
+      return
+      ;;
+    warp)
+      [[ "${ENABLE_WARP:-0}" -eq 1 ]]
       return
       ;;
     split)
