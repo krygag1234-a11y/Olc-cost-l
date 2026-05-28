@@ -13,6 +13,8 @@
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
+**Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
+
 Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.md](docs/CLIENT.md)
 
 ---
@@ -126,10 +128,10 @@ sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
 | Флаг | Результат |
 |------|-----------|
 | `--full` | **Полная установка:** Панель + исправления + Tor + мосты + split + zapret |
-| `--full --no-tor` | Иностранный VPS: Устанавливает всё, кроме Tor и мостов |
-| `--full --with-warp` | Зарубежный VPS с WARP proxy: устанавливает WARP вместо Tor |
-| `--full --no-split` | Без разделения: весь трафик идёт через Tor |
-| `--full --no-zapret` | Без DPI-обхода (zapret не устанавливается) |
+| `--no-tor`\|`--foreign` | Иностранный VPS: Устанавливает всё, кроме Tor и мостов |
+| `--with-warp`\|`--warp` | Зарубежный VPS с WARP proxy: устанавливает WARP вместо Tor |
+| `--no-split` | Без разделения: весь трафик идёт через Tor (или Warp) |
+| `--no-zapret` | Без DPI-обхода (zapret не устанавливается) |
 | `--tor` | Выборочно: только Панель + исправления + Tor |
 | `--split` | Выборочно: только Панель + исправления + Split (требует Tor) |
 | `--zapret` | Выборочно: только Панель + исправления + Zapret |
