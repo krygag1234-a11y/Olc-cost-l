@@ -88,12 +88,93 @@ olc_disk_check_critical() {
   return 0
 }
 
+olc_disk_interactive_cleanup() {
+  # Проверяем, есть ли терминал для ввода
+  if ! [ -t 0 ] && ! [ -c /dev/tty ]; then
+    return 1
+  fi
+
+  echo "" >&2
+  echo "Хотите сделать анализ содержимого диска, чтобы прямо тут выяснить есть ли на диски только нужные или не нужные файлы? (мы не собираем никаких данных, все эти анализы хранятся на вашем устройстве)" >&2
+  echo "- Да" >&2
+  echo "- Нет, я сам решу эту проблему" >&2
+
+  local answer
+  read -r -p "Выберите (Да/Нет): " answer </dev/tty || return 1
+
+  if [[ "${answer,,}" == "1" || "${answer,,}" == "да" || "${answer,,}" == "-да" || "${answer,,}" == "- да" ]]; then
+    echo "Выполняем анализ..." >&2
+    
+    local backups_size=0 cache_go=0 cache_npm=0 apt_cache=0 logs_gz=0
+    [[ -d /var/backups/olc-vps ]] && backups_size=$(du -sm /var/backups/olc-vps 2>/dev/null | awk '{print $1}')
+    [[ -d /root/.cache/go-build ]] && cache_go=$(du -sm /root/.cache/go-build 2>/dev/null | awk '{print $1}')
+    [[ -d /root/.npm/_cacache ]] && cache_npm=$(du -sm /root/.npm/_cacache 2>/dev/null | awk '{print $1}')
+    [[ -d /var/cache/apt/archives ]] && apt_cache=$(du -sm /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
+    logs_gz=$(find /var/log -type f -name '*.gz' -exec du -cm {} + 2>/dev/null | awk '/total$/ {print $1}')
+    
+    echo "" >&2
+    echo "Найдены следующие временные/старые файлы:" >&2
+    [[ -n "$backups_size" && "$backups_size" -gt 0 ]] && echo " - Старые бэкапы Olc-cost-l (/var/backups/olc-vps): ~${backups_size} МБ" >&2
+    [[ -n "$cache_go" && "$cache_go" -gt 0 ]] && echo " - Кэш сборки Go (/root/.cache/go-build): ~${cache_go} МБ" >&2
+    [[ -n "$cache_npm" && "$cache_npm" -gt 0 ]] && echo " - Кэш npm (/root/.npm/_cacache): ~${cache_npm} МБ" >&2
+    [[ -n "$apt_cache" && "$apt_cache" -gt 0 ]] && echo " - Кэш пакетов apt: ~${apt_cache} МБ" >&2
+    [[ -n "$logs_gz" && "$logs_gz" -gt 0 ]] && echo " - Старые сжатые логи (/var/log/*.gz): ~${logs_gz} МБ" >&2
+    
+    local total_junk=$(( ${backups_size:-0} + ${cache_go:-0} + ${cache_npm:-0} + ${apt_cache:-0} + ${logs_gz:-0} ))
+    if [[ "$total_junk" -eq 0 ]]; then
+      echo "Мусорных файлов не найдено (или они занимают < 1 МБ)." >&2
+      return 1
+    fi
+
+    echo "" >&2
+    echo "Хотите очистить диск прямо от сюда автоматически:" >&2
+    echo "- Да, на диске не нужные файлы" >&2
+    echo "- Нет, я сам решу эту проблему" >&2
+
+    local ans2
+    read -r -p "Выберите (Да/Нет): " ans2 </dev/tty || return 1
+    if [[ "${ans2,,}" == "1" || "${ans2,,}" == "да" || "${ans2,,}" == "- да" || "${ans2,,}" == "-да" ]]; then
+      echo "Очистка..." >&2
+      [[ -d /var/backups/olc-vps ]] && find /var/backups/olc-vps -type f -name '*.tar.gz' -mtime +3 -delete 2>/dev/null
+      rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null
+      apt-get clean 2>/dev/null || true
+      find /var/log -type f -name '*.gz' -delete 2>/dev/null
+      echo "Очистка завершена." >&2
+      return 0
+    fi
+  fi
+  return 1
+}
+
 # Главная preflight-функция для entrypoint-скриптов.
 olc_preflight_disk_space() {
   [[ "${OLC_DISK_CHECK_DISABLE:-0}" == "1" ]] && return 0
   command -v df >/dev/null 2>&1 || return 0
 
   local reason="${1:-скрипт Olc-cost-l}"
+  local res
+  
+  _olc_preflight_disk_space_internal "$reason"
+  res=$?
+  
+  if [[ "$res" -ne 0 ]]; then
+    # Если мало места (failed=1) или warning (warned=2)
+    if olc_disk_interactive_cleanup; then
+      echo "[olc-disk] Повторная проверка диска после очистки..." >&2
+      _olc_preflight_disk_space_internal "$reason"
+      res=$?
+      # Если после очистки был failed, а стал warned (2) или ok (0), считаем успехом или пускаем дальше
+      [[ "$res" -eq 2 ]] && return 0
+      return "$res"
+    fi
+  fi
+  
+  [[ "$res" -eq 2 ]] && return 0
+  return "$res"
+}
+
+_olc_preflight_disk_space_internal() {
+  local reason="$1"
   local failed=0
   local warned=0
 
@@ -113,13 +194,14 @@ olc_preflight_disk_space() {
     olc_disk_print_report_ru "$reason"
     if [[ "$OLC_DISK_CHECK_WARN_ONLY" == "1" ]]; then
       echo "[olc-disk] предупреждение (OLC_DISK_CHECK_WARN_ONLY=1), продолжаем…" >&2
-      return 0
+      return 2
     fi
     return 1
   fi
 
   if [[ "$warned" -eq 1 ]]; then
     echo "[olc-disk] внимание: на диске / осталось мало места ($(olc_disk_use_pct /)% занято, ~$(olc_disk_available_mb /) МБ свободно). Рекомендуется очистить до продолжения." >&2
+    return 2
   fi
   return 0
 }

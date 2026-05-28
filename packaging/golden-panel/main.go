@@ -374,6 +374,7 @@ func run() error {
 	handler.Handle("/api/auth/me", http.HandlerFunc(authMeHandler(configPath)))
 	handler.Handle("/api/auth/password", adminAuth(http.HandlerFunc(changePasswordHandler(configPath))))
 	handler.Handle("/api/settings", adminAuth(http.HandlerFunc(settingsHandler(configPath, supervisor, port != 0))))
+	handler.Handle("/api/panel/lang", adminAuth(http.HandlerFunc(panelLangHandler)))
 	handler.Handle("/api/project/status", adminAuth(http.HandlerFunc(projectStatusHandler)))
 	handler.Handle("/api/reload", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1155,6 +1156,38 @@ type updateSettingsRequest struct {
 	Port             int    `json:"port"`
 	SubscriptionPath string `json:"subscription_path"`
 	Refresh          string `json:"refresh"`
+}
+
+func panelLangHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		lang := strings.TrimSpace(readPanelEnvMap()["OLC_PANEL_LANG"])
+		if lang != "en" {
+			lang = "ru"
+		}
+		writeJSON(w, map[string]string{"lang": lang})
+	case http.MethodPut:
+		var req struct {
+			Lang string `json:"lang"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		lang := strings.TrimSpace(req.Lang)
+		if lang != "en" && lang != "ru" {
+			http.Error(w, "lang must be ru or en", http.StatusBadRequest)
+			return
+		}
+		if err := setPanelEnvKey("OLC_PANEL_LANG", lang); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]string{"lang": lang, "status": "ok"})
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func settingsHandler(configPath string, supervisor *Supervisor, portOverride bool) http.HandlerFunc {
@@ -3473,7 +3506,7 @@ func isSupported(carrier, transport string) bool {
 			"datachannel":  true,
 			"vp8channel":   true,
 			"seichannel":   true,
-			"videochannel": true,
+			"videochannel": false,
 		},
 	}
 	return matrix[carrier][transport]
@@ -4773,6 +4806,7 @@ func setPanelEnvKey(key, val string) error {
 		"OLCRTC_DEFAULT_CARRIER":  true,
 		"OLCRTC_SOCKS_PROXY":  true,
 		"OLCRTC_WARP_PROXY":  true,
+		"OLC_PANEL_LANG":          true,
 	}
 	if !allowed[key] {
 		return fmt.Errorf("key %q not allowed", key)
@@ -4971,23 +5005,26 @@ func runBridgePoolRefresh(types string) {
 		repo := olcRepoRoot()
 		script := filepath.Join(repo, "scripts/tor-bridge-pool.sh")
 		if strings.Contains(strings.ToLower(types), "webtunnel") {
-			wt := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
-			if _, err := os.Stat(wt); err == nil {
-				appendBridgePoolLog("[bridge-pool] installing webtunnel-client (mirror-cry first)...")
-				wtCmd := exec.Command("bash", wt)
-				wtCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
-				out, wtErr := wtCmd.CombinedOutput()
-				if len(out) > 0 {
-					appendBridgePoolLog(string(out))
-				}
-				if wtErr != nil {
-					appendBridgePoolLog("[bridge-pool] webtunnel install error: " + wtErr.Error())
+			if !fileExists("/usr/bin/webtunnel-client") && !fileExists("/usr/local/bin/webtunnel-client") {
+				wt := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
+				if _, err := os.Stat(wt); err == nil {
+					appendBridgePoolLog("[bridge-pool] installing webtunnel-client (mirror-cry first)...")
+					wtCmd := exec.Command("bash", wt)
+					wtCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+					out, wtErr := wtCmd.CombinedOutput()
+					if len(out) > 0 {
+						appendBridgePoolLog(string(out))
+					}
+					if wtErr != nil {
+						appendBridgePoolLog("[bridge-pool] webtunnel install error: " + wtErr.Error())
+					}
 				}
 			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "bash", script, "--fetch", "--types", types)
+		// Full pipeline: fetch + probe + apply → /etc/tor/bridges.conf (not --fetch-only).
+		cmd := exec.CommandContext(ctx, "bash", script, "--types", types)
 		cmd.Env = append(os.Environ(),
 			"PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin",
 			"BRIDGE_TYPES="+types,
@@ -5642,6 +5679,17 @@ func componentSettingsHandler() http.HandlerFunc {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			if name == "bridges" {
+				if action, ok := body["action"].(string); ok && action == "refresh_pool" {
+					types := "obfs4,webtunnel"
+					if v, ok := body["types"].(string); ok && strings.TrimSpace(v) != "" {
+						types = strings.TrimSpace(v)
+					}
+					runBridgePoolRefresh(types)
+					writeJSON(w, map[string]any{"status": "ok", "pool_job": readBridgePoolStatus()})
+					return
+				}
 			}
 			if err := componentSettingsPut(name, body); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)

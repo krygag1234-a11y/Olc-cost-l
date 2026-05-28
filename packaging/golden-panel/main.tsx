@@ -23,7 +23,7 @@ const JOB_MSG_TTL_MS = 45_000;
 /* olc-jitsi-preflight-ui-v2 */
 /* olc-jitsi-preflight-ui-v3 */
 /* olc-panel-ui-v10 */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -51,6 +51,7 @@ import "./index.css";
 
 const OLC_PANEL_LANG_KEY = "olc-panel-lang-v1";
 type PanelLang = "ru" | "en";
+
 const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
   ru: {
     settings: "Настройки",
@@ -63,9 +64,188 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     path: "Путь",
     refreshInterval: "Интервал обновления",
     adminPassword: "Пароль администратора",
+    currentPassword: "Текущий пароль",
+    newPassword: "Новый пароль",
+    repeatPassword: "Повтор нового пароля",
     close: "Закрыть",
+    save: "Сохранить",
     saveSettings: "Сохранить настройки",
     changePassword: "Сменить пароль",
+    refresh: "Обновить",
+    logout: "Выйти",
+    loading: "Загрузка…",
+    clients: "Клиенты",
+    instances: "Инстансы",
+    profile: "Профиль",
+    createClient: "Создать клиента",
+    create: "Создать",
+    edit: "Изменить",
+    delete: "Удалить",
+    logs: "Логи",
+    logsClient: "Логи {id}",
+    loadingLogs: "Загрузка логов…",
+    logsUnavailable: "Логи недоступны",
+    noLogsYet: "Логов пока нет",
+    networkBypass: "Сеть и обход",
+    networkHint: "Вкл/выкл zapret · tor · split · webtunnel · warp. Состояние: /etc/olcrtc-manager/features.env.",
+    expand: "Развернуть",
+    collapse: "Свернуть",
+    enable: "Включить",
+    disable: "Выключить",
+    notifications: "Уведомления",
+    notificationSettings: "Настройки уведомлений",
+    autodetect: "Автодетектор",
+    autodetectSettings: "Настройки уведомлений автодетектора",
+    autodetectOpen: "Настройки автодетектора →",
+    noNotifications: "Нет активных предупреждений",
+    markRead: "Прочитано",
+    errors: "Ошибки",
+    noErrors: "Критичных ошибок не найдено",
+    locations: "Локации",
+    addLocation: "Добавить локацию",
+    login: "Вход в панель",
+    setup: "Первичная настройка",
+    loginLabel: "Логин",
+    password: "Пароль",
+    signIn: "Войти",
+    savePassword: "Сохранить пароль",
+    settingsTitle: "Настройки: {name}",
+    instanceDefaultsBtn: "Настройки инстансов по умолчанию…",
+    olcrtcCore: "OlcRTC (ядро)",
+    portOverride: "Порт переопределён аргументом запуска менеджера.",
+    savedServer: "Сохранено на сервере",
+    updateAvailable: "Доступно обновление с GitHub",
+    open: "Открыть",
+    userLabel: "Пользователь",
+    cancel: "Отмена",
+    back: "Назад",
+    saved: "Сохранено",
+    updated: "Обновлено",
+    copy: "Копировать",
+    empty: "(пусто)",
+    logsTitle: "Логи: {name}",
+    logsVerbose: "Показать подробно (time/stream)",
+    logsUnavailableDetail: "Логи недоступны: {error}",
+    logStatus: "Статус: {status}",
+    logPid: "PID: {pid}",
+    logStarted: "Запуск: {at}",
+    logExited: "Выход: {at}",
+    logExitError: "Ошибка выхода: {err}",
+    logsCopied: "Логи скопированы",
+    linkCopied: "Ссылка для {id} скопирована",
+    subCopied: "Subscription для {id} скопирован",
+    copyUri: "Копировать URI",
+    copySub: "Копировать Sub",
+    reloadPage: "Обновить страницу",
+    panelErrorTitle: "Ошибка панели",
+    panelErrorHint: "Панель не смогла отобразить данные (возможно, некорректная локация в config). Обновите страницу; если не помогло — удалите проблемную локацию через CLI или исправьте config.json.",
+    updateFromGithub: "Обновить с GitHub",
+    updateStarting: "Запуск…",
+    updateStuck: "Прошлое обновление зависло — нажмите «Обновить с GitHub» ещё раз.",
+    updateInProgress: "Обновление выполняется… не закрывайте вкладку до перезапуска панели.",
+    checkUpdate: "Проверить",
+    checkingUpdate: "Проверка…",
+    updateAvailableDot: "● Доступно обновление",
+    versionCurrent: "● Актуальная версия",
+    updateConfirm: "Обновить Olc-cost-l с GitHub? Панель перезапустится (~2–10 мин).",
+    componentsVps: "Компоненты VPS",
+    componentsDrawerHint: "Установка и удаление компонентов",
+    componentInstalled: "установлен",
+    componentNotInstalled: "не установлен",
+    componentOn: "вкл",
+    componentOff: "выкл",
+    componentLog: "Лог",
+    jobLogTitle: "Лог задачи: {id}",
+    installing: "Устанавливается…",
+    uninstalling: "Удаляется…",
+    installBtn: "Установить",
+    uninstallBtn: "Удалить",
+    jobInstallingStatus: "Устанавливается…",
+    jobUninstallingStatus: "Удаляется…",
+    jobDone: "Готово",
+    jobFailed: "Ошибка: {error}",
+    jobStatusUnknown: "Статус: {status}",
+    jobStarted: "Задача {id} запущена",
+    jobInstalled: "Установлено",
+    jobUninstalled: "Удалено",
+    jobErrorSeeLog: "Ошибка задачи — см. лог",
+    confirmInstall: "Установить {name}? Может занять несколько минут.",
+    confirmUninstall: "Удалить {name}? Может занять несколько минут.",
+    profileLabel: "Профиль: {id}",
+    subBtn: "Sub",
+    restart: "Restart",
+    olcBox: "OlcBox",
+    qr: "QR",
+    defaultLocationName: "Default",
+    poolLogTitle: "Лог обновления пула",
+    waitingLogLines: "Ожидание строк лога…",
+    legacyTransport: "устар.",
+    legacyTransportHint:
+      "Транспорт videochannel снят с поддержки для новых локаций. Инстанс продолжит работать; при смене transport вернуть videochannel нельзя.",
+    tableStatus: "Статус",
+    locationActions: "Действия локации",
+    yes: "да",
+    no: "нет",
+    zapretAutoSync: "Еженедельный auto-sync exclude списков",
+    zapretExcludeDomains: "Домены-исключения (direct, по строке)",
+    zapretForceDomains: "Домены только через zapret (по строке)",
+    zapretNfqwsConfig: "Ядро nfqws (config)",
+    zapretNfqwsWarn: "Внимание: это низкоуровневый конфиг zapret/nfqws. Если не уверены, лучше не менять.",
+    zapretStrategyLine: "Стратегия: {strategy} · nfqws: {nfqws} · hostlist: {hostlist}",
+    zapretCommunityLine: "Community lists: {state}",
+    communityOn: "включены",
+    communityOff: "выключены",
+    zapretStrategySelect: "Выбор стратегии Zapret",
+    zapretActiveStrategy: "Активная стратегия: {name}",
+    zapretAfterSave: "После сохранения: olc-feature zapret reload или olc-update",
+    torSocksPort: "SOCKS порт: {port}",
+    torAfterSave: "После сохранения применяется configure-tor-exit (может потребоваться перезапуск инстансов).",
+    torTestLine: "TestSocks: {test} · SafeSocks: {safe} · DNS: {dns}",
+    torBridgesLine: "webtunnel-client: {wt} · bridges.conf подключён: {bridges}",
+    splitCustomDirect: "Доп. direct-домены (по строке)",
+    splitPanelHosts: "Список panel/carrier hosts",
+    splitForceTor: "Force-Tor домены",
+    splitBlockedTor: "RU-blocked → Tor",
+    splitCidrOnly: "Только CIDR (без CDN /32) — меньше 404 на nginx edge",
+    splitRuDirectLine: "RU-direct: {count} · файл: {file}",
+    splitRefreshLists: "Обновить списки split (фон)",
+    splitRefreshStarted: "Обновление списков запущено в фоне",
+    olcrtcJitsiTls: "OLCRTC_JITSI_INSECURE_TLS (самоподписанные сертификаты Jitsi)",
+    olcrtcPublicUrl: "Публичный URL панели (OLCRTC_PUBLIC_URL)",
+    olcrtcDefaultCarrier: "Default carrier",
+    olcrtcDefaultTransport: "Default transport",
+    olcrtcDefaultLink: "Default link",
+    olcrtcNotSet: "(не задан)",
+    olcrtcAfterSave: "После сохранения — olc-update или перезапуск инстансов.",
+    olcrtcBranchPin: "Ветка: fix/all · pin:",
+    warpTorExclusive: "WARP и Tor взаимоисключают. На RU VPS обычно Tor; на foreign — профиль foreign-warp.",
+    warpProxy: "WARP proxy (OLCRTC_WARP_PROXY)",
+    warpAutoconnect: "Автоподключение WARP при включении компонента",
+    warpPlus: "Использовать WARP+ (нужен license key)",
+    warpLicense: "License key (optional)",
+    warpStatusLine: "Установлен: {installed} · подключён: {connected}{profile}",
+    warpSafety: "Безопасность: full-tunnel/TUN режим принудительно заблокирован в backend и install-скрипте, чтобы не сломать SSH.",
+    warpInProfile: " · в профиле VPS",
+    profileAddedSave: "Профиль добавлен — нажмите «Сохранить»",
+    bridgePoolUpdate: "обновление пула",
+    bridgePoolIdle: "ожидание",
+    bridgePoolRunning: "идёт",
+    bridgePoolDone: "готово",
+    bridgePoolError: "ошибка",
+    bridgePoolStarting: "запуск…",
+    bridgeActiveProfile: "Активный профиль",
+    bridgeSystemProfile: "Оригинальный (системный)",
+    bridgeOriginalTitle: "Оригинальный профиль",
+    bridgeOriginalHint: "Нельзя удалить. Обновляется из встроенных источников Olc-cost-l.",
+    bridgeTypes: "Типы мостов",
+    bridgeAutoUpdate: "Автообновление (cron)",
+    bridgeRefreshNow: "Обновить сейчас",
+    bridgeCustomProfiles: "Свои профили",
+    bridgeAddCustom: "Добавить свой профиль",
+    bridgeManual: "Вручную (bridges.conf)",
+    bridgeFromUrl: "Из URL",
+    bridgeAddLine: "Добавить одну строку в /etc/tor/bridges.conf",
+
   },
   en: {
     settings: "Settings",
@@ -78,9 +258,188 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     path: "Path",
     refreshInterval: "Refresh interval",
     adminPassword: "Administrator password",
+    currentPassword: "Current password",
+    newPassword: "New password",
+    repeatPassword: "Repeat new password",
     close: "Close",
+    save: "Save",
     saveSettings: "Save settings",
     changePassword: "Change password",
+    refresh: "Refresh",
+    logout: "Log out",
+    loading: "Loading…",
+    clients: "Clients",
+    instances: "Instances",
+    profile: "Profile",
+    createClient: "Create client",
+    create: "Create",
+    edit: "Edit",
+    delete: "Delete",
+    logs: "Logs",
+    logsClient: "Logs {id}",
+    loadingLogs: "Loading logs…",
+    logsUnavailable: "Logs unavailable",
+    noLogsYet: "No logs yet",
+    networkBypass: "Network & bypass",
+    networkHint: "Toggle zapret · tor · split · webtunnel · warp. State: /etc/olcrtc-manager/features.env.",
+    expand: "Expand",
+    collapse: "Collapse",
+    enable: "Enable",
+    disable: "Disable",
+    notifications: "Notifications",
+    notificationSettings: "Notification settings",
+    autodetect: "Autodetector",
+    autodetectSettings: "Autodetector notification settings",
+    autodetectOpen: "Autodetector settings →",
+    noNotifications: "No active warnings",
+    markRead: "Mark read",
+    errors: "Errors",
+    noErrors: "No critical errors found",
+    locations: "Locations",
+    addLocation: "Add location",
+    login: "Sign in",
+    setup: "Initial setup",
+    loginLabel: "Username",
+    password: "Password",
+    signIn: "Sign in",
+    savePassword: "Save password",
+    settingsTitle: "Settings: {name}",
+    instanceDefaultsBtn: "Default instance settings…",
+    olcrtcCore: "OlcRTC (core)",
+    portOverride: "Port is overridden by manager launch argument.",
+    savedServer: "Saved on server",
+    updateAvailable: "Update available from GitHub",
+    open: "Open",
+    userLabel: "User",
+    cancel: "Cancel",
+    back: "Back",
+    saved: "Saved",
+    updated: "Refreshed",
+    copy: "Copy",
+    empty: "(empty)",
+    logsTitle: "Logs: {name}",
+    logsVerbose: "Verbose (time/stream)",
+    logsUnavailableDetail: "Logs unavailable: {error}",
+    logStatus: "Status: {status}",
+    logPid: "PID: {pid}",
+    logStarted: "Started: {at}",
+    logExited: "Exited: {at}",
+    logExitError: "Exit error: {err}",
+    logsCopied: "Logs copied",
+    linkCopied: "Link for {id} copied",
+    subCopied: "Subscription for {id} copied",
+    copyUri: "Copy URI",
+    copySub: "Copy Sub",
+    reloadPage: "Reload page",
+    panelErrorTitle: "Panel error",
+    panelErrorHint: "The panel could not render data (possibly invalid location in config). Reload the page; if that fails, remove the bad location via CLI or fix config.json.",
+    updateFromGithub: "Update from GitHub",
+    updateStarting: "Starting…",
+    updateStuck: "Previous update stalled — click Update from GitHub again.",
+    updateInProgress: "Update in progress… do not close the tab until the panel restarts.",
+    checkUpdate: "Check",
+    checkingUpdate: "Checking…",
+    updateAvailableDot: "● Update available",
+    versionCurrent: "● Up to date",
+    updateConfirm: "Update Olc-cost-l from GitHub? The panel will restart (~2–10 min).",
+    componentsVps: "VPS components",
+    componentsDrawerHint: "Install and remove components",
+    componentInstalled: "installed",
+    componentNotInstalled: "not installed",
+    componentOn: "on",
+    componentOff: "off",
+    componentLog: "Log",
+    jobLogTitle: "Job log: {id}",
+    installing: "Installing…",
+    uninstalling: "Removing…",
+    installBtn: "Install",
+    uninstallBtn: "Remove",
+    jobInstallingStatus: "Installing…",
+    jobUninstallingStatus: "Removing…",
+    jobDone: "Done",
+    jobFailed: "Error: {error}",
+    jobStatusUnknown: "Status: {status}",
+    jobStarted: "Job {id} started",
+    jobInstalled: "Installed",
+    jobUninstalled: "Removed",
+    jobErrorSeeLog: "Job failed — see log",
+    confirmInstall: "Install {name}? This may take several minutes.",
+    confirmUninstall: "Remove {name}? This may take several minutes.",
+    profileLabel: "Profile: {id}",
+    subBtn: "Sub",
+    restart: "Restart",
+    olcBox: "OlcBox",
+    qr: "QR",
+    defaultLocationName: "Default",
+    poolLogTitle: "Bridge pool update log",
+    waitingLogLines: "Waiting for log lines…",
+    legacyTransport: "legacy",
+    legacyTransportHint:
+      "videochannel is deprecated for new locations. Existing instances keep working; you cannot switch back to videochannel after changing transport.",
+    tableStatus: "Status",
+    locationActions: "Location actions",
+    yes: "yes",
+    no: "no",
+    zapretAutoSync: "Weekly auto-sync of exclude lists",
+    zapretExcludeDomains: "Exclude domains (direct, one per line)",
+    zapretForceDomains: "Zapret-only domains (one per line)",
+    zapretNfqwsConfig: "nfqws core (config)",
+    zapretNfqwsWarn: "Warning: low-level zapret/nfqws config. Do not edit unless you know what you are doing.",
+    zapretStrategyLine: "Strategy: {strategy} · nfqws: {nfqws} · hostlist: {hostlist}",
+    zapretCommunityLine: "Community lists: {state}",
+    communityOn: "enabled",
+    communityOff: "disabled",
+    zapretStrategySelect: "Zapret strategy",
+    zapretActiveStrategy: "Active strategy: {name}",
+    zapretAfterSave: "After save: olc-feature zapret reload or olc-update",
+    torSocksPort: "SOCKS port: {port}",
+    torAfterSave: "After save, configure-tor-exit runs (instance restart may be required).",
+    torTestLine: "TestSocks: {test} · SafeSocks: {safe} · DNS: {dns}",
+    torBridgesLine: "webtunnel-client: {wt} · bridges.conf: {bridges}",
+    splitCustomDirect: "Extra direct domains (one per line)",
+    splitPanelHosts: "Panel/carrier hosts list",
+    splitForceTor: "Force-Tor domains",
+    splitBlockedTor: "RU-blocked → Tor",
+    splitCidrOnly: "CIDR only (no CDN /32) — fewer nginx edge 404s",
+    splitRuDirectLine: "RU-direct: {count} · file: {file}",
+    splitRefreshLists: "Refresh split lists (background)",
+    splitRefreshStarted: "List refresh started in background",
+    olcrtcJitsiTls: "OLCRTC_JITSI_INSECURE_TLS (self-signed Jitsi certs)",
+    olcrtcPublicUrl: "Public panel URL (OLCRTC_PUBLIC_URL)",
+    olcrtcDefaultCarrier: "Default carrier",
+    olcrtcDefaultTransport: "Default transport",
+    olcrtcDefaultLink: "Default link",
+    olcrtcNotSet: "(not set)",
+    olcrtcAfterSave: "After save — olc-update or restart instances.",
+    olcrtcBranchPin: "Branch: fix/all · pin:",
+    warpTorExclusive: "WARP and Tor are mutually exclusive. RU VPS usually Tor; foreign — foreign-warp profile.",
+    warpProxy: "WARP proxy (OLCRTC_WARP_PROXY)",
+    warpAutoconnect: "Auto-connect WARP when component is enabled",
+    warpPlus: "Use WARP+ (license key required)",
+    warpLicense: "License key (optional)",
+    warpStatusLine: "Installed: {installed} · connected: {connected}{profile}",
+    warpSafety: "Safety: full-tunnel/TUN is blocked in backend and install scripts to avoid breaking SSH.",
+    warpInProfile: " · in VPS profile",
+    profileAddedSave: "Profile added — click Save",
+    bridgePoolUpdate: "pool update",
+    bridgePoolIdle: "idle",
+    bridgePoolRunning: "running",
+    bridgePoolDone: "done",
+    bridgePoolError: "error",
+    bridgePoolStarting: "starting…",
+    bridgeActiveProfile: "Active profile",
+    bridgeSystemProfile: "System (original)",
+    bridgeOriginalTitle: "Original profile",
+    bridgeOriginalHint: "Cannot be removed. Updated from built-in Olc-cost-l sources.",
+    bridgeTypes: "Bridge types",
+    bridgeAutoUpdate: "Auto-update (cron)",
+    bridgeRefreshNow: "Refresh now",
+    bridgeCustomProfiles: "Custom profiles",
+    bridgeAddCustom: "Add custom profile",
+    bridgeManual: "Manual (bridges.conf)",
+    bridgeFromUrl: "From URL",
+    bridgeAddLine: "Add one line to /etc/tor/bridges.conf",
+
   },
 };
 
@@ -94,9 +453,83 @@ function readPanelLang(): PanelLang {
   return "ru";
 }
 
-function panelT(key: string, lang: PanelLang): string {
-  return PANEL_I18N[lang][key] ?? PANEL_I18N.ru[key] ?? key;
+function panelT(key: string, lang: PanelLang, vars?: Record<string, string>): string {
+  let s = PANEL_I18N[lang][key] ?? PANEL_I18N.ru[key] ?? key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.split(`{${k}}`).join(v);
+    }
+  }
+  return s;
 }
+
+type PanelLangContextValue = {
+  lang: PanelLang;
+  setLang: (lang: PanelLang) => void;
+  t: (key: string, vars?: Record<string, string>) => string;
+};
+
+const PanelLangContext = React.createContext<PanelLangContextValue | null>(null);
+
+function PanelLangProvider({ children }: { children: React.ReactNode }) {
+  const [lang, setLangState] = useState<PanelLang>(() => readPanelLang());
+  const setLang = useCallback((next: PanelLang) => {
+    setLangState(next);
+    try {
+      localStorage.setItem(OLC_PANEL_LANG_KEY, next);
+    } catch {
+      /* ignore */
+    }
+    void fetch("/api/panel/lang", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lang: next }),
+    }).catch(() => {
+      /* ignore */
+    });
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/panel/lang", { cache: "no-store" });
+        if (!res.ok) return;
+        const body = (await res.json()) as { lang?: string };
+        const server = body.lang === "en" ? "en" : body.lang === "ru" ? "ru" : null;
+        if (!cancelled && server) {
+          setLangState(server);
+          try {
+            localStorage.setItem(OLC_PANEL_LANG_KEY, server);
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const t = useCallback((key: string, vars?: Record<string, string>) => panelT(key, lang, vars), [lang]);
+  const value = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
+  return <PanelLangContext.Provider value={value}>{children}</PanelLangContext.Provider>;
+}
+
+function usePanelLang(): PanelLangContextValue {
+  const ctx = useContext(PanelLangContext);
+  if (!ctx) {
+    const lang = readPanelLang();
+    return {
+      lang,
+      setLang: () => undefined,
+      t: (key: string, vars?: Record<string, string>) => panelT(key, lang, vars),
+    };
+  }
+  return ctx;
+}
+
 
 type LocationState = {
   name: string;
@@ -229,6 +662,9 @@ const transportsByCarrier: Record<string, string[]> = {
   jazz: ["datachannel"],
 };
 
+/** Снят с поддержки для новых локаций; старые config не ломаем. */
+const LEGACY_TRANSPORTS = new Set(["videochannel"]);
+
 const defaultLocationForm: ClientLocationForm = {
   name: "",
   room_id: "",
@@ -265,6 +701,18 @@ const payloadFields: Record<string, Array<{ key: string; label: string; defaultV
     { key: "batch", label: "Batch", defaultValue: "50" },
     { key: "frag", label: "Fragment bytes", defaultValue: "900" },
     { key: "ack-ms", label: "ACK timeout ms", defaultValue: "2000" },
+  ],
+  videochannel: [
+    { key: "video-w", label: "Width", defaultValue: "640" },
+    { key: "video-h", label: "Height", defaultValue: "480" },
+    { key: "video-fps", label: "FPS", defaultValue: "30" },
+    { key: "video-bitrate", label: "Bitrate", defaultValue: "" },
+    { key: "video-hw", label: "HW encode", defaultValue: "" },
+    { key: "video-codec", label: "Codec", defaultValue: "" },
+    { key: "video-qr-size", label: "QR size", defaultValue: "" },
+    { key: "video-qr-recovery", label: "QR recovery", defaultValue: "" },
+    { key: "video-tile-module", label: "Tile module", defaultValue: "" },
+    { key: "video-tile-rs", label: "Tile RS", defaultValue: "" },
   ],
 };
 
@@ -367,7 +815,7 @@ async function saveInstanceDefaults(cfg: InstanceDefaultsV1): Promise<void> {
 function mergeInstanceDefaults(loc: ClientLocationForm): ClientLocationForm {
   const cfg = loadInstanceDefaults();
   const carrier = loc.carrier || "jitsi";
-  const transport = loc.transport || transportOptions(carrier)[0];
+  const transport = loc.transport || transportOptions(carrier, loc.transport)[0];
   const cCfg = cfg.carriers[carrier];
   if (!cCfg) return loc;
   const tCfg = cCfg.transports[transport];
@@ -494,12 +942,12 @@ function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClos
 
   return (
     <Modal title="Настройки инстансов по умолчанию" onClose={onClose}>
-      <div className="max-h-[75vh] space-y-4 overflow-y-auto overscroll-contain p-4 text-sm" onWheel={(e) => e.stopPropagation()}>
+      <div className="space-y-4 p-4 text-sm">
         <button type="button" className="text-xs text-primary hover:underline" onClick={onBack}>
           ← Назад к настройкам OlcRTC
         </button>
         {loading ? (
-          <p className="text-xs text-muted-foreground">Загрузка…</p>
+          <p className="text-xs text-muted-foreground">{t('loading')}</p>
         ) : (
         <>
         <label className="grid gap-1 text-muted-foreground">
@@ -579,8 +1027,16 @@ async function request(path: string, options?: RequestInit) {
   return res;
 }
 
-function transportOptions(carrier: string) {
-  return transportsByCarrier[carrier] ?? transportsByCarrier.wbstream;
+function transportOptions(carrier: string, keepTransport?: string) {
+  const base = [...(transportsByCarrier[carrier] ?? transportsByCarrier.wbstream)];
+  if (keepTransport && LEGACY_TRANSPORTS.has(keepTransport) && !base.includes(keepTransport)) {
+    base.push(keepTransport);
+  }
+  return base;
+}
+
+function isLegacyTransport(transport: string) {
+  return LEGACY_TRANSPORTS.has(transport);
 }
 
 
@@ -772,7 +1228,7 @@ function roomPlaceholder(carrier: string) {
 }
 
 function normalizeLocationForm(location: ClientLocationForm): ClientLocationForm {
-  const options = transportOptions(location.carrier);
+  const options = transportOptions(location.carrier, location.transport);
   const transport = options.includes(location.transport) ? location.transport : options[0];
   const fields = payloadFields[transport] ?? [];
   const allowed = new Set(fields.map((field) => field.key));
@@ -868,11 +1324,8 @@ class PanelErrorBoundary extends React.Component<
       return (
         <div className="grid min-h-screen place-items-center p-6">
           <div className="max-w-lg rounded-lg border border-destructive/40 bg-card p-6 text-sm">
-            <h2 className="text-lg font-semibold text-destructive">Ошибка панели</h2>
-            <p className="mt-2 text-muted-foreground">
-              Панель не смогла отобразить данные (возможно, некорректная локация в config). Обновите страницу; если не
-              помогло — удалите проблемную локацию через CLI или исправьте config.json.
-            </p>
+            <h2 className="text-lg font-semibold text-destructive">{panelT("panelErrorTitle", readPanelLang())}</h2>
+            <p className="mt-2 text-muted-foreground">{panelT("panelErrorHint", readPanelLang())}</p>
             <pre className="mt-3 max-h-40 overflow-auto rounded border border-border bg-background p-2 text-xs">
               {this.state.error.message}
             </pre>
@@ -881,7 +1334,7 @@ class PanelErrorBoundary extends React.Component<
               className="mt-4 rounded-md border border-border bg-muted px-3 py-2 hover:bg-muted/80"
               onClick={() => window.location.reload()}
             >
-              Обновить страницу
+              {panelT("reloadPage", readPanelLang())}
             </button>
           </div>
         </div>
@@ -1065,30 +1518,56 @@ function Modal({
   title,
   children,
   onClose,
+  wide,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  wide?: boolean;
 }) {
+  useEffect(() => {
+    const html = document.documentElement;
+    const prev = html.style.overflow;
+    html.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prev;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onWheel={(e) => e.stopPropagation()}>
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onWheel={(e) => e.stopPropagation()}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={`flex max-h-[min(90vh,calc(100vh-2rem))] w-full flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl ${
+          wide ? "max-w-4xl" : "max-w-3xl"
+        }`}
+        onWheel={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold tracking-normal">{title}</h2>
           <button
+            type="button"
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted hover:bg-muted/80"
             onClick={onClose}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onWheel={(e) => e.stopPropagation()}>
+          {children}
+        </div>
       </div>
     </div>
   );
 }
 
 function LoginView({ setupRequired, onLogin }: { setupRequired: boolean; onLogin: () => void }) {
+  const { t } = usePanelLang();
   const [user, setUser] = useState("admin");
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -1123,7 +1602,7 @@ function LoginView({ setupRequired, onLogin }: { setupRequired: boolean; onLogin
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-normal">OlcRTC Manager</h1>
-            <div className="text-sm text-muted-foreground">{setupRequired ? "Первичная настройка" : "Вход в панель"}</div>
+            <div className="text-sm text-muted-foreground">{setupRequired ? t("setup") : t("login")}</div>
           </div>
         </div>
         <label className="grid gap-2 text-sm text-muted-foreground">
@@ -1163,7 +1642,7 @@ function LoginView({ setupRequired, onLogin }: { setupRequired: boolean; onLogin
           disabled={busy}
         >
           <Lock className="h-4 w-4" />
-          {setupRequired ? "Сохранить пароль" : "Войти"}
+          {setupRequired ? t("savePassword") : t("signIn")}
         </button>
       </form>
     </div>
@@ -1279,8 +1758,10 @@ function LocationFormFields({
   location: ClientLocationForm;
   setLocation: (location: ClientLocationForm) => void;
 }) {
+  const { t } = usePanelLang();
   const set = (patch: Partial<ClientLocationForm>) => setLocation(normalizeLocationForm({ ...location, ...patch }));
   const fields = payloadFields[location.transport] ?? [];
+  const transportOpts = transportOptions(location.carrier, location.transport);
 
   return (
     <div className="grid gap-3">
@@ -1315,14 +1796,18 @@ function LocationFormFields({
             value={location.transport}
             onChange={(event) => set({ transport: event.target.value })}
           >
-            {transportOptions(location.carrier).map((transport) => (
+            {transportOpts.map((transport) => (
               <option key={transport} value={transport}>
                 {transport}
+                {isLegacyTransport(transport) ? ` (${t("legacyTransport")})` : ""}
               </option>
             ))}
           </select>
         </label>
       </div>
+      {isLegacyTransport(location.transport) && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">{t("legacyTransportHint")}</p>
+      )}
       <label className="grid gap-2 text-sm text-muted-foreground">
         Room ID
         <RoomIDInput
@@ -1407,6 +1892,7 @@ function ClientFormFields({
   setForm: (form: ClientForm) => void;
   includeClientID: boolean;
 }) {
+  const { t } = usePanelLang();
   const set = (patch: Partial<ClientForm>) => setForm(normalizeForm({ ...form, ...patch }));
 
   const setLocation = (index: number, patch: Partial<ClientLocationForm>) => {
@@ -1516,6 +2002,7 @@ function ClientFormFields({
       </div>
       {form.locations.map((location, index) => {
         const fields = payloadFields[location.transport] ?? [];
+        const transportOpts = transportOptions(location.carrier, location.transport);
         return (
           <div key={index} className="grid gap-3 rounded-md border border-border bg-background p-3">
             <div className="flex items-center justify-between gap-2">
@@ -1562,14 +2049,18 @@ function ClientFormFields({
                   value={location.transport}
                   onChange={(event) => setLocation(index, { transport: event.target.value })}
                 >
-                  {transportOptions(location.carrier).map((transport) => (
+                  {transportOpts.map((transport) => (
                     <option key={transport} value={transport}>
                       {transport}
+                      {isLegacyTransport(transport) ? ` (${t("legacyTransport")})` : ""}
                     </option>
                   ))}
                 </select>
               </label>
             </div>
+            {isLegacyTransport(location.transport) && (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">{t("legacyTransportHint")}</p>
+            )}
             <label className="grid gap-2 text-sm text-muted-foreground">
               Room ID
               <RoomIDInput
@@ -1710,6 +2201,7 @@ function FeatureLogsModal({
   feature: FeatureName;
   onClose: () => void;
 }) {
+  const { t } = usePanelLang();
   const [lines, setLines] = useState<string[]>([]);
   const [path, setPath] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1737,7 +2229,7 @@ function FeatureLogsModal({
   }, [feature]);
 
   return (
-    <Modal title={`Логи: ${feature}`} onClose={onClose}>
+    <Modal title={t("logsTitle", { name: feature })} onClose={onClose}>
       <div className="p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           {path && <div className="text-xs text-muted-foreground truncate">{path}</div>}
@@ -1757,7 +2249,7 @@ function FeatureLogsModal({
                 }
               }}
             >
-              Обновить
+              {t("refresh")}
             </button>
             <button
               type="button"
@@ -1782,14 +2274,14 @@ function FeatureLogsModal({
                 }
               }}
             >
-              Копировать
+              {t("copy")}
             </button>
           </div>
         </div>
         {path && <div className="mb-2 text-xs text-muted-foreground">{path}</div>}
-        <pre className="max-h-[60vh] overflow-auto rounded-md border border-border bg-background p-3 text-xs">
-          {loading ? "Загрузка…" : lines.join("\n") || "(пусто)"}
-        </pre>
+        <LogScrollPre className="max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background p-3 text-xs">
+          {loading ? t("loading") : lines.join("\n") || t("empty")}
+        </LogScrollPre>
       </div>
     </Modal>
   );
@@ -1837,6 +2329,7 @@ function BridgesSettingsFields({
   setMsg: (s: string) => void;
   onReload: () => Promise<void>;
 }) {
+  const { t } = usePanelLang();
   const ps = (settings.pool_stats as Record<string, number>) ?? {};
   const prof = (settings.profiles as Record<string, unknown>) ?? {};
   const sys = (prof.system as Record<string, unknown>) ?? {};
@@ -1968,7 +2461,7 @@ function BridgesSettingsFields({
     setNewLabel("");
     setNewBridges("");
     setNewUrls("");
-    setMsg("Профиль добавлен — нажмите «Сохранить»");
+    setMsg(t("profileAddedSave"));
   };
 
   const removeProfile = (id: string) => {
@@ -1982,12 +2475,12 @@ function BridgesSettingsFields({
     <>
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded border border-border bg-muted/50 px-2 py-1">
-          webtunnel-client: <strong className={wtInstalled ? "text-emerald-400" : "text-amber-400"}>{wtInstalled ? "да" : "нет"}</strong>
+          webtunnel-client: <strong className={wtInstalled ? "text-emerald-400" : "text-amber-400"}>{wtInstalled ? t("yes") : t("no")}</strong>
         </span>
         <span className="rounded border border-border bg-muted/50 px-2 py-1">
-          обновление пула: <strong className="text-foreground">{jobStatus === "running" ? "идёт" : jobStatus === "done" ? "готово" : jobStatus === "error" ? "ошибка" : "ожидание"}</strong>
+          {t("bridgePoolUpdate")}: <strong className="text-foreground">{jobStatus === "running" ? t("bridgePoolRunning") : jobStatus === "done" ? t("bridgePoolDone") : jobStatus === "error" ? t("bridgePoolError") : t("bridgePoolIdle")}</strong>
         </span>
-        {poolBusy && <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-400">запуск…</span>}
+        {poolBusy && <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-400">{t("bridgePoolStarting")}</span>}
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -2005,7 +2498,7 @@ function BridgesSettingsFields({
       {poolUiActive && (
         <div className="rounded border border-border bg-background p-2">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Лог обновления пула</span>
+            <span className="text-xs text-muted-foreground">{t("poolLogTitle")}</span>
             <button
               type="button"
               className="text-xs text-muted-foreground hover:text-foreground"
@@ -2015,11 +2508,11 @@ function BridgesSettingsFields({
                 sessionStorage.removeItem(BRIDGE_POOL_UI_KEY);
               }}
             >
-              Закрыть
+              {t("close")}
             </button>
           </div>
           <LogScrollPre className="max-h-48 overflow-y-auto text-xs leading-relaxed whitespace-pre-wrap">
-            {(logTail.length > 0 ? logTail : [jobStatus === "running" ? "Ожидание строк лога…" : poolHint || ""]).slice(-250).join("\n")}
+            {(logTail.length > 0 ? logTail : [jobStatus === "running" ? t("waitingLogLines") : poolHint || ""]).slice(-250).join("\n")}
           </LogScrollPre>
         </div>
       )}
@@ -2118,9 +2611,9 @@ function BridgesSettingsFields({
           onChange={(e) => setSettings((s) => ({ ...s, custom_bridge: e.target.value }))}
         />
       </label>
-      <pre className="max-h-[160px] overflow-auto rounded border border-border bg-background p-2 text-xs">
-        {String(settings.bridges_conf ?? "").slice(-3000) || "(пусто)"}
-      </pre>
+      <LogScrollPre className="max-h-[160px] overflow-y-auto rounded border border-border bg-background p-2 text-xs">
+        {String(settings.bridges_conf ?? "").slice(-3000) || t("empty")}
+      </LogScrollPre>
     </>
   );
 }
@@ -2132,6 +2625,7 @@ function ComponentSettingsModal({
   feature: FeatureName;
   onClose: () => void;
 }) {
+  const { t } = usePanelLang();
   const apiName = feature === "webtunnel" ? "bridges" : feature === "olcrtc" ? "olcrtc" : feature === "warp" ? "warp" : feature;
   const title = FEATURE_SETTINGS_HINTS[feature]?.title ?? feature;
   const [settings, setSettings] = useState<Record<string, unknown>>({});
@@ -2205,7 +2699,7 @@ function ComponentSettingsModal({
         }
         throw new Error(errText || `HTTP ${res.status}`);
       }
-      setMsg("Сохранено");
+      setMsg(t("saved"));
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2217,10 +2711,10 @@ function ComponentSettingsModal({
   const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));
 
   return (
-    <Modal title={`Настройки: ${title}`} onClose={onClose}>
+    <Modal title={t("settingsTitle", { name: title })} onClose={onClose}>
       <div className="space-y-4 p-4 text-sm">
         {loading ? (
-          <p className="text-muted-foreground">Загрузка…</p>
+          <p className="text-muted-foreground">{t("loading")}</p>
         ) : (
           <>
             {feature === "zapret" && (
@@ -2231,10 +2725,10 @@ function ComponentSettingsModal({
                     checked={Boolean(settings.auto_sync)}
                     onChange={(e) => setBool("auto_sync", e.target.checked)}
                   />
-                  Еженедельный auto-sync exclude списков
+                  {t("zapretAutoSync")}
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  Домены-исключения (direct, по строке)
+                  {t("zapretExcludeDomains")}
                   <textarea
                     className="min-h-[100px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.exclude_domains ?? "")}
@@ -2242,7 +2736,7 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  Домены только через zapret (по строке)
+                  {t("zapretForceDomains")}
                   <textarea
                     className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.force_domains ?? "")}
@@ -2250,7 +2744,7 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  Ядро nfqws (config)
+                  {t("zapretNfqwsConfig")}
                   <textarea
                     className="min-h-[140px] rounded-md border border-border bg-background p-2 font-mono text-[10px]"
                     value={String(settings.nfqws_config ?? "")}
@@ -2258,16 +2752,16 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <p className="text-xs text-amber-400">
-                  Внимание: это низкоуровневый конфиг zapret/nfqws. Если не уверены, лучше не менять.
+                  {t("zapretNfqwsWarn")}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Стратегия: {String(settings.strategy ?? "—")} · nfqws: {settings.zapret_full ? "да" : "нет"} · hostlist: {String(settings.hostlist_user ?? "—")}
+                  {t("zapretStrategyLine", { strategy: String(settings.strategy ?? "—"), nfqws: settings.zapret_full ? t("yes") : t("no"), hostlist: String(settings.hostlist_user ?? "—") })}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Community lists: {settings.community_sync ? "включены" : "выключены"}
+                  {t("zapretCommunityLine", { state: settings.community_sync ? t("communityOn") : t("communityOff") })}
                 </p>
                 <label className="grid gap-1 text-muted-foreground">
-                  Выбор стратегии Zapret
+                  {t("zapretStrategySelect")}
                   <select
                     className="h-9 rounded-md border border-border bg-background px-2 text-xs"
                     value={String((settings.strategy_id ?? settings.strategy_current ?? settings.strategy ?? "") as string)}
@@ -2281,19 +2775,16 @@ function ComponentSettingsModal({
                   </select>
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Активная стратегия: {String(settings.strategy_current ?? settings.strategy ?? "—")}
+                  {t("zapretActiveStrategy", { name: String(settings.strategy_current ?? settings.strategy ?? "—") })}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Community lists: {settings.community_sync ? "включены" : "выключены"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  После сохранения: olc-feature zapret reload или olc-update
+                  {t("zapretAfterSave")}
                 </p>
               </>
             )}
             {feature === "tor" && (
               <>
-                <p className="text-xs text-muted-foreground">SOCKS порт: {String(settings.socks_port ?? "9050")}</p>
+                <p className="text-xs text-muted-foreground">{t("torSocksPort", { port: String(settings.socks_port ?? "9050") })}</p>
                 <label className="grid gap-1 text-muted-foreground">
                   ExitNodes
                   <input
@@ -2326,20 +2817,20 @@ function ComponentSettingsModal({
                   <input className="h-9 rounded-md border border-border bg-background px-2 font-mono text-xs" value={String(settings.socks_listen ?? "")} onChange={(e) => setStr("socks_listen", e.target.value)} placeholder="9050" />
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  TestSocks: {String(settings.test_socks ?? "—")} · SafeSocks: {String(settings.safe_socks ?? "—")} · DNS: {String(settings.dns_port ?? "—")}
+                  {t("torTestLine", { test: String(settings.test_socks ?? "—"), safe: String(settings.safe_socks ?? "—"), dns: String(settings.dns_port ?? "—") })}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  webtunnel-client: {settings.webtunnel_client ? "да" : "нет"} · bridges.conf подключён: {settings.bridges_enabled ? "да" : "нет"}
+                  {t("torBridgesLine", { wt: settings.webtunnel_client ? t("yes") : t("no"), bridges: settings.bridges_enabled ? t("yes") : t("no") })}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  После сохранения применяется configure-tor-exit (может потребоваться перезапуск инстансов).
+                  {t("torAfterSave")}
                 </p>
               </>
             )}
             {feature === "split" && (
               <>
                 <label className="grid gap-1 text-muted-foreground">
-                  Доп. direct-домены (по строке)
+                  {t("splitCustomDirect")}
                   <textarea
                     className="min-h-[100px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.custom_direct_domains ?? "")}
@@ -2347,7 +2838,7 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  Список panel/carrier hosts
+                  {t("splitPanelHosts")}
                   <textarea
                     className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.panel_hosts ?? "")}
@@ -2355,15 +2846,7 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  Список panel/carrier hosts
-                  <textarea
-                    className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                    value={String(settings.panel_hosts ?? "")}
-                    onChange={(e) => setStr("panel_hosts", e.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1 text-muted-foreground">
-                  Force-Tor домены
+                  {t("splitForceTor")}
                   <textarea
                     className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.force_tor_domains ?? "")}
@@ -2371,19 +2854,11 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  RU-blocked → Tor
+                  {t("splitBlockedTor")}
                   <textarea
                     className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                     value={String(settings.blocked_tor_domains ?? "")}
                     onChange={(e) => setStr("blocked_tor_domains", e.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1 text-muted-foreground">
-                  Panel carrier hosts
-                  <textarea
-                    className="min-h-[50px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                    value={String(settings.panel_hosts ?? "")}
-                    onChange={(e) => setStr("panel_hosts", e.target.value)}
                   />
                 </label>
                 <label className="flex items-center gap-2 text-sm">
@@ -2392,10 +2867,10 @@ function ComponentSettingsModal({
                     checked={Boolean(settings.cidr_only)}
                     onChange={(e) => setBool("cidr_only", e.target.checked)}
                   />
-                  Только CIDR (без CDN /32) — меньше 404 на nginx edge
+                  {t("splitCidrOnly")}
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  RU-direct: {String(settings.ru_direct_count ?? "?")} · файл: {String(settings.direct_cidrs_file ?? "—")}
+                  {t("splitRuDirectLine", { count: String(settings.ru_direct_count ?? "?"), file: String(settings.direct_cidrs_file ?? "—") })}
                 </p>
                 <button
                   type="button"
@@ -2411,7 +2886,7 @@ function ComponentSettingsModal({
                         body: JSON.stringify({ ...settings, refresh_lists: true }),
                       });
                       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                      setMsg("Обновление списков запущено в фоне");
+                      setMsg(t("splitRefreshStarted"));
                     } catch (e) {
                       setMsg(e instanceof Error ? e.message : String(e));
                     } finally {
@@ -2419,7 +2894,7 @@ function ComponentSettingsModal({
                     }
                   }}
                 >
-                  Обновить списки split (фон)
+                  {t("splitRefreshLists")}
                 </button>
               </>
             )}
@@ -2430,21 +2905,21 @@ function ComponentSettingsModal({
                   className="w-fit rounded-md border border-border bg-muted px-3 py-2 text-xs hover:bg-muted/80"
                   onClick={() => setInstanceDefaultsOpen(true)}
                 >
-                  Настройки инстансов по умолчанию…
+                  {t("instanceDefaultsBtn")}
                 </button>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={Boolean(settings.jitsi_insecure_tls)} onChange={(e) => setBool("jitsi_insecure_tls", e.target.checked)} />
-                  OLCRTC_JITSI_INSECURE_TLS (самоподписанные сертификаты Jitsi)
+                  {t("olcrtcJitsiTls")}
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  Публичный URL панели (OLCRTC_PUBLIC_URL)
+                  {t("olcrtcPublicUrl")}
                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.public_url ?? "")} onChange={(e) => setStr("public_url", e.target.value)} placeholder="https://vps.example:8888" />
                 </label>
                 <div className="grid gap-2 md:grid-cols-2">
                   <label className="grid gap-1 text-muted-foreground">
-                    Default carrier
+                    {t("olcrtcDefaultCarrier")}
                     <select className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.default_carrier ?? "")} onChange={(e) => setStr("default_carrier", e.target.value)}>
-                      <option value="">(не задан)</option>
+                      <option value="">{t("olcrtcNotSet")}</option>
                       <option value="jitsi">jitsi</option>
                       <option value="wbstream">wbstream</option>
                       <option value="telemost">telemost</option>
@@ -2452,9 +2927,9 @@ function ComponentSettingsModal({
                     </select>
                   </label>
                   <label className="grid gap-1 text-muted-foreground">
-                    Default transport
+                    {t("olcrtcDefaultTransport")}
                     <select className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.default_transport ?? "")} onChange={(e) => setStr("default_transport", e.target.value)}>
-                      <option value="">(не задан)</option>
+                      <option value="">{t("olcrtcNotSet")}</option>
                       <option value="datachannel">datachannel</option>
                       <option value="vp8channel">vp8channel</option>
                       <option value="seichannel">seichannel</option>
@@ -2464,7 +2939,7 @@ function ComponentSettingsModal({
                 <label className="grid gap-1 text-muted-foreground">
                   Default link
                   <select className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.default_link ?? "")} onChange={(e) => setStr("default_link", e.target.value)}>
-                    <option value="">(не задан)</option>
+                    <option value="">{t("olcrtcNotSet")}</option>
                     <option value="tor">tor</option>
                     <option value="direct">direct</option>
                   </select>
@@ -2481,14 +2956,14 @@ function ComponentSettingsModal({
                   WebRTC signaling proxy (optional)
                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.webrtc_proxy ?? "")} onChange={(e) => setStr("webrtc_proxy", e.target.value)} placeholder="user:pass@host:port" />
                 </label>
-                <p className="text-xs text-muted-foreground">Ветка: fix/all · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>
+                <p className="text-xs text-muted-foreground">{t("olcrtcBranchPin")} <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">{t("olcrtcAfterSave")}</p>
               </>
             )}
             {feature === "warp" && (
               <>
-                <p className="text-xs text-amber-400">WARP и Tor взаимоисключают. На RU VPS обычно Tor; на foreign — профиль foreign-warp.</p>
+                <p className="text-xs text-amber-400">{t("warpTorExclusive")}</p>
                 <label className="grid gap-1 text-muted-foreground">
-                  WARP proxy (OLCRTC_WARP_PROXY)
+                  {t("warpProxy")}
                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.proxy ?? "127.0.0.1:40000")} onChange={(e) => setStr("proxy", e.target.value)} placeholder="127.0.0.1:40000" />
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
@@ -2504,14 +2979,14 @@ function ComponentSettingsModal({
                 </label>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={Boolean(settings.autoconnect ?? true)} onChange={(e) => setBool("autoconnect", e.target.checked)} />
-                  Автоподключение WARP при включении компонента
+                  {t("warpAutoconnect")}
                 </label>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={Boolean(settings.warp_plus)} onChange={(e) => setBool("warp_plus", e.target.checked)} />
-                  Использовать WARP+ (нужен license key)
+                  {t("warpPlus")}
                 </label>
                 <label className="grid gap-1 text-muted-foreground">
-                  License key (optional)
+                  {t("warpLicense")}
                   <input
                     className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono"
                     value={String(settings.license_key ?? "")}
@@ -2520,10 +2995,9 @@ function ComponentSettingsModal({
                   />
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Установлен: {settings.installed ? "да" : "нет"} · подключён: {settings.connected ? "да" : "нет"}
-                  {settings.profile_enabled ? " · в профиле VPS" : ""}
+                  {t("warpStatusLine", { installed: settings.installed ? t("yes") : t("no"), connected: settings.connected ? t("yes") : t("no"), profile: settings.profile_enabled ? t("warpInProfile") : "" })}
                 </p>
-                <p className="text-xs text-amber-400">Безопасность: full-tunnel/TUN режим принудительно заблокирован в backend и install-скрипте, чтобы не сломать SSH.</p>
+                <p className="text-xs text-amber-400">{t("warpSafety")}</p>
               </>
             )}
             {feature === "webtunnel" && (
@@ -2531,14 +3005,14 @@ function ComponentSettingsModal({
             )}
           </>
         )}
-        {msg && <p className={`text-xs ${msg === "Сохранено" ? "text-emerald-400" : "text-destructive"}`}>{msg}</p>}
+        {msg && <p className={`text-xs ${msg === t("saved") ? "text-emerald-400" : "text-destructive"}`}>{msg}</p>}
         <div className="flex justify-end gap-2">
           <button
             type="button"
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
             onClick={onClose}
           >
-            Закрыть
+            {t("close")}
           </button>
           <button
             type="button"
@@ -2546,7 +3020,7 @@ function ComponentSettingsModal({
             className="rounded-md border border-primary bg-primary/20 px-3 py-2 text-sm text-primary disabled:opacity-50"
             onClick={() => void save()}
           >
-            {saving ? "…" : "Сохранить"}
+            {saving ? "…" : t("save")}
           </button>
         </div>
       </div>
@@ -2750,6 +3224,7 @@ function HeaderNetworkToggles() { // NetworkUIV3
 }
 
 function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
+  const { t } = usePanelLang();
   const { visible } = useCapabilities();
   const [data, setData] = useState<FeaturesResponse | null>(null);
   const [busy, setBusy] = useState<FeatureName | null>(null);
@@ -2809,16 +3284,12 @@ function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
 
   return (
     <section className="mt-4 rounded-lg border border-border bg-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold tracking-normal">Сеть и обход</h2>
-          <p className="text-xs text-muted-foreground">
-            Вкл/выкл zapret · tor · split · webtunnel · warp без переустановки. Состояние: /etc/olcrtc-manager/features.env. Логи клиента: раздел «Клиенты» → Logs (API /api/logs). Jitsi TLS: OLCRTC_JITSI_INSECURE_TLS=1 в panel.env.
-          </p>
-        </div>
+      <div>
+        <h2 className="text-lg font-semibold tracking-normal">{t("networkBypass")}</h2>
+        <p className="text-xs text-muted-foreground">{t("networkHint")}</p>
         <button
           type="button"
-          className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
+          className="mt-2 inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
           onClick={() => {
             setCollapsed((v) => {
               const next = !v;
@@ -2831,7 +3302,7 @@ function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
             });
           }}
         >
-          {collapsed ? "Развернуть" : "Свернуть"}
+          {collapsed ? t("expand") : t("collapse")}
         </button>
       </div>
       {err && <div className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">{err}</div>}
@@ -2880,7 +3351,7 @@ function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
                     }
                     onClick={() => void toggle(row.name, !enabled)}
                   >
-                    {busy === row.name ? "…" : enabled ? "Выключить" : "Включить"}
+                    {busy === row.name ? "…" : enabled ? t("disable") : t("enable")}
                   </button>
                 </div>
               </div>
@@ -2891,7 +3362,7 @@ function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
           <div className="col-span-full my-1 border-t border-border" />
           <div className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-background p-3">
             <div>
-              <div className="font-medium">OlcRTC (ядро)</div>
+              <div className="font-medium">{t("olcrtcCore")}</div>
               <div className="text-xs text-muted-foreground">panel.env, Jitsi TLS, split lists — ветка fix/all</div>
             </div>
             <div className="flex gap-1">
@@ -2978,6 +3449,7 @@ function AutodetectNotificationSettingsPanel({
 }
 
 function NotificationPreferencesModal({ onClose }: { onClose: () => void }) {
+  const { t } = usePanelLang();
   const [view, setView] = useState<"main" | "autodetect">("main");
   const [s, setS] = useState<Record<string, unknown>>({});
   const [msg, setMsg] = useState("");
@@ -2997,8 +3469,8 @@ function NotificationPreferencesModal({ onClose }: { onClose: () => void }) {
   const sources = (s.sources as Record<string, boolean>) ?? {};
   const setSource = (k: string, v: boolean) => setS({ ...s, sources: { ...sources, [k]: v } });
   return (
-    <Modal title={view === "main" ? "Настройки уведомлений" : "Автодетектор"} onClose={onClose}>
-      <div className="max-h-[70vh] overflow-auto p-4">
+    <Modal title={view === "main" ? t("notificationSettings") : t("autodetect")} onClose={onClose}>
+      <div className="p-4">
         {view === "main" ? (
           <div className="space-y-3 text-sm">
             <label className="flex items-center gap-2 text-xs">
@@ -3013,11 +3485,11 @@ function NotificationPreferencesModal({ onClose }: { onClose: () => void }) {
               </label>
             ))}
             <button type="button" className="w-full rounded border border-border px-3 py-2 text-left text-xs hover:bg-muted" onClick={() => setView("autodetect")}>
-              Настройки автодетектора →
+              {t("autodetectOpen")}
             </button>
             {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
             <button type="button" className="rounded border border-primary px-3 py-1 text-xs text-primary" onClick={() => void saveGeneral()}>
-              Сохранить
+              {t("save")}
             </button>
           </div>
         ) : (
@@ -3040,12 +3512,13 @@ function MainSettingsAutodetectLink({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const { t } = usePanelLang();
   return (
     <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-      <div className="text-sm font-medium text-foreground">Автодетектор</div>
-      <p className="text-xs text-muted-foreground">Периодически ищет ошибки в логах и состоянии сервисов.</p>
+      <div className="text-sm font-medium text-foreground">{t("autodetect")}</div>
+      <p className="text-xs text-muted-foreground">{t("autodetectSettings")}</p>
       <button type="button" className="w-fit rounded border border-border px-3 py-2 text-xs hover:bg-muted" onClick={onToggle}>
-        Настройки уведомлений автодетектора
+        {t("autodetectSettings")}
       </button>
       {expanded && (
         <div className="rounded-md border border-dashed border-border bg-card p-3">
@@ -3057,6 +3530,7 @@ function MainSettingsAutodetectLink({
 }
 
 function NotificationBell() {
+  const { t } = usePanelLang();
   const [open, setOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [list, setList] = useState<PanelNotification[]>([]);
@@ -3119,7 +3593,7 @@ function NotificationBell() {
         type="button"
         className="relative inline-flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
         onClick={() => setOpen((o) => !o)}
-        title="Уведомления"
+        title={t("notifications")}
       >
         <Bell className="h-4 w-4" />
         {unread > 0 && (
@@ -3131,18 +3605,18 @@ function NotificationBell() {
       {open && (
         <div className="absolute right-0 z-50 mt-1 w-[min(24rem,90vw)] rounded-lg border border-border bg-card shadow-lg">
           <div className="flex items-center justify-between border-b border-border px-3 py-2 text-sm font-medium">
-            <span>Уведомления</span>
+            <span>{t('notifications')}</span>
             <div className="flex gap-2">
               <button type="button" className="text-xs text-primary hover:underline" onClick={() => { setOpen(false); setPrefsOpen(true); }}>
                 Настройки
               </button>
               <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setOpen(false)}>
-                Закрыть
+                {t("close")}
               </button>
             </div>
           </div>
           <ul className="max-h-80 overflow-auto p-2 text-xs">
-            {list.length === 0 && <li className="p-2 text-muted-foreground">Нет активных предупреждений</li>}
+            {list.length === 0 && <li className="p-2 text-muted-foreground">{t("noNotifications")}</li>}
             {list.map((n) => (
               <li key={n.id} className="mb-2 rounded border border-border p-2">
                 <div className="flex items-start justify-between gap-2">
@@ -3166,6 +3640,7 @@ function NotificationBell() {
 }
 
 function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {
+  const { t } = usePanelLang();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Record<string, unknown> | null>(null);
   const [job, setJob] = useState<{ job_id?: string; status?: string } | null>(null);
@@ -3212,7 +3687,7 @@ function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {
   }, [open]);
 
   const runUpdate = async () => {
-    if (!window.confirm("Обновить Olc-cost-l с GitHub? Панель перезапустится (~2–10 мин).")) return;
+    if (!window.confirm(t("updateConfirm"))) return;
     setBusy(true);
     try {
       const res = await fetch("/api/updates/run", { method: "POST" });
@@ -3388,23 +3863,23 @@ function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {
               </div>
             )}
             {Boolean(status?.update_locked) && (
-              <p className="text-amber-400">Обновление выполняется… не закрывайте вкладку до перезапуска панели.</p>
+              <p className="text-amber-400">{t("updateInProgress")}</p>
             )}
             {!status?.update_locked && job?.status === "running" && (
-              <p className="text-amber-400">Прошлое обновление зависло — нажмите «Обновить с GitHub» ещё раз.</p>
+              <p className="text-amber-400">{t("updateStuck")}</p>
             )}
             {job?.status === "failed" && job?.error ? (
               <p className="text-destructive text-xs">{String(job.error)}</p>
             ) : null}
             <div className="flex flex-wrap gap-2">
               <button type="button" className="rounded-md border border-primary bg-primary/20 px-3 py-2 text-primary disabled:opacity-50" disabled={busy || Boolean(status?.update_locked)} onClick={() => void runUpdate()}>
-                {busy ? "Запуск…" : "Обновить с GitHub"}
+                {busy ? t("updateStarting") : t("updateFromGithub")}
               </button>
               <button type="button" className="rounded-md border border-border px-3 py-2 disabled:opacity-50" disabled={checkBusy} onClick={() => { setCheckBusy(true); void loadAll().finally(() => setCheckBusy(false)); }}>
-                {checkBusy ? "Проверка…" : "Проверить"}
+                {checkBusy ? t("checkingUpdate") : t("checkUpdate")}
               </button>
               <span className={`self-center text-xs ${status?.update_available ? "text-emerald-400" : "text-muted-foreground"}`}>
-                {status?.update_available ? "● Доступно обновление" : status?.local_sha ? "● Актуальная версия" : ""}
+                {status?.update_available ? t("updateAvailableDot") : status?.local_sha ? t("versionCurrent") : ""}
               </span>
             </div>
             {logLines.length > 0 && (
@@ -3468,6 +3943,7 @@ const COMPONENT_DRAWER_ITEMS = [
 /* olc-roadmap-finish-v1 */
 /* olc-roadmap-finish-v2 */
 function ComponentsDrawerButton() {
+  const { t } = usePanelLang();
   const [open, setOpen] = useState(false);
   const { caps, reloadCaps } = useCapabilities();
   const [jobMsg, setJobMsg] = useState("");
@@ -3548,15 +4024,14 @@ function ComponentsDrawerButton() {
   }, [activeJobId]);
 
   const run = async (name: string, action: "install" | "uninstall") => {
-    const word = action === "install" ? "установить" : "удалить";
-    if (!window.confirm(`${word} ${name}? Может занять несколько минут.`)) return;
-    setJobMsg("Запуск…");
+    if (!window.confirm(t(action === "install" ? "confirmInstall" : "confirmUninstall", { name }))) return;
+    setJobMsg(t("updateStarting"));
     try {
       const res = await fetch(`/api/components/${name}/${action}`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
       const jobId = (body as { job_id?: string }).job_id ?? "";
-      setJobMsg(`Задача ${jobId} запущена`);
+      setJobMsg(t("jobStarted", { id: jobId }));
       setJobsByComponent((prev) => ({ ...prev, [name]: { job_id: jobId, status: "running", action } }));
       if (jobId) {
         setActiveJobId(jobId);
@@ -3569,9 +4044,9 @@ function ComponentsDrawerButton() {
         window.dispatchEvent(new Event("olc-capabilities-changed"));
         window.dispatchEvent(new Event("olc-features-changed"));
         if (finalStatus === "done") {
-          setJobMsg(action === "install" ? "Установлено" : "Удалено");
+          setJobMsg(action === "install" ? t("jobInstalled") : t("jobUninstalled"));
         } else if (finalStatus === "failed") {
-          setJobMsg("Ошибка задачи — см. лог");
+          setJobMsg(t("jobErrorSeeLog"));
         }
       }
     } catch (e) {
@@ -3585,15 +4060,15 @@ function ComponentsDrawerButton() {
         type="button"
         className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
         onClick={() => setOpen(true)}
-        title="Установка и удаление компонентов"
+        title={t("componentsDrawerHint")}
       >
         <Package className="h-4 w-4" />
         ±
       </button>
       {open && (
-        <Modal title="Компоненты VPS" onClose={() => { setOpen(false); setJobMsg(""); setActiveJobId(null); setActiveJobLines([]); }}>
+        <Modal title={t("componentsVps")} onClose={() => { setOpen(false); setJobMsg(""); setActiveJobId(null); setActiveJobLines([]); }}>
           <div className="space-y-3 p-4 text-sm">
-            <p className="text-xs text-muted-foreground">Профиль: {caps?.deploy_profile ?? "—"}</p>
+            <p className="text-xs text-muted-foreground">{t("profileLabel", { id: caps?.deploy_profile ?? "—" })}</p>
             {COMPONENT_DRAWER_ITEMS.map((c) => {
               const st = caps?.components?.[c.id];
               const installed = st?.installed ?? false;
@@ -3612,20 +4087,20 @@ function ComponentsDrawerButton() {
               const showJob = j && componentJobUiVisible(j);
               const statusText = showJob
                 ? j.status === "running"
-                  ? `${j.action === "uninstall" ? "Удаляется" : "Устанавливается"}…`
+                  ? j.action === "uninstall" ? t("jobUninstallingStatus") : t("jobInstallingStatus")
                   : j.status === "done"
-                    ? "Готово"
+                    ? t("jobDone")
                     : j.status === "failed"
-                      ? `Ошибка: ${j.error ?? "см. лог"}`
-                      : `Статус: ${j.status ?? "unknown"}`
+                      ? t("jobFailed", { error: j.error ?? t("jobErrorSeeLog") })
+                      : t("jobStatusUnknown", { status: j.status ?? "unknown" })
                 : "";
               return (
                 <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2">
                   <div>
                     <div className="font-medium">{c.label}</div>
                     <div className="text-xs text-muted-foreground">
-                      {installed ? "установлен" : "не установлен"}
-                      {st?.enabled ? " · вкл" : st?.installed ? " · выкл" : ""}
+                      {installed ? t("componentInstalled") : t("componentNotInstalled")}
+                      {st?.enabled ? ` · ${t("componentOn")}` : st?.installed ? ` · ${t("componentOff")}` : ""}
                     </div>
                     {statusText && <div className={`text-xs ${j?.status === "failed" ? "text-destructive" : j?.status === "done" ? "text-emerald-400" : "text-amber-400"}`}>{statusText}</div>}
                   </div>
@@ -3636,7 +4111,7 @@ function ComponentsDrawerButton() {
                         className="rounded border border-border px-2 py-1 text-xs"
                         onClick={() => setActiveJobId(j.job_id ?? null)}
                       >
-                        Лог
+                        {t("componentLog")}
                       </button>
                     )}
                     {showInstallBtn && (
@@ -3647,7 +4122,7 @@ function ComponentsDrawerButton() {
                         title={undefined}
                         onClick={() => void run(c.id, "install")}
                       >
-                        {jobAction === "install" ? "Устанавливается…" : "Установить"}
+                        {jobAction === "install" ? t("installing") : t("installBtn")}
                       </button>
                     )}
                     {showDeleteBtn && (
@@ -3657,7 +4132,7 @@ function ComponentsDrawerButton() {
                         disabled={isRunning && jobAction !== "uninstall"}
                         onClick={() => void run(c.id, "uninstall")}
                       >
-                        {jobAction === "uninstall" ? "Удаляется…" : "Удалить"}
+                        {jobAction === "uninstall" ? t("uninstalling") : t("uninstallBtn")}
                       </button>
                     )}
                   </div>
@@ -3668,9 +4143,9 @@ function ComponentsDrawerButton() {
             {activeJobId && (
               <div className="rounded border border-border bg-background p-2">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">Лог задачи: {activeJobId}</div>
-                  <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setActiveJobId(null); setActiveJobLines([]); if (jobMsg === "Установлено" || jobMsg === "Удалено") setJobMsg(""); }}>
-                    Закрыть
+                  <div className="text-xs text-muted-foreground">{t("jobLogTitle", { id: activeJobId })}</div>
+                  <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setActiveJobId(null); setActiveJobLines([]); if (jobMsg === t("jobInstalled") || jobMsg === t("jobUninstalled")) setJobMsg(""); }}>
+                    {t("close")}
                   </button>
                 </div>
                 <LogScrollPre className="max-h-48 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed">{activeJobLines.slice(-250).join("\n")}</LogScrollPre>
@@ -3685,6 +4160,7 @@ function ComponentsDrawerButton() {
 
 
 function ErrorsSummaryButton() {
+  const { t } = usePanelLang();
   const [open, setOpen] = useState(false);
   const [autodetectOpen, setAutodetectOpen] = useState(false);
   const [items, setItems] = useState<PanelNotification[]>([]);
@@ -3727,9 +4203,9 @@ function ErrorsSummaryButton() {
         {errors.length > 0 && <span className="text-destructive">{errors.length}</span>}
       </button>
       {open && (
-        <Modal title="Ошибки" onClose={() => setOpen(false)}>
+        <Modal title={t("errors")} onClose={() => setOpen(false)}>
           <ul className="max-h-96 space-y-2 overflow-auto p-4 text-sm">
-            {errors.length === 0 && <li className="text-muted-foreground">Критичных ошибок не найдено в логах</li>}
+            {errors.length === 0 && <li className="text-muted-foreground">{t("noErrors")}</li>}
             {errors.map((n) => (
               <li key={n.id} className="rounded border border-border p-2">
                 <div className="font-medium text-destructive">{n.title}</div>
@@ -3751,22 +4227,15 @@ function ErrorsSummaryButton() {
             ))}
             <p className="text-xs">
               <button type="button" className="text-primary underline" onClick={() => { setOpen(false); setAutodetectOpen(true); }}>
-                Настройки автодетектора
+                {t("autodetectSettings")}
               </button>
             </p>
           </ul>
         </Modal>
       )}
       {autodetectOpen && (
-        <Modal title="Настройки автодетектора" onClose={() => setAutodetectOpen(false)}>
-          <div className="max-h-[70vh] overflow-auto p-4">
-            <AutodetectNotificationSettingsPanel onClose={() => setAutodetectOpen(false)} />
-          </div>
-        </Modal>
-      )}
-      {autodetectOpen && (
-        <Modal title="Автодетектор" onClose={() => setAutodetectOpen(false)}>
-          <div className="max-h-[70vh] overflow-auto p-4">
+        <Modal title={t("autodetectSettings")} onClose={() => setAutodetectOpen(false)}>
+          <div className="p-4">
             <AutodetectNotificationSettingsPanel onClose={() => setAutodetectOpen(false)} />
           </div>
         </Modal>
@@ -3777,6 +4246,7 @@ function ErrorsSummaryButton() {
 
 
 function UpdateAvailableToast() {
+  const { t } = usePanelLang();
   const [show, setShow] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
@@ -3795,11 +4265,11 @@ function UpdateAvailableToast() {
   if (!show) return null;
   return (
     <div className="fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-2 rounded-lg border border-primary bg-background p-3 shadow-lg">
-      <span className="text-sm">Доступно обновление с GitHub</span>
+      <span className="text-sm">{t("updateAvailable")}</span>
       <button type="button" className="text-xs text-primary underline" onClick={() => window.dispatchEvent(new Event("olc-open-project-modal"))}>
-        Открыть
+        {t("open")}
       </button>
-      <button type="button" className="ml-auto text-muted-foreground" onClick={() => { setDismissed(true); setShow(false); }} aria-label="Закрыть">
+      <button type="button" className="ml-auto text-muted-foreground" onClick={() => { setDismissed(true); setShow(false); }} aria-label={t("close")}>
         ✕
       </button>
     </div>
@@ -3807,6 +4277,7 @@ function UpdateAvailableToast() {
 }
 
 function App() {
+  const { t, lang, setLang } = usePanelLang();
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
   const [state, setState] = useState<State | null>(null);
@@ -3824,7 +4295,6 @@ function App() {
   const [clientLogTarget, setClientLogTarget] = useState<ClientState | null>(null);
   const [qrTarget, setQrTarget] = useState<{ clientID: string; location: LocationState } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [uiLang, setUiLang] = useState<PanelLang>(() => readPanelLang());
   const [showAutodetectInline, setShowAutodetectInline] = useState(false);
   const [autodetectMiniOpen, setAutodetectMiniOpen] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -4271,21 +4741,21 @@ function App() {
           document.body.removeChild(textarea);
         }
       }
-    }, "Логи скопированы");
+    }, t("logsCopied"));
 
   const copyOlcBoxLink = (clientID: string, uri: string) =>
     runAction(async () => {
       if (!uri) throw new Error("OlcBox ссылка не найдена");
       await navigator.clipboard.writeText(uri);
-    }, `Ссылка для ${clientID} скопирована`);
+    }, t("linkCopied", { id: clientID }));
 
   const copySubscription = (clientID: string) =>
     runAction(async () => {
       await navigator.clipboard.writeText(subscriptionURL(clientID, currentSubscriptionPath));
-    }, `Subscription для ${clientID} скопирован`);
+    }, t("subCopied", { id: clientID }));
 
   if (authenticated === null) {
-    return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Загрузка...</div>;
+    return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">{t("loading")}</div>;
   }
 
   if (!authenticated) {
@@ -4311,7 +4781,7 @@ function App() {
                 onClick={openSettings}
               >
                 <Settings className="h-4 w-4" />
-                Настройки
+                {t("settings")}
               </button>
               <button
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80 disabled:opacity-60"
@@ -4320,18 +4790,18 @@ function App() {
                   runAction(async () => {
                     await loadState();
                     await loadMetrics();
-                  }, "Обновлено")
+                  }, t("updated"))
                 }
               >
                 <RefreshCw className="h-4 w-4" />
-                Обновить
+                {t("refresh")}
               </button>
               <button
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                 onClick={logout}
               >
                 <LogOut className="h-4 w-4" />
-                Выйти
+                {t("logout")}
               </button>
             </div>
           </div>
@@ -4357,8 +4827,8 @@ function App() {
       <main className="mx-auto max-w-7xl px-5 py-6">
         <section className="grid gap-3 md:grid-cols-3">
           <ProfileStatCard name={state?.name ?? ""} onSave={async (next) => { await saveSettingsName(next); }} />
-          <StatCard icon={<Users className="h-4 w-4" />} label="Клиенты" value={state?.client_count ?? "..."} />
-          <StatCard icon={<Activity className="h-4 w-4" />} label="Инстансы" value={state?.running_count ?? "..."} />
+          <StatCard icon={<Users className="h-4 w-4" />} label={t("clients")} value={state?.client_count ?? "..."} />
+          <StatCard icon={<Activity className="h-4 w-4" />} label={t("instances")} value={state?.running_count ?? "..."} />
         </section>
 
         <FeaturesPanel />
@@ -4366,7 +4836,7 @@ function App() {
         <section className="mt-4 rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold tracking-normal">Клиенты</h2>
+              <h2 className="text-lg font-semibold tracking-normal">{t("clients")}</h2>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -4374,7 +4844,7 @@ function App() {
                 onClick={openCreate}
               >
                 <Plus className="h-4 w-4" />
-                Создать клиента
+                {t("createClient")}
               </button>
             </div>
           </div>
@@ -4410,7 +4880,7 @@ function App() {
                         disabled={busy}
                         onClick={() => copySubscription(client.client_id)}
                       >
-                        Sub
+                        {t("subBtn")}
                       </button>
                       <button
                         className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
@@ -4461,8 +4931,8 @@ function App() {
                               <th className="py-2 pr-3 font-medium">Provider</th>
                               <th className="py-2 pr-3 font-medium">Transport</th>
                               <th className="py-2 pr-3 font-medium">DNS</th>
-                              <th className="py-2 pr-3 font-medium">Статус</th>
-                              <th className="py-2 text-right font-medium">Действия локации</th>
+                              <th className="py-2 pr-3 font-medium">{t("tableStatus")}</th>
+                              <th className="py-2 text-right font-medium">{t("locationActions")}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4471,7 +4941,14 @@ function App() {
                                 <td className="py-3 pr-3 font-medium">{loc.name || "Default"}</td>
                                 <td className="max-w-[220px] truncate py-3 pr-3 text-muted-foreground">{loc.room_id}</td>
                                 <td className="py-3 pr-3">{loc.carrier}</td>
-                                <td className="py-3 pr-3">{loc.transport}</td>
+                                <td className="py-3 pr-3">
+                                  {loc.transport}
+                                  {isLegacyTransport(loc.transport) && (
+                                    <span className="ml-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-300">
+                                      {t("legacyTransport")}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="py-3 pr-3 text-muted-foreground">{loc.dns}</td>
                                 <td className="py-3 pr-3">
                                   <span
@@ -4490,7 +4967,7 @@ function App() {
                                       onClick={() => restartLocation(client.client_id, loc)}
                                     >
                                       <RefreshCw className="h-4 w-4" />
-                                      Restart
+                                      {t("restart")}
                                     </button>
                                     <button
                                       className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
@@ -4498,7 +4975,7 @@ function App() {
                                       onClick={() => openLogs(client.client_id, loc)}
                                     >
                                       <Terminal className="h-4 w-4" />
-                                      Логи
+                                      {t("logs")}
                                     </button>
                                     <button
                                       className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
@@ -4506,14 +4983,14 @@ function App() {
                                       onClick={() => copyOlcBoxLink(client.client_id, loc.uri)}
                                     >
                                       <Copy className="h-4 w-4" />
-                                      OlcBox
+                                      {t("olcBox")}
                                     </button>
                                     <button
                                       className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
                                       disabled={busy}
                                       onClick={() => setQrTarget({ clientID: client.client_id, location: loc })}
                                     >
-                                      QR
+                                      {t("qr")}
                                     </button>
                                     <button
                                       className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
@@ -4660,13 +5137,13 @@ function App() {
                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                 onClick={() => copyOlcBoxLink(qrTarget.clientID, qrTarget.location.uri)}
               >
-                Копировать URI
+                {t("copyUri")}
               </button>
               <button
                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                 onClick={() => copySubscription(qrTarget.clientID)}
               >
-                Копировать Sub
+                {t("copySub")}
               </button>
 
 
@@ -4677,18 +5154,18 @@ function App() {
 
       {autodetectMiniOpen && <NotificationPreferencesModal onClose={() => setAutodetectMiniOpen(false)} />}
       {showSettings && (
-        <Modal title={panelT("settings", uiLang)} onClose={() => setShowSettings(false)}>
+        <Modal wide title={t('settings')} onClose={() => setShowSettings(false)}>
           <div className="grid gap-5 p-5">
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">{panelT("interface", uiLang)}</div>
+              <div className="text-sm font-medium text-foreground">{t('interface')}</div>
               <label className="grid gap-2 text-sm text-muted-foreground">
-                {panelT("language", uiLang)}
+                {t('language')}
                 <select
                   className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
-                  value={uiLang}
+                  value={lang}
                   onChange={(event) => {
                     const next = event.target.value === "en" ? "en" : "ru";
-                    setUiLang(next);
+                    setLang(next);
                     try {
                       localStorage.setItem(OLC_PANEL_LANG_KEY, next);
                     } catch {
@@ -4703,10 +5180,10 @@ function App() {
             </section>
 
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">{panelT("server", uiLang)}</div>
+              <div className="text-sm font-medium text-foreground">{t('server')}</div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2 text-sm text-muted-foreground">
-                  {panelT("serverName", uiLang)}
+                  {t('serverName')}
                   <input
                     className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                     value={settingsForm.name}
@@ -4715,7 +5192,7 @@ function App() {
                   />
                 </label>
                 <label className="grid gap-2 text-sm text-muted-foreground">
-                  {panelT("panelPort", uiLang)}
+                  {t('panelPort')}
                   <input
                     className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                     type="number"
@@ -4727,14 +5204,14 @@ function App() {
                 </label>
               </div>
               {settings?.port_override && (
-                <div className="text-xs text-muted-foreground">Порт сейчас переопределён аргументом запуска менеджера.</div>
+                <div className="text-xs text-muted-foreground">{t("portOverride")}</div>
               )}
             </section>
 
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">{panelT("subscriptions", uiLang)}</div>
+              <div className="text-sm font-medium text-foreground">{t('subscriptions')}</div>
               <label className="grid gap-2 text-sm text-muted-foreground">
-                {panelT("path", uiLang)}
+                {t('path')}
                 <input
                   className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                   value={settingsForm.subscription_path}
@@ -4742,7 +5219,7 @@ function App() {
                 />
               </label>
               <label className="grid gap-2 text-sm text-muted-foreground">
-                {panelT("refreshInterval", uiLang)}
+                {t('refreshInterval')}
                 <input
                   className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                   value={settingsForm.refresh}
@@ -4758,8 +5235,8 @@ function App() {
             />
 
             <section className="grid gap-3 rounded-md border border-border bg-background p-4">
-              <div className="text-sm font-medium text-foreground">{panelT("adminPassword", uiLang)}</div>
-              {settings?.admin_user && <div className="text-xs text-muted-foreground">Пользователь: {settings.admin_user}</div>}
+              <div className="text-sm font-medium text-foreground">{t('adminPassword')}</div>
+              {settings?.admin_user && <div className="text-xs text-muted-foreground">{t('userLabel')}: {settings.admin_user}</div>}
               <label className="grid gap-2 text-sm text-muted-foreground">
                 Текущий пароль
                 <input
@@ -4799,7 +5276,7 @@ function App() {
                   onClick={changePassword}
                 >
                   <KeyRound className="h-4 w-4" />
-                  {panelT("changePassword", uiLang)}
+                  {t('changePassword')}
                 </button>
               </div>
             </section>
@@ -4809,7 +5286,7 @@ function App() {
                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                 onClick={() => { setShowAutodetectInline(false); setShowSettings(false); }}
               >
-                {panelT("close", uiLang)}
+                {t('close')}
               </button>
               <button
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-black hover:bg-primary/90 disabled:opacity-60"
@@ -4817,7 +5294,7 @@ function App() {
                 onClick={saveSettings}
               >
                 <Settings className="h-4 w-4" />
-                {panelT("saveSettings", uiLang)}
+                {t('saveSettings')}
               </button>
             </div>
           </div>
@@ -4825,19 +5302,19 @@ function App() {
       )}
 
       {clientLogTarget && (
-        <Modal title={`Логи ${clientLogTarget.client_id}`} onClose={() => setClientLogTarget(null)}>
+        <Modal title={t("logsClient", { id: clientLogTarget.client_id })} onClose={() => setClientLogTarget(null)}>
           <div className="p-5">
             <LogScrollBox className="max-h-[520px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
               {clientLogs.length === 0 ? (
-                <div className="text-muted-foreground">Загрузка логов...</div>
+                <div className="text-muted-foreground">{t("loadingLogs")}</div>
               ) : (
                 clientLogs.map((group) => (
                   <div key={`${group.location.room_id}-${group.location.transport}`} className="mb-5 last:mb-0">
                     <div className="mb-2 text-[11px] uppercase text-muted-foreground">
-                      {group.location.name || "Default"} · {group.location.transport} · {group.location.runtime.status}
+                      {group.location.name || t("defaultLocationName")} · {group.location.transport} · {group.location.runtime.status}
                     </div>
                     {group.error ? (
-                      <div className="text-muted-foreground">Логи недоступны: {group.error}</div>
+                      <div className="text-muted-foreground">{t("logsUnavailableDetail", { error: group.error })}</div>
                     ) : group.lines.length === 0 ? (
                       <div className="text-muted-foreground">Логов пока нет</div>
                     ) : (
@@ -4864,13 +5341,13 @@ function App() {
             <div className="mt-5 flex items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                 <input type="checkbox" checked={logsVerbose} onChange={(event) => setLogsVerbose(event.target.checked)} />
-                Показать подробно (time/stream)
+                {t("logsVerbose")}
               </label>
               <button
                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                 onClick={() => openClientLogs(clientLogTarget)}
               >
-                Обновить
+                {t("refresh")}
               </button>
             </div>
           </div>
@@ -4878,21 +5355,21 @@ function App() {
       )}
 
       {logTarget && (
-        <Modal title={`Логи ${logTarget.clientID}`} onClose={() => setLogTarget(null)}>
+        <Modal title={t("logsClient", { id: logTarget.clientID })} onClose={() => setLogTarget(null)}>
           <div className="p-5">
             <div className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
-              <div>Статус: {logTarget.location.runtime.status}</div>
-              {logTarget.location.runtime.pid && <div>PID: {logTarget.location.runtime.pid}</div>}
-              {logTarget.location.runtime.started_at && <div>Started: {logTarget.location.runtime.started_at}</div>}
-              {logTarget.location.runtime.exited_at && <div>Exited: {logTarget.location.runtime.exited_at}</div>}
+              <div>{t("logStatus", { status: logTarget.location.runtime.status })}</div>
+              {logTarget.location.runtime.pid && <div>{t("logPid", { pid: String(logTarget.location.runtime.pid) })}</div>}
+              {logTarget.location.runtime.started_at && <div>{t("logStarted", { at: logTarget.location.runtime.started_at })}</div>}
+              {logTarget.location.runtime.exited_at && <div>{t("logExited", { at: logTarget.location.runtime.exited_at })}</div>}
               {logTarget.location.runtime.exit_error && (
-                <div className="text-destructive">Exit: {logTarget.location.runtime.exit_error}</div>
+                <div className="text-destructive">{t("logExitError", { err: logTarget.location.runtime.exit_error })}</div>
               )}
             </div>
 
             <LogScrollBox className="mt-4 max-h-[420px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
               {logs.length === 0 ? (
-                <div className="text-muted-foreground">Логов пока нет</div>
+                <div className="text-muted-foreground">{t("noLogsYet")}</div>
               ) : (
                 logs.map((line, index) => (
                   <div key={`${line.time}-${index}`} className="whitespace-pre-wrap break-words">
@@ -4914,21 +5391,21 @@ function App() {
             <div className="mt-5 flex items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                 <input type="checkbox" checked={logsVerbose} onChange={(event) => setLogsVerbose(event.target.checked)} />
-                Показать подробно (time/stream)
+                {t("logsVerbose")}
               </label>
               <div className="flex justify-end gap-2">
                 <button
                   className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                   onClick={() => openLogs(logTarget.clientID, logTarget.location)}
                 >
-                  Обновить
+                  {t("refresh")}
                 </button>
                 <button
                   className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80 disabled:opacity-60"
                   disabled={logs.length === 0 || busy}
                   onClick={copyLogs}
                 >
-                  Копировать
+                  {t("copy")}
                 </button>
               </div>
             </div>
@@ -4942,6 +5419,8 @@ function App() {
 
 createRoot(document.getElementById("root")!).render(
   <PanelErrorBoundary>
-    <App />
+    <PanelLangProvider>
+      <App />
+    </PanelLangProvider>
   </PanelErrorBoundary>,
 );

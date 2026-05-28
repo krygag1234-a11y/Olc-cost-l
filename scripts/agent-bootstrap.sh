@@ -322,6 +322,12 @@ ensure_panel_jitsi_tls() {
     echo 'OLCRTC_JITSI_INSECURE_TLS=1' >>"$env"
     log "panel.env: OLCRTC_JITSI_INSECURE_TLS=1 (Jitsi TURN with self-signed certs)"
   fi
+  local panel_lang="${OLC_LANG:-ru}"
+  [[ "$panel_lang" == en ]] || panel_lang=ru
+  if ! grep -qE '^[[:space:]]*OLC_PANEL_LANG=' "$env" 2>/dev/null; then
+    echo "OLC_PANEL_LANG=${panel_lang}" >>"$env"
+    log "panel.env: OLC_PANEL_LANG=${panel_lang} (from OLC_LANG)"
+  fi
 }
 
 run_patches() {
