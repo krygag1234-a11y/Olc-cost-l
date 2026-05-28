@@ -146,11 +146,11 @@ if [[ -n "$PROFILE_ID" ]]; then
   profile_install_template "$PROFILE_ID"
 fi
 
-profile_apply_env
-
 if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]] && [[ "$UPDATE" -ne 1 ]]; then
   profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP"
 fi
+
+profile_apply_env
 
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }

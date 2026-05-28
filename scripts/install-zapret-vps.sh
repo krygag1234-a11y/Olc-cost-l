@@ -34,7 +34,6 @@ fetch_zapret() {
   fi
   local tmp=""
   tmp="$(mktemp -d)"
-  trap '[[ -n "$tmp" ]] && rm -rf "$tmp"' RETURN
   log "download zapret v${ZAPRET_VER}"
   curl -fsSL --max-time 180 \
     "https://github.com/bol-van/zapret/releases/download/v${ZAPRET_VER}/zapret-v${ZAPRET_VER}.tar.gz" \
@@ -42,6 +41,7 @@ fetch_zapret() {
   rm -rf "$OPT"
   mv "$tmp/zapret-v${ZAPRET_VER}" "$OPT"
   (cd "$OPT" && sh ./install_bin.sh)
+  rm -rf "$tmp"
 }
 
 ensure_z4r_src() {

@@ -196,6 +196,18 @@ profile_apply_env() {
     jq --argjson t "$tor" --argjson s "$split" --argjson z "$zapret" --argjson w "$warp" \
       '.components.tor = $t | .components.split = $s | .components.zapret = $z | .components.warp = $w' \
       "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  else
+    # Инициализируем features.env из профиля, чтобы UI видел правильное состояние
+    install -d /etc/olcrtc-manager
+    cat >/etc/olcrtc-manager/features.env <<EOF
+# Olc-cost-l feature toggles (managed by /opt/Olc-cost-l/scripts/olc-feature.sh)
+# Values: 1 = enabled (default), 0 = disabled
+OLCRTC_ENABLE_ZAPRET=$([[ "$zapret" == "true" ]] && echo 1 || echo 0)
+OLCRTC_ENABLE_TOR=$([[ "$tor" == "true" ]] && echo 1 || echo 0)
+OLCRTC_ENABLE_SPLIT=$([[ "$split" == "true" ]] && echo 1 || echo 0)
+OLCRTC_ENABLE_WEBTUNNEL=$([[ "$tor" == "true" ]] && echo 1 || echo 0)
+OLCRTC_ENABLE_WARP=$([[ "$warp" == "true" ]] && echo 1 || echo 0)
+EOF
   fi
 
   [[ "$tor" == "true" ]] && ENABLE_TOR=1 || ENABLE_TOR=0
