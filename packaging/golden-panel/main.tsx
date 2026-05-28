@@ -3119,6 +3119,7 @@ function useCapabilities() {
 
 
 function HeaderNetworkToggles() { // NetworkUIV3
+  const { t } = usePanelLang();
   const { visible } = useCapabilities();
   const [flags, setFlags] = useState<Record<FeatureName, boolean> | null>(null);
   const [busy, setBusy] = useState<FeatureName | null>(null);

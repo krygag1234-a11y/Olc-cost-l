@@ -1,4 +1,4 @@
---- cmd/olcrtc-manager/main.go	2026-05-28 16:34:52.418941665 +0000
+--- cmd/olcrtc-manager/main.go	2026-05-28 16:54:01.856199190 +0000
 +++ /opt/Olc-cost-l/packaging/golden-panel/main.go	2026-05-28 15:22:16.698259692 +0000
 @@ -1,11 +1,12 @@
 -/* olc-manager-hotfix-v24 */

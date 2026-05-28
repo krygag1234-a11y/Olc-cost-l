@@ -1,5 +1,5 @@
---- src/main.tsx	2026-05-28 16:47:38.974310391 +0000
-+++ /opt/Olc-cost-l/packaging/golden-panel/main.tsx	2026-05-28 16:45:10.586556080 +0000
+--- src/main.tsx	2026-05-28 16:54:01.869199530 +0000
++++ /opt/Olc-cost-l/packaging/golden-panel/main.tsx	2026-05-28 16:53:34.824494225 +0000
 @@ -1,29 +1,29 @@
 -/* olc-panel-hotfix-v20 */
 -/* olc-panel-hotfix-v21 */
@@ -1684,16 +1684,7 @@
                    <textarea
                      className="min-h-[100px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                      value={String(settings.custom_direct_domains ?? "")}
-@@ -2118,7 +2840,7 @@
-                   />
-                 </label>
-                 <label className="grid gap-1 text-muted-foreground">
--                  Список panel/carrier hosts
-+                  {t("splitPanelHosts")}
-                   <textarea
-                     className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                     value={String(settings.panel_hosts ?? "")}
-@@ -2126,15 +2848,7 @@
+@@ -2118,15 +2840,7 @@
                    />
                  </label>
                  <label className="grid gap-1 text-muted-foreground">
@@ -1705,6 +1696,15 @@
 -                  />
 -                </label>
 -                <label className="grid gap-1 text-muted-foreground">
+-                  Список panel/carrier hosts
++                  {t("splitPanelHosts")}
+                   <textarea
+                     className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
+                     value={String(settings.panel_hosts ?? "")}
+@@ -2134,7 +2848,7 @@
+                   />
+                 </label>
+                 <label className="grid gap-1 text-muted-foreground">
 -                  Force-Tor домены
 +                  {t("splitForceTor")}
                    <textarea
@@ -1901,7 +1901,7 @@
      return c.installed !== false;
    };
    const reloadCapsNow = async () => {
-@@ -2427,15 +3139,6 @@
+@@ -2428,15 +3140,6 @@
    };
  
    useEffect(() => {
@@ -1917,7 +1917,7 @@
      void load();
      const onChange = () => void load();
      window.addEventListener("olc-features-changed", onChange);
-@@ -2471,14 +3174,15 @@
+@@ -2472,14 +3175,15 @@
          {items.filter((it) => visible(it.name)).map((it) => {
            const on = Boolean(flags?.[it.name]);
            const splitBlocked = it.name === "split" && !flags?.tor;
@@ -1935,7 +1935,7 @@
                  ? "Сначала Tor"
                  : `${it.name}: ${on ? "on" : "off"}`;
            return (
-@@ -2522,6 +3226,7 @@
+@@ -2523,6 +3227,7 @@
  }
  
  function FeaturesPanel() { // FeaturesPanelV2 NetworkUIV3
@@ -1943,7 +1943,7 @@
    const { visible } = useCapabilities();
    const [data, setData] = useState<FeaturesResponse | null>(null);
    const [busy, setBusy] = useState<FeatureName | null>(null);
-@@ -2533,6 +3238,8 @@
+@@ -2534,6 +3239,8 @@
        return false;
      }
    });
@@ -1952,7 +1952,7 @@
  
    const load = async () => {
      try {
-@@ -2552,9 +3259,6 @@
+@@ -2553,9 +3260,6 @@
      return () => window.removeEventListener("olc-features-changed", onChange);
    }, []);
  
@@ -1962,7 +1962,7 @@
    const toggle = async (name: FeatureName, enabled: boolean) => {
      setBusy(name);
      setErr("");
-@@ -2582,16 +3286,12 @@
+@@ -2583,16 +3287,12 @@
  
    return (
      <section className="mt-4 rounded-lg border border-border bg-card p-4">
@@ -1983,7 +1983,7 @@
            onClick={() => {
              setCollapsed((v) => {
                const next = !v;
-@@ -2604,7 +3304,7 @@
+@@ -2605,7 +3305,7 @@
              });
            }}
          >
@@ -1992,7 +1992,7 @@
          </button>
        </div>
        {err && <div className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">{err}</div>}
-@@ -2653,7 +3353,7 @@
+@@ -2654,7 +3354,7 @@
                      }
                      onClick={() => void toggle(row.name, !enabled)}
                    >
@@ -2001,7 +2001,7 @@
                    </button>
                  </div>
                </div>
-@@ -2664,7 +3364,7 @@
+@@ -2665,7 +3365,7 @@
            <div className="col-span-full my-1 border-t border-border" />
            <div className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-background p-3">
              <div>
@@ -2010,7 +2010,7 @@
                <div className="text-xs text-muted-foreground">panel.env, Jitsi TLS, split lists — ветка fix/all</div>
              </div>
              <div className="flex gap-1">
-@@ -2684,7 +3384,6 @@
+@@ -2685,7 +3385,6 @@
  }
  
  
@@ -2018,7 +2018,7 @@
  // olc-phase456-ui
  type PanelNotification = {
    id: string;
-@@ -2697,7 +3396,6 @@
+@@ -2698,7 +3397,6 @@
  };
  
  
@@ -2026,7 +2026,7 @@
  function AutodetectNotificationSettingsPanel({
    onClose,
  }: {
-@@ -2753,6 +3451,7 @@
+@@ -2754,6 +3452,7 @@
  }
  
  function NotificationPreferencesModal({ onClose }: { onClose: () => void }) {
@@ -2034,7 +2034,7 @@
    const [view, setView] = useState<"main" | "autodetect">("main");
    const [s, setS] = useState<Record<string, unknown>>({});
    const [msg, setMsg] = useState("");
-@@ -2772,8 +3471,8 @@
+@@ -2773,8 +3472,8 @@
    const sources = (s.sources as Record<string, boolean>) ?? {};
    const setSource = (k: string, v: boolean) => setS({ ...s, sources: { ...sources, [k]: v } });
    return (
@@ -2045,7 +2045,7 @@
          {view === "main" ? (
            <div className="space-y-3 text-sm">
              <label className="flex items-center gap-2 text-xs">
-@@ -2788,11 +3487,11 @@
+@@ -2789,11 +3488,11 @@
                </label>
              ))}
              <button type="button" className="w-full rounded border border-border px-3 py-2 text-left text-xs hover:bg-muted" onClick={() => setView("autodetect")}>
@@ -2059,7 +2059,7 @@
              </button>
            </div>
          ) : (
-@@ -2815,12 +3514,13 @@
+@@ -2816,12 +3515,13 @@
    expanded: boolean;
    onToggle: () => void;
  }) {
@@ -2076,7 +2076,7 @@
        </button>
        {expanded && (
          <div className="rounded-md border border-dashed border-border bg-card p-3">
-@@ -2832,6 +3532,7 @@
+@@ -2833,6 +3533,7 @@
  }
  
  function NotificationBell() {
@@ -2084,7 +2084,7 @@
    const [open, setOpen] = useState(false);
    const [prefsOpen, setPrefsOpen] = useState(false);
    const [list, setList] = useState<PanelNotification[]>([]);
-@@ -2894,7 +3595,7 @@
+@@ -2895,7 +3596,7 @@
          type="button"
          className="relative inline-flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
          onClick={() => setOpen((o) => !o)}
@@ -2093,7 +2093,7 @@
        >
          <Bell className="h-4 w-4" />
          {unread > 0 && (
-@@ -2906,18 +3607,18 @@
+@@ -2907,18 +3608,18 @@
        {open && (
          <div className="absolute right-0 z-50 mt-1 w-[min(24rem,90vw)] rounded-lg border border-border bg-card shadow-lg">
            <div className="flex items-center justify-between border-b border-border px-3 py-2 text-sm font-medium">
@@ -2115,7 +2115,7 @@
              {list.map((n) => (
                <li key={n.id} className="mb-2 rounded border border-border p-2">
                  <div className="flex items-start justify-between gap-2">
-@@ -2941,6 +3642,7 @@
+@@ -2942,6 +3643,7 @@
  }
  
  function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {
@@ -2123,7 +2123,7 @@
    const [open, setOpen] = useState(false);
    const [status, setStatus] = useState<Record<string, unknown> | null>(null);
    const [job, setJob] = useState<{ job_id?: string; status?: string } | null>(null);
-@@ -2987,7 +3689,7 @@
+@@ -2988,7 +3690,7 @@
    }, [open]);
  
    const runUpdate = async () => {
@@ -2132,7 +2132,7 @@
      setBusy(true);
      try {
        const res = await fetch("/api/updates/run", { method: "POST" });
-@@ -3163,27 +3865,27 @@
+@@ -3164,27 +3866,27 @@
                </div>
              )}
              {Boolean(status?.update_locked) && (
@@ -2166,7 +2166,7 @@
              )}
            </div>
          </Modal>
-@@ -3243,8 +3945,7 @@
+@@ -3244,8 +3946,7 @@
  /* olc-roadmap-finish-v1 */
  /* olc-roadmap-finish-v2 */
  function ComponentsDrawerButton() {
@@ -2176,7 +2176,7 @@
    const [open, setOpen] = useState(false);
    const { caps, reloadCaps } = useCapabilities();
    const [jobMsg, setJobMsg] = useState("");
-@@ -3324,41 +4025,15 @@
+@@ -3325,41 +4026,15 @@
      return () => window.clearInterval(id);
    }, [activeJobId]);
  
@@ -2221,7 +2221,7 @@
        setJobsByComponent((prev) => ({ ...prev, [name]: { job_id: jobId, status: "running", action } }));
        if (jobId) {
          setActiveJobId(jobId);
-@@ -3371,9 +4046,9 @@
+@@ -3372,9 +4047,9 @@
          window.dispatchEvent(new Event("olc-capabilities-changed"));
          window.dispatchEvent(new Event("olc-features-changed"));
          if (finalStatus === "done") {
@@ -2233,7 +2233,7 @@
          }
        }
      } catch (e) {
-@@ -3387,15 +4062,15 @@
+@@ -3388,15 +4063,15 @@
          type="button"
          className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
          onClick={() => setOpen(true)}
@@ -2252,7 +2252,7 @@
              {COMPONENT_DRAWER_ITEMS.map((c) => {
                const st = caps?.components?.[c.id];
                const installed = st?.installed ?? false;
-@@ -3414,22 +4089,22 @@
+@@ -3415,22 +4090,22 @@
                const showJob = j && componentJobUiVisible(j);
                const statusText = showJob
                  ? j.status === "running"
@@ -2282,7 +2282,7 @@
                    </div>
                    <div className="flex gap-2">
                      {j?.job_id && showJob && (
-@@ -3438,27 +4113,28 @@
+@@ -3439,27 +4114,28 @@
                          className="rounded border border-border px-2 py-1 text-xs"
                          onClick={() => setActiveJobId(j.job_id ?? null)}
                        >
@@ -2318,7 +2318,7 @@
                        </button>
                      )}
                    </div>
-@@ -3469,12 +4145,12 @@
+@@ -3470,12 +4146,12 @@
              {activeJobId && (
                <div className="rounded border border-border bg-background p-2">
                  <div className="mb-2 flex items-center justify-between">
@@ -2335,7 +2335,7 @@
                </div>
              )}
            </div>
-@@ -3486,6 +4162,7 @@
+@@ -3487,6 +4163,7 @@
  
  
  function ErrorsSummaryButton() {
@@ -2343,7 +2343,7 @@
    const [open, setOpen] = useState(false);
    const [autodetectOpen, setAutodetectOpen] = useState(false);
    const [items, setItems] = useState<PanelNotification[]>([]);
-@@ -3528,9 +4205,9 @@
+@@ -3529,9 +4206,9 @@
          {errors.length > 0 && <span className="text-destructive">{errors.length}</span>}
        </button>
        {open && (
@@ -2355,7 +2355,7 @@
              {errors.map((n) => (
                <li key={n.id} className="rounded border border-border p-2">
                  <div className="font-medium text-destructive">{n.title}</div>
-@@ -3552,15 +4229,15 @@
+@@ -3553,15 +4230,15 @@
              ))}
              <p className="text-xs">
                <button type="button" className="text-primary underline" onClick={() => { setOpen(false); setAutodetectOpen(true); }}>
@@ -2374,7 +2374,7 @@
              <AutodetectNotificationSettingsPanel onClose={() => setAutodetectOpen(false)} />
            </div>
          </Modal>
-@@ -3570,8 +4247,8 @@
+@@ -3571,8 +4248,8 @@
  }
  
  
@@ -2384,7 +2384,7 @@
    const [show, setShow] = useState(false);
    const [dismissed, setDismissed] = useState(false);
    useEffect(() => {
-@@ -3590,11 +4267,11 @@
+@@ -3591,11 +4268,11 @@
    if (!show) return null;
    return (
      <div className="fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-2 rounded-lg border border-primary bg-background p-3 shadow-lg">
@@ -2399,7 +2399,7 @@
          ✕
        </button>
      </div>
-@@ -3602,6 +4279,7 @@
+@@ -3603,6 +4280,7 @@
  }
  
  function App() {
@@ -2407,7 +2407,7 @@
    const [authenticated, setAuthenticated] = useState<boolean | null>(null);
    const [setupRequired, setSetupRequired] = useState(false);
    const [state, setState] = useState<State | null>(null);
-@@ -3702,7 +4380,9 @@
+@@ -3703,7 +4381,9 @@
  
    useEffect(() => {
      if (!authenticated) return;
@@ -2418,7 +2418,7 @@
    }, [authenticated]);
  
    useEffect(() => {
-@@ -3758,25 +4438,6 @@
+@@ -3759,25 +4439,6 @@
      setLocationForm({ ...defaultLocationForm });
    };
  
@@ -2444,7 +2444,7 @@
    const openSettings = async () => {
      setShowSettings(true);
      setShowAutodetectInline(false);
-@@ -3799,7 +4460,7 @@
+@@ -3800,7 +4461,7 @@
          transport: location.transport,
          payload: location.payload ?? {},
          dns: location.dns,
@@ -2453,7 +2453,7 @@
        }),
      );
    };
-@@ -3888,7 +4549,6 @@
+@@ -3889,7 +4550,6 @@
                transport: location.transport,
                payload: location.payload ?? {},
                dns: location.dns,
@@ -2461,7 +2461,7 @@
              },
        );
        await request(`/api/clients/${encodeURIComponent(editLocation.client.client_id)}`, {
-@@ -4083,21 +4743,21 @@
+@@ -4084,21 +4744,21 @@
            document.body.removeChild(textarea);
          }
        }
@@ -2487,7 +2487,7 @@
    }
  
    if (!authenticated) {
-@@ -4114,53 +4774,50 @@
+@@ -4115,53 +4775,50 @@
      <UpdateAvailableToast />
      <div className="min-h-screen">
        <header className="border-b border-border bg-background/95">
@@ -2554,7 +2554,7 @@
                <ProjectUpdateButton disabled={busy} />
                <NotificationBell />
                <ErrorsSummaryButton />
-@@ -4172,8 +4829,8 @@
+@@ -4173,8 +4830,8 @@
        <main className="mx-auto max-w-7xl px-5 py-6">
          <section className="grid gap-3 md:grid-cols-3">
            <ProfileStatCard name={state?.name ?? ""} onSave={async (next) => { await saveSettingsName(next); }} />
@@ -2565,7 +2565,7 @@
          </section>
  
          <FeaturesPanel />
-@@ -4181,7 +4838,7 @@
+@@ -4182,7 +4839,7 @@
          <section className="mt-4 rounded-lg border border-border bg-card p-4">
            <div className="flex flex-wrap items-center justify-between gap-3">
              <div>
@@ -2574,7 +2574,7 @@
              </div>
              <div className="flex flex-wrap gap-2">
                <button
-@@ -4189,7 +4846,7 @@
+@@ -4190,7 +4847,7 @@
                  onClick={openCreate}
                >
                  <Plus className="h-4 w-4" />
@@ -2583,7 +2583,7 @@
                </button>
              </div>
            </div>
-@@ -4225,7 +4882,7 @@
+@@ -4226,7 +4883,7 @@
                          disabled={busy}
                          onClick={() => copySubscription(client.client_id)}
                        >
@@ -2592,7 +2592,7 @@
                        </button>
                        <button
                          className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
-@@ -4276,8 +4933,8 @@
+@@ -4277,8 +4934,8 @@
                                <th className="py-2 pr-3 font-medium">Provider</th>
                                <th className="py-2 pr-3 font-medium">Transport</th>
                                <th className="py-2 pr-3 font-medium">DNS</th>
@@ -2603,7 +2603,7 @@
                              </tr>
                            </thead>
                            <tbody>
-@@ -4286,7 +4943,14 @@
+@@ -4287,7 +4944,14 @@
                                  <td className="py-3 pr-3 font-medium">{loc.name || "Default"}</td>
                                  <td className="max-w-[220px] truncate py-3 pr-3 text-muted-foreground">{loc.room_id}</td>
                                  <td className="py-3 pr-3">{loc.carrier}</td>
@@ -2619,7 +2619,7 @@
                                  <td className="py-3 pr-3 text-muted-foreground">{loc.dns}</td>
                                  <td className="py-3 pr-3">
                                    <span
-@@ -4305,7 +4969,7 @@
+@@ -4306,7 +4970,7 @@
                                        onClick={() => restartLocation(client.client_id, loc)}
                                      >
                                        <RefreshCw className="h-4 w-4" />
@@ -2628,7 +2628,7 @@
                                      </button>
                                      <button
                                        className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
-@@ -4313,7 +4977,7 @@
+@@ -4314,7 +4978,7 @@
                                        onClick={() => openLogs(client.client_id, loc)}
                                      >
                                        <Terminal className="h-4 w-4" />
@@ -2637,7 +2637,7 @@
                                      </button>
                                      <button
                                        className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
-@@ -4321,14 +4985,14 @@
+@@ -4322,14 +4986,14 @@
                                        onClick={() => copyOlcBoxLink(client.client_id, loc.uri)}
                                      >
                                        <Copy className="h-4 w-4" />
@@ -2654,7 +2654,7 @@
                                      </button>
                                      <button
                                        className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
-@@ -4475,14 +5139,16 @@
+@@ -4476,14 +5140,16 @@
                  className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
                  onClick={() => copyOlcBoxLink(qrTarget.clientID, qrTarget.location.uri)}
                >
@@ -2673,7 +2673,7 @@
              </div>
            </div>
          </Modal>
-@@ -4490,13 +5156,36 @@
+@@ -4491,13 +5157,36 @@
  
        {autodetectMiniOpen && <NotificationPreferencesModal onClose={() => setAutodetectMiniOpen(false)} />}
        {showSettings && (
@@ -2713,7 +2713,7 @@
                    <input
                      className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                      value={settingsForm.name}
-@@ -4505,7 +5194,7 @@
+@@ -4506,7 +5195,7 @@
                    />
                  </label>
                  <label className="grid gap-2 text-sm text-muted-foreground">
@@ -2722,7 +2722,7 @@
                    <input
                      className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                      type="number"
-@@ -4517,14 +5206,14 @@
+@@ -4518,14 +5207,14 @@
                  </label>
                </div>
                {settings?.port_override && (
@@ -2740,7 +2740,7 @@
                  <input
                    className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                    value={settingsForm.subscription_path}
-@@ -4532,7 +5221,7 @@
+@@ -4533,7 +5222,7 @@
                  />
                </label>
                <label className="grid gap-2 text-sm text-muted-foreground">
@@ -2749,7 +2749,7 @@
                  <input
                    className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
                    value={settingsForm.refresh}
-@@ -4542,29 +5231,14 @@
+@@ -4543,29 +5232,14 @@
                </label>
              </section>
  
@@ -2785,7 +2785,7 @@
                <label className="grid gap-2 text-sm text-muted-foreground">
                  Текущий пароль
                  <input
-@@ -4604,28 +5278,45 @@
+@@ -4605,28 +5279,45 @@
                    onClick={changePassword}
                  >
                    <KeyRound className="h-4 w-4" />
@@ -2837,7 +2837,7 @@
                      ) : group.lines.length === 0 ? (
                        <div className="text-muted-foreground">Логов пока нет</div>
                      ) : (
-@@ -4647,18 +5338,18 @@
+@@ -4648,18 +5339,18 @@
                    </div>
                  ))
                )}
@@ -2859,7 +2859,7 @@
                </button>
              </div>
            </div>
-@@ -4666,21 +5357,21 @@
+@@ -4667,21 +5358,21 @@
        )}
  
        {logTarget && (
@@ -2889,7 +2889,7 @@
                ) : (
                  logs.map((line, index) => (
                    <div key={`${line.time}-${index}`} className="whitespace-pre-wrap break-words">
-@@ -4697,26 +5388,26 @@
+@@ -4698,26 +5389,26 @@
                    </div>
                  ))
                )}
@@ -2920,7 +2920,7 @@
                  </button>
                </div>
              </div>
-@@ -4730,6 +5421,8 @@
+@@ -4731,6 +5422,8 @@
  
  createRoot(document.getElementById("root")!).render(
    <PanelErrorBoundary>
