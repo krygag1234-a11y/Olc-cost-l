@@ -31,6 +31,8 @@ ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
 ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
 ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
 RU_VPS="${OLCRTC_RU_VPS:-1}"
+PANEL_ACCESS="${OLCRTC_PANEL_ACCESS:-ip}"
+PANEL_ACCESS_EXPLICIT=0
 REBUILD_ONLY=0
 UPDATE=0
 PROFILE_ID=""
@@ -112,6 +114,8 @@ while [[ $# -gt 0 ]]; do
     --no-warp) ENABLE_WARP=0 ;;
     --no-bridges) ENABLE_BRIDGES=0 ;;
     --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1; ENABLE_BRIDGES=1 ;;
+    --ssh|--localhost|--local-panel) PANEL_ACCESS=ssh; PANEL_ACCESS_EXPLICIT=1 ;;
+    --ip|--public-panel) PANEL_ACCESS=ip; PANEL_ACCESS_EXPLICIT=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
     --update) UPDATE=1 ;;
     --resume) export OLCRTC_RESUME=1 ;;
@@ -123,7 +127,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       continue
       ;;
-    --write-profile) profile_from_flags "install.sh:${*:-}"; profile_show; exit 0 ;;
+    --write-profile) profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" "${ENABLE_BRIDGES:-1}" "$RU_VPS" "install.sh:${*:-}" "$ENABLE_WARP" "$PANEL_ACCESS"; profile_show; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage; exit 1 ;;
   esac
@@ -149,7 +153,11 @@ if [[ -n "$PROFILE_ID" ]]; then
 fi
 
 if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]] && [[ "$UPDATE" -ne 1 ]]; then
-  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP"
+  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP" "$PANEL_ACCESS"
+fi
+
+if [[ "$PANEL_ACCESS_EXPLICIT" -eq 1 ]]; then
+  profile_set_panel_access "$PANEL_ACCESS"
 fi
 
 profile_apply_env
@@ -276,6 +284,8 @@ EOF
 install_systemd_units() {
   local scripts="${REPO_ROOT}/scripts"
   cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
+  sed -i "s/^Environment=OLCRTC_MANAGER_ADDR=.*/Environment=OLCRTC_MANAGER_ADDR=${PANEL_LISTEN_ADDR:-0.0.0.0}/" \
+    /etc/systemd/system/olcrtc-manager.service
   if [[ "$ENABLE_TOR" -ne 1 ]]; then
     sed -i '/tor@default\.service/d; /^Environment=OLCRTC_EXIT_PROXY=/d' \
       /etc/systemd/system/olcrtc-manager.service
@@ -351,16 +361,18 @@ ensure_panel_jitsi_tls() {
   local env=/etc/olcrtc-manager/panel.env
   install -d /etc/olcrtc-manager
   touch "$env"
-  if ! grep -qE '^[[:space:]]*OLCRTC_JITSI_INSECURE_TLS=' "$env" 2>/dev/null; then
-    echo 'OLCRTC_JITSI_INSECURE_TLS=1' >>"$env"
-    log "panel.env: OLCRTC_JITSI_INSECURE_TLS=1 (Jitsi TURN with self-signed certs)"
+  safety_panel_env_set "$env" OLCRTC_JITSI_INSECURE_TLS 1
+  safety_panel_env_set "$env" OLCRTC_MANAGER_ADDR "${PANEL_LISTEN_ADDR:-0.0.0.0}"
+  safety_panel_env_set "$env" OLCRTC_PANEL_ACCESS "${PANEL_ACCESS:-ip}"
+  if [[ "${PANEL_ACCESS:-ip}" == "ssh" ]]; then
+    safety_panel_env_set "$env" OLCRTC_PUBLIC_URL "http://127.0.0.1:8888"
+  else
+    safety_panel_env_set "$env" OLCRTC_PUBLIC_URL ""
   fi
+  log "panel.env: panel access=${PANEL_ACCESS:-ip}, listen=${PANEL_LISTEN_ADDR:-0.0.0.0}"
   local panel_lang="${OLC_LANG:-ru}"
   [[ "$panel_lang" == en ]] || panel_lang=ru
-  if ! grep -qE '^[[:space:]]*OLC_PANEL_LANG=' "$env" 2>/dev/null; then
-    echo "OLC_PANEL_LANG=${panel_lang}" >>"$env"
-    log "panel.env: OLC_PANEL_LANG=${panel_lang} (from OLC_LANG)"
-  fi
+  safety_panel_env_set "$env" OLC_PANEL_LANG "$panel_lang"
 }
 
 run_patches() {

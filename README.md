@@ -24,6 +24,13 @@ Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.m
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 ```
+ - Установка на локалхост, а не открытый ip
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
+```
+
+Небольшое примечение: флаг `--ssh` можно подставить в любую команду установки, обновления или доустановки. Тогда панель будет слушать только `127.0.0.1` на VPS и открываться через SSH-туннель, а не через открытый IP.
 
 ---
 
@@ -87,24 +94,40 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | `--bridges`| Устанавливается только мосты для Tor + панель |
 | **ДРУГОЕ** | |
 | `--update` | Обновление: git pull, пересборка, обновление списков и служб или доустановка |
+| `--ssh` | Установка и настройка доступа к панели по ssh |
+| `--ip` | Вернуть обычный открытый режим панели на IP |
 
-Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [UPDATE.md](docs/UPDATE.md)
+Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` либо `http://127.0.0.1:8888/admin` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [UPDATE.md](docs/UPDATE.md)
 
 ## Доступ к панели через localhost / SSH-туннель
 
-Если не хотите открывать порт панели наружу или панель доступна только локально на VPS, используйте SSH-туннель:
+Если не хотите открывать порт панели наружу, добавьте `--ssh` к любой команде установки или обновления:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update --ssh
+sudo olc-update --ssh
+```
+
+Этот выбор сохраняется в `/etc/olcrtc-manager/deploy-profile.json`: следующие `--update` и обычные доустановки будут помнить, что панель должна слушать только `127.0.0.1`. Чтобы вернуть обычный открытый режим:
+
+```bash
+sudo olc-update --ip
+```
+
+Для доступа к панели откройте SSH-туннель со своего компьютера/ноутбука, а не внутри VPS. Команду ниже нужно выполнить в терминале на вашем устройстве:
 
 ```bash
 ssh -L 8888:127.0.0.1:8888 root@ВАШ_IP_ИЛИ_DDNS
 ```
 
-После подключения откройте на своём компьютере:
+Пока это SSH-подключение открыто, в браузере на этом же устройстве откройте:
 
 ```text
 http://127.0.0.1:8888/admin
 ```
 
-Установщик в конце также выводит готовую ссылку на панель и пример команды для SSH-туннеля с IP текущего VPS. Интерфейс панели и сообщения установщика по умолчанию русские (`OLC_LANG=ru`, `OLC_PANEL_LANG=ru`).
+Установщик в конце выводит готовую ссылку на панель и пример команды для SSH-туннеля с IP текущего VPS. Если IP динамический, используйте актуальный IP или DDNS только в SSH-команде; сама панель в режиме `--ssh` не зависит от внешнего IP и остаётся привязанной к `127.0.0.1`. Интерфейс панели и сообщения установщика по умолчанию русские (`OLC_LANG=ru`, `OLC_PANEL_LANG=ru`).
 
 ## Полное удаление
 

@@ -99,11 +99,33 @@ olc_detect_panel_host() {
   printf '%s\n' "${host:-127.0.0.1}"
 }
 
+olc_panel_access_mode() {
+  if [[ -n "${PANEL_ACCESS:-}" ]]; then
+    printf '%s\n' "$PANEL_ACCESS"
+    return 0
+  fi
+  if [[ -f /etc/olcrtc-manager/deploy-profile.json ]] && command -v jq >/dev/null 2>&1; then
+    jq -r '.panel.access // "ip"' /etc/olcrtc-manager/deploy-profile.json 2>/dev/null || echo ip
+    return 0
+  fi
+  if [[ -f /etc/olcrtc-manager/panel.env ]]; then
+    local access
+    access="$(grep -E '^[[:space:]]*OLCRTC_PANEL_ACCESS=' /etc/olcrtc-manager/panel.env | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)"
+    [[ -n "$access" ]] && { printf '%s\n' "$access"; return 0; }
+  fi
+  echo ip
+}
+
 olc_print_finish_help() {
   local port="${1:-8888}"
-  local host public_url
+  local host public_url panel_access
   host="$(olc_detect_panel_host)"
-  public_url="http://${host}:${port}/admin"
+  panel_access="$(olc_panel_access_mode)"
+  if [[ "$panel_access" == "ssh" ]]; then
+    public_url="http://127.0.0.1:${port}/admin"
+  else
+    public_url="http://${host}:${port}/admin"
+  fi
 
   cat >&2 <<EOF
 
@@ -113,7 +135,7 @@ olc_print_finish_help() {
   Панель:
     ${public_url}
 
-  Если панель закрыта фаерволом или нужна локальная схема:
+  SSH-туннель:
     ssh -L ${port}:127.0.0.1:${port} root@${host}
     затем открыть: http://127.0.0.1:${port}/admin
 

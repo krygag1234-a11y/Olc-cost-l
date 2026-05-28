@@ -107,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     --tor|--warp|--zapret|--split|--bridges) BOOT_ARGS+=("$1") ;;
     --no-tor|--no-warp|--no-zapret|--no-split|--no-bridges) BOOT_ARGS+=("$1") ;;
     --foreign|--with-warp|--with-tor|--ru) BOOT_ARGS+=("$1") ;;
+    --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1") ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;
     *) BOOT_ARGS+=("$1") ;;

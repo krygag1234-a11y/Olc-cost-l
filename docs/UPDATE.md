@@ -19,17 +19,20 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 sudo olc-update                    # git pull + bootstrap по deploy-profile
 sudo olc-update --show-profile
 sudo olc-update --profile ru-full
+sudo olc-update --ssh              # оставить/переключить панель на localhost + SSH-туннель
+sudo olc-update --ip               # вернуть обычный открытый режим панели
 
 sudo olc-feature status            # toggle без переустановки пакетов
 sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 ```
 
-`olc-update` вызывает `scripts/agent-bootstrap.sh --update` с учётом `/etc/olcrtc-manager/deploy-profile.json` (инкрементальный update: foreign VPS не тянет лишний zapret/Tor).
+`olc-update` вызывает `scripts/agent-bootstrap.sh --update` с учётом `/etc/olcrtc-manager/deploy-profile.json` (инкрементальный update: foreign VPS не тянет лишний zapret/Tor). Режим доступа панели тоже хранится в профиле: `--ssh` означает `127.0.0.1` и доступ через туннель, `--ip` означает обычное прослушивание внешнего IP.
 
 ## Ручные режимы install.sh
 
 ```bash
 sudo bash install.sh --full
+sudo bash install.sh --full --ssh
 sudo bash install.sh --update
 sudo bash install.sh --resume          # продолжить install-state.json
 sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --no-tor

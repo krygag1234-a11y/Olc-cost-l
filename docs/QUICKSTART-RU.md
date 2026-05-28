@@ -16,6 +16,12 @@
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
 ```
 
+Если панель должна быть доступна только через SSH-туннель, добавьте `--ssh`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
+```
+
 Перед установкой (рекомендуется):
 
 ```bash
@@ -27,7 +33,15 @@ sudo olc-disk-check   # после первого клона репо
 
 ## 2. Открыть панель
 
-В браузере: `http://IP_ВАШЕГО_VPS:8888/admin`
+В обычном режиме: `http://IP_ВАШЕГО_VPS:8888/admin`
+
+В режиме `--ssh` сначала откройте туннель со своего компьютера/ноутбука, а не внутри VPS:
+
+```bash
+ssh -L 8888:127.0.0.1:8888 root@IP_ВАШЕГО_VPS
+```
+
+Пока SSH-подключение открыто, в браузере на этом же устройстве откройте: `http://127.0.0.1:8888/admin`
 
 При первом входе задайте логин и пароль администратора.
 
@@ -44,6 +58,13 @@ sudo olc-disk-check   # после первого клона репо
 
 ```bash
 sudo olc-update
+```
+
+Если установка была сделана с `--ssh`, `olc-update` сохранит localhost-режим автоматически. Явно переключить режим можно так:
+
+```bash
+sudo olc-update --ssh  # панель только через SSH-туннель
+sudo olc-update --ip   # обычный открытый режим на IP
 ```
 
 Или через curl (если сервер свежий или команда `olc-update` недоступна):
