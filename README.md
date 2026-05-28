@@ -19,8 +19,9 @@ Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.m
 
 ## Быстрая установка
 
+ - Быстрая установка одной командой (устанавливает всё: Tor, Split, Zapret, Warp, мосты и панель с кастомным ui)
+
 ```bash
-# Быстрая установка одной командой (устанавливает всё: Tor, Split, Zapret, мосты и исправления панели)
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 ```
 
