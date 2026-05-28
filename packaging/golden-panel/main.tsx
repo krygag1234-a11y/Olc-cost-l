@@ -848,6 +848,7 @@ function clampPayloadIfMax(
 }
 
 function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
+  const { t } = usePanelLang();
   const [cfg, setCfg] = useState<InstanceDefaultsV1>(() => loadInstanceDefaults());
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1134,6 +1135,7 @@ type JitsiPreflightResult = {
 };
 
 function JitsiPreflightNotice({ carrier, roomID }: { carrier: string; roomID: string }) {
+  const { t } = usePanelLang();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<JitsiPreflightResult | null>(null);
   const [error, setError] = useState("");
