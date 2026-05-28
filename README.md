@@ -1,8 +1,8 @@
 # Olc-cost-l
 
-Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor-мосты, split-маршрутизация, zapret, Olcbox.
+Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor, Tor-мосты, split-маршрутизация, zapret, Warp. Olcbox.
 
-**Репозиторий:** https://github.com/krygag1234-a11y/Olc-cost-l
+![Image alt](https://github.com/krygag1234-a11y/Olc-cost-l/blob/main/%D1%8C.png)
 
 ## Upstream (2026-05)
 
@@ -12,8 +12,6 @@
 | manager panel | **`main`** + патчи в `scripts/patch-olcrtc-manager-*.sh` | https://github.com/BigDaddy3334/olcrtc-manager-panel |
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
-
-**Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
 
 Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.md](docs/CLIENT.md)
 
