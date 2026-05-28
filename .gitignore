@@ -14,3 +14,7 @@ docs/PROJECT-STATE*.md
 # zapret4rocket is cloned by sync-zapret4rocket.sh (large vendor tree)
 data/zapret4rocket/*
 !data/zapret4rocket/README.md
+
+# Cursor / IDE
+.cursor/
+.cursorrules
