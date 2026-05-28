@@ -101,7 +101,7 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 
 > **Или короткая команда** (если репозиторий уже установлен):
 > ```bash
-> sudo bash /opt/Olc-cost-l/scripts/olc-purge.sh
+> sudo olc-purge
 > ```
 
 ---
