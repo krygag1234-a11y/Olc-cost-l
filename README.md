@@ -20,23 +20,24 @@ Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.m
 ## Быстрая установка
 
 ```bash
-# Установка по умолчанию (RU VPS: Tor + Split + Zapret):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+# Быстрая установка одной командой (устанавливает всё: Tor, Split, Zapret, мосты и исправления панели)
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
+
 # Иностранный VPS (без Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-tor
 # Иностранный VPS + Cloudflare WARP (proxy, без Tor):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --with-warp
 # RU VPS (без разделения маршрутов, весь трафик через Tor):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-split
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-split
 # RU VPS (без Zapret DPI обхода):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-zapret
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-zapret
 # Только обновление:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
 
-> **Совет:** Вы можете комбинировать флаги, если хотите собрать кастомную конфигурацию.
+> **Совет:** Вы можете комбинировать флаги, если хотите собрать кастомную конфигурацию. Базовый флаг `--full` означает полную установку со всеми компонентами, а флаги-исключения отключают ненужное.
 > Например, установить панель на RU VPS без разделения маршрутов и без DPI-обхода:
-> `curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-split --no-zapret`
+> `curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-split --no-zapret`
 > 
 > **Короткая команда для обновлений:** После установки доступна утилита `olc-update`, которая позволяет быстро докачать обновления скриптов из GitHub и применить их, даже если предыдущая установка прервалась.
 
@@ -66,8 +67,7 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 | **zapret** | DPI на direct egress для заблокированных `.ru` |
 | **WARP** (опц.) | Cloudflare SOCKS5 на foreign VPS вместо Tor — [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) |
 | **Списки** | `*.ru`, CDN, `2ipcore`, force-tor (YouTube), geosite |
- 
- -- (Но насчет списков не все учитано, есть функции добавления в ручную через ui)
+
 ```text
 Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 ```
@@ -121,15 +121,19 @@ sudo /opt/Olc-cost-l/scripts/tor-bridge-rotate.sh
 
 ---
 
-## Режимы bootstrap
+## Режимы bootstrap (установки)
 
 | Флаг | Результат |
 |------|-----------|
-| `--full` | Tor + split + zapret + патчи |
-| `--full --no-tor` | Иностранный VPS, без мостов |
-| `--with-warp` | Foreign VPS + WARP proxy (без Tor) |
-| `--no-split` | Tor на весь трафик |
-| `--update` | git pull, пересборка, списки, units |
+| `--full` | **Полная установка:** Панель + исправления + Tor + мосты + split + zapret |
+| `--full --no-tor` | Иностранный VPS: Устанавливает всё, кроме Tor и мостов |
+| `--full --with-warp` | Зарубежный VPS с WARP proxy: устанавливает WARP вместо Tor |
+| `--full --no-split` | Без разделения: весь трафик идёт через Tor |
+| `--full --no-zapret` | Без DPI-обхода (zapret не устанавливается) |
+| `--tor` | Выборочно: только Панель + исправления + Tor |
+| `--split` | Выборочно: только Панель + исправления + Split (требует Tor) |
+| `--zapret` | Выборочно: только Панель + исправления + Zapret |
+| `--update` | Обновление: git pull, пересборка, обновление списков и служб |
 
 В `config.json`: **`link: tor`** (по умолчанию) или **`link: direct`** (без SOCKS для этой локации).
 
