@@ -29,20 +29,19 @@ if command -v df >/dev/null 2>&1; then
     
     if [ -t 0 ] || [ -c /dev/tty ]; then
       echo "" >&2
-      echo "Хотите очистить временные файлы (кэш Go, npm, apt, старые логи) прямо сейчас автоматически?" >&2
-      echo "- Да, очистить мусор" >&2
+      echo "Хотите очистить временные файлы (кэш Go, npm, apt, логи, бэкапы) прямо сейчас автоматически?" >&2
+      echo "- Да, очистить мусор (и все локальные бэкапы)" >&2
       echo "- Нет, я сам решу эту проблему (установка будет прервана)" >&2
       
       read -r -p "Выберите (Да/Нет): " _ans </dev/tty || true
       if [[ "${_ans,,}" == "1" || "${_ans,,}" == "да" || "${_ans,,}" == "-да" || "${_ans,,}" == "- да" ]]; then
         echo "[install] Очистка..." >&2
-        if [[ -d /var/backups/olc-vps ]]; then
-          # Оставляем только 1 самый свежий бэкап, остальные удаляем
-          ls -t /var/backups/olc-vps/*.tar.gz 2>/dev/null | awk 'NR>1' | xargs -r rm -f
-        fi
-        rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null
+        rm -f /var/backups/olc-vps/*.tar.gz 2>/dev/null || true
+        rm -f /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
+        rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
         apt-get clean 2>/dev/null || true
-        find /var/log -type f -name '*.gz' -delete 2>/dev/null
+        find /var/log -type f -name '*.gz' -delete 2>/dev/null || true
+        journalctl --vacuum-time=1d 2>/dev/null || true
         
         _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
         _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"

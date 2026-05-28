@@ -62,7 +62,7 @@ olc_disk_print_report_ru() {
   echo "    1. Посмотреть диск:     df -h / /tmp" >&2
   echo "    2. Кто съел место:      sudo du -xh / --max-depth=1 2>/dev/null | sort -hr | head -15" >&2
   echo "    3. Бэкапы Olc:         sudo ls -lh /var/backups/olc-vps/ 2>/dev/null" >&2
-  echo "       оставить 1 свежий: sudo sh -c 'ls -t /var/backups/olc-vps/*.tar.gz | awk \"NR>1\" | xargs -r rm -f'" >&2
+  echo "       удалить все бэкапы: sudo rm -f /var/backups/olc-vps/*.tar.gz" >&2
   echo "    4. Кэши сборки:        sudo rm -rf /root/.cache/go-build /root/.npm/_cacache" >&2
   echo "    5. Очистка apt:        sudo apt-get clean" >&2
   echo "    6. Проверка снова:     olc-disk-check   (или повторите install/update)" >&2
@@ -114,7 +114,7 @@ olc_disk_interactive_cleanup() {
     
     echo "" >&2
     echo "Найдены следующие временные/старые файлы:" >&2
-    [[ -n "$backups_size" && "$backups_size" -gt 0 ]] && echo " - Старые бэкапы Olc-cost-l (/var/backups/olc-vps): ~${backups_size} МБ" >&2
+    [[ -n "$backups_size" && "$backups_size" -gt 0 ]] && echo " - Бэкапы Olc-cost-l (/var/backups/olc-vps): ~${backups_size} МБ" >&2
     [[ -n "$cache_go" && "$cache_go" -gt 0 ]] && echo " - Кэш сборки Go (/root/.cache/go-build): ~${cache_go} МБ" >&2
     [[ -n "$cache_npm" && "$cache_npm" -gt 0 ]] && echo " - Кэш npm (/root/.npm/_cacache): ~${cache_npm} МБ" >&2
     [[ -n "$apt_cache" && "$apt_cache" -gt 0 ]] && echo " - Кэш пакетов apt: ~${apt_cache} МБ" >&2
@@ -127,21 +127,19 @@ olc_disk_interactive_cleanup() {
     fi
 
     echo "" >&2
-    echo "Хотите очистить диск прямо от сюда автоматически:" >&2
-    echo "- Да, на диске не нужные файлы" >&2
+    echo "Хотите очистить диск прямо от сюда автоматически (ВСЕ бэкапы и кэш будут удалены):" >&2
+    echo "- Да, очистить всё найденное" >&2
     echo "- Нет, я сам решу эту проблему" >&2
 
     local ans2
     read -r -p "Выберите (Да/Нет): " ans2 </dev/tty || return 1
     if [[ "${ans2,,}" == "1" || "${ans2,,}" == "да" || "${ans2,,}" == "- да" || "${ans2,,}" == "-да" ]]; then
       echo "Очистка..." >&2
-      if [[ -d /var/backups/olc-vps ]]; then
-        # Оставляем только 1 самый свежий бэкап, остальные удаляем
-        ls -t /var/backups/olc-vps/*.tar.gz 2>/dev/null | awk 'NR>1' | xargs -r rm -f
-      fi
-      rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null
+      rm -f /var/backups/olc-vps/*.tar.gz /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
+      rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
       apt-get clean 2>/dev/null || true
-      find /var/log -type f -name '*.gz' -delete 2>/dev/null
+      find /var/log -type f -name '*.gz' -delete 2>/dev/null || true
+      journalctl --vacuum-time=1d 2>/dev/null || true
       echo "Очистка завершена." >&2
       return 0
     fi
