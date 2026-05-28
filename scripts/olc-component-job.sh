@@ -91,6 +91,11 @@ run_install() {
       bash "$SCRIPT_DIR/olc-feature.sh" tor on
       ;;
     split)
+      # Split routes non-RU traffic through Tor. If the UI asks to install split
+      # while Tor is disabled, enable the dependency first instead of failing late.
+      bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
+      bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
+      bash "$SCRIPT_DIR/olc-feature.sh" tor on
       bash "$SCRIPT_DIR/setup-split-ru.sh"
       bash "$SCRIPT_DIR/olc-feature.sh" split on
       ;;

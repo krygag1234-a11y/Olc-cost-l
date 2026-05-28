@@ -32,6 +32,10 @@ olc_disk_inode_use_pct() {
   df -Pi "$path" 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}'
 }
 
+olc_disk_has_tty() {
+  [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null
+}
+
 # Печать отчёта на русском (в stderr).
 olc_disk_print_report_ru() {
   local reason="${1:-запуск скрипта}"
@@ -90,7 +94,7 @@ olc_disk_check_critical() {
 
 olc_disk_interactive_cleanup() {
   # Проверяем, есть ли терминал для ввода
-  if ! [ -t 0 ] && ! [ -c /dev/tty ]; then
+  if ! olc_disk_has_tty; then
     return 1
   fi
   
@@ -101,8 +105,8 @@ olc_disk_interactive_cleanup() {
 
   echo "" >&2
   echo "Хотите сделать анализ содержимого диска, чтобы прямо тут выяснить есть ли на диски только нужные или не нужные файлы? (мы не собираем никаких данных, все эти анализы хранятся на вашем устройстве)" >&2
-  echo "1) Да" >&2
-  echo "2) Нет, я сам решу эту проблему" >&2
+  echo "1 - Да" >&2
+  echo "2 - Нет, я сам решу эту проблему" >&2
 
   local answer
   read -r -p "Введите 1 или 2: " answer </dev/tty || return 1
@@ -133,8 +137,8 @@ olc_disk_interactive_cleanup() {
 
     echo "" >&2
     echo "Хотите очистить диск прямо от сюда автоматически (ВСЕ бэкапы и кэш будут удалены):" >&2
-    echo "1) Да, очистить всё найденное" >&2
-    echo "2) Нет, я сам решу эту проблему" >&2
+    echo "1 - Да, очистить всё найденное" >&2
+    echo "2 - Нет, я сам решу эту проблему" >&2
 
     local ans2
     read -r -p "Введите 1 или 2: " ans2 </dev/tty || return 1

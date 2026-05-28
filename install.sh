@@ -18,6 +18,19 @@ BRANCH="${OLC_REPO_BRANCH:-main}"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "[install] ОШИБКА: запустите от root (sudo bash …)" >&2; exit 1; }
 
+olc_has_tty() {
+  [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null
+}
+
+olc_cleanup_disk_junk() {
+  rm -f /var/backups/olc-vps/*.tar.gz 2>/dev/null || true
+  rm -f /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
+  rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
+  apt-get clean 2>/dev/null || true
+  find /var/log -type f -name '*.gz' -delete 2>/dev/null || true
+  journalctl --vacuum-time=1d 2>/dev/null || true
+}
+
 # Быстрая проверка до git clone (curl | bash — репо ещё может не быть на диске)
 if command -v df >/dev/null 2>&1; then
   _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
@@ -27,21 +40,17 @@ if command -v df >/dev/null 2>&1; then
     echo "[install] ВНИМАНИЕ: на диске / почти нет места (~${_avail} МБ свободно, занято ${_use}%)." >&2
     echo "[install] Скрипт не сможет клонировать репозиторий или собрать панель." >&2
     
-    if [ -t 0 ] || [ -c /dev/tty ]; then
+    if olc_has_tty; then
       echo "" >&2
       echo "Хотите очистить временные файлы (кэш Go, npm, apt, логи, бэкапы) прямо сейчас автоматически?" >&2
-      echo "1) Да, очистить мусор (и все локальные бэкапы)" >&2
-      echo "2) Нет, я сам решу эту проблему (установка будет прервана)" >&2
+      echo "1 - Да, очистить мусор (и все локальные бэкапы)" >&2
+      echo "2 - Нет, я сам решу эту проблему (установка будет прервана)" >&2
       
-      read -r -p "Введите 1 или 2: " _ans </dev/tty || true
+      _ans=""
+      read -r -p "Введите 1 или 2: " _ans </dev/tty || _ans=""
       if [[ "${_ans,,}" == "1" || "${_ans,,}" == "да" || "${_ans,,}" == "-да" || "${_ans,,}" == "- да" || "${_ans,,}" == "y" || "${_ans,,}" == "yes" ]]; then
         echo "[install] Очистка..." >&2
-        rm -f /var/backups/olc-vps/*.tar.gz 2>/dev/null || true
-        rm -f /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
-        rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
-        apt-get clean 2>/dev/null || true
-        find /var/log -type f -name '*.gz' -delete 2>/dev/null || true
-        journalctl --vacuum-time=1d 2>/dev/null || true
+        olc_cleanup_disk_junk
         
         _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
         _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
@@ -56,8 +65,15 @@ if command -v df >/dev/null 2>&1; then
         exit 1
       fi
     else
-      echo "[install] ОШИБКА: нет интерактивного терминала для очистки. Сначала освободите место." >&2
-      exit 1
+      echo "[install] Нет интерактивного терминала; пробую автоматическую очистку временных файлов." >&2
+      olc_cleanup_disk_junk
+      _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
+      _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
+      if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
+        echo "[install] ОШИБКА: после очистки всё ещё мало места (~${_avail} МБ). Сначала освободите диск." >&2
+        exit 1
+      fi
+      echo "[install] Очистка помогла. Продолжаем установку (~${_avail} МБ свободно)." >&2
     fi
   fi
   unset _avail _use _ans
@@ -142,7 +158,7 @@ elif [[ "$FORCE_MODE" == "--update" ]]; then
   MODE=update
 else
   if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
-    if [ -t 0 ] || [ -c /dev/tty ]; then
+    if olc_has_tty; then
       echo "" >&2
       if [[ -d "$INSTALL_DIR/.git" ]]; then
         echo "Проверка актуальности репозитория..." >&2
@@ -156,10 +172,10 @@ else
         fi
       fi
       echo "Olc-cost-l уже установлен ($STATE). Выберите действие:" >&2
-      echo "1) Обновить / Доустановить компоненты (рекомендуется)" >&2
-      echo "2) Переустановить полностью (может занять больше времени)" >&2
-      echo "3) Отмена" >&2
-      local _ans2
+      echo "1 - Обновить / Доустановить компоненты (рекомендуется)" >&2
+      echo "2 - Переустановить полностью (может занять больше времени)" >&2
+      echo "3 - Отмена" >&2
+      _ans2=""
       read -r -p "Введите 1, 2 или 3 (по умолчанию 1): " _ans2 </dev/tty || _ans2="1"
       if [[ "$_ans2" == "3" ]]; then
         echo "Установка отменена." >&2

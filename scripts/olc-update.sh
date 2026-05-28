@@ -38,6 +38,10 @@ source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-vps-backup.sh
 source "$SCRIPT_DIR/lib-vps-backup.sh"
 
+olc_update_has_tty() {
+  [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null
+}
+
 main() {
   need_root "$@"
   local repo profile_arg=()
@@ -62,7 +66,7 @@ main() {
   if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
     echo "Репозиторий уже актуален." >&2
     git log -1 --format="Текущая версия: %h - %s (%cd)" --date=format:"%Y-%m-%d %H:%M" >&2
-    if [ -t 0 ] || [ -c /dev/tty ]; then
+    if olc_update_has_tty; then
       read -r -p "Всё равно запустить доустановку/обновление скриптов? (1 - Да, 2 - Нет): " _ans </dev/tty || _ans="1"
       if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then
         echo "Отмена." >&2
@@ -73,7 +77,7 @@ main() {
     if [[ -n "$remote_sha" ]]; then
       echo "Доступны обновления репозитория." >&2
     fi
-    if [ -t 0 ] || [ -c /dev/tty ]; then
+    if olc_update_has_tty; then
       read -r -p "Скачать обновления и установить? (1 - Да, 2 - Нет): " _ans </dev/tty || _ans="1"
       if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then
         echo "Отмена." >&2
