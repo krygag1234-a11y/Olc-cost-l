@@ -102,10 +102,9 @@ while [[ $# -gt 0 ]]; do
     --tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
     --split) ENABLE_SPLIT=1; RU_VPS=1; FULL=1 ;;
     --zapret) export OLCRTC_ENABLE_ZAPRET=1; RU_VPS=1; FULL=1 ;;
-    --warp|--with-warp) ENABLE_WARP=1; RU_VPS=0; FULL=1 ;;
+    --warp|--with-warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; FULL=1 ;;
     --bridges) ENABLE_BRIDGES=1; RU_VPS=1; FULL=1 ;;
     --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; ENABLE_WARP=0 ;;
-    --with-warp|--warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; FULL=0 ;;
     --no-split) ENABLE_SPLIT=0 ;;
     --no-zapret) export OLCRTC_ENABLE_ZAPRET=0 ;;
     --no-warp) ENABLE_WARP=0 ;;
