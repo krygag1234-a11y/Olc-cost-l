@@ -36,7 +36,10 @@ if command -v df >/dev/null 2>&1; then
       read -r -p "Выберите (Да/Нет): " _ans </dev/tty || true
       if [[ "${_ans,,}" == "1" || "${_ans,,}" == "да" || "${_ans,,}" == "-да" || "${_ans,,}" == "- да" ]]; then
         echo "[install] Очистка..." >&2
-        [[ -d /var/backups/olc-vps ]] && find /var/backups/olc-vps -type f -name '*.tar.gz' -mtime +3 -delete 2>/dev/null
+        if [[ -d /var/backups/olc-vps ]]; then
+          # Оставляем только 1 самый свежий бэкап, остальные удаляем
+          ls -t /var/backups/olc-vps/*.tar.gz 2>/dev/null | awk 'NR>1' | xargs -r rm -f
+        fi
         rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null
         apt-get clean 2>/dev/null || true
         find /var/log -type f -name '*.gz' -delete 2>/dev/null

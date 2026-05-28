@@ -62,7 +62,7 @@ olc_disk_print_report_ru() {
   echo "    1. Посмотреть диск:     df -h / /tmp" >&2
   echo "    2. Кто съел место:      sudo du -xh / --max-depth=1 2>/dev/null | sort -hr | head -15" >&2
   echo "    3. Бэкапы Olc:         sudo ls -lh /var/backups/olc-vps/ 2>/dev/null" >&2
-  echo "       удалить старые:    sudo find /var/backups/olc-vps -name '*.tar.gz' -mtime +3 -delete" >&2
+  echo "       оставить 1 свежий: sudo sh -c 'ls -t /var/backups/olc-vps/*.tar.gz | awk \"NR>1\" | xargs -r rm -f'" >&2
   echo "    4. Кэши сборки:        sudo rm -rf /root/.cache/go-build /root/.npm/_cacache" >&2
   echo "    5. Очистка apt:        sudo apt-get clean" >&2
   echo "    6. Проверка снова:     olc-disk-check   (или повторите install/update)" >&2
@@ -135,7 +135,10 @@ olc_disk_interactive_cleanup() {
     read -r -p "Выберите (Да/Нет): " ans2 </dev/tty || return 1
     if [[ "${ans2,,}" == "1" || "${ans2,,}" == "да" || "${ans2,,}" == "- да" || "${ans2,,}" == "-да" ]]; then
       echo "Очистка..." >&2
-      [[ -d /var/backups/olc-vps ]] && find /var/backups/olc-vps -type f -name '*.tar.gz' -mtime +3 -delete 2>/dev/null
+      if [[ -d /var/backups/olc-vps ]]; then
+        # Оставляем только 1 самый свежий бэкап, остальные удаляем
+        ls -t /var/backups/olc-vps/*.tar.gz 2>/dev/null | awk 'NR>1' | xargs -r rm -f
+      fi
       rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null
       apt-get clean 2>/dev/null || true
       find /var/log -type f -name '*.gz' -delete 2>/dev/null
