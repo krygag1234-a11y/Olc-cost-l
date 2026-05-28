@@ -61,8 +61,8 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 | **Мониторинг** | healthcheck */10, monitor */20, pool */6h, **deep check** раз в неделю |
 | **zapret** | DPI на direct egress для заблокированных `.ru` |
 | **WARP** (опц.) | Cloudflare SOCKS5 на foreign VPS вместо Tor — [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) |
-| **Списки** | `*.ru`, CDN, `2ipcore`, force-tor (YouTube), geosite | (но не все учитано, есть функции добавления в ручную через ui) |
-
+| **Списки** | `*.ru`, CDN, `2ipcore`, force-tor (YouTube), geosite |
+ -- (Но насчет списков не все учитано, есть функции добавления в ручную через ui)
 ```text
 Olcbox → VPS olcrtc → { direct (.ru/CDN) | SOCKS Tor → мост → exit }
 ```
