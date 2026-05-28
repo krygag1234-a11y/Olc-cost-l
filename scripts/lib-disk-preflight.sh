@@ -8,7 +8,7 @@ OLC_DISK_MIN_MB_ROOT="${OLC_DISK_MIN_MB_ROOT:-400}"
 OLC_DISK_MIN_MB_TMP="${OLC_DISK_MIN_MB_TMP:-200}"
 # Остановить скрипт, если занято >= N% (по df)
 OLC_DISK_FAIL_USE_PCT="${OLC_DISK_FAIL_USE_PCT:-98}"
-OLC_DISK_WARN_USE_PCT="${OLC_DISK_WARN_USE_PCT:-90}"
+OLC_DISK_WARN_USE_PCT="${OLC_DISK_WARN_USE_PCT:-95}"
 # 1 = только предупреждение, не выходить с ошибкой
 OLC_DISK_CHECK_WARN_ONLY="${OLC_DISK_CHECK_WARN_ONLY:-0}"
 
@@ -101,13 +101,13 @@ olc_disk_interactive_cleanup() {
 
   echo "" >&2
   echo "Хотите сделать анализ содержимого диска, чтобы прямо тут выяснить есть ли на диски только нужные или не нужные файлы? (мы не собираем никаких данных, все эти анализы хранятся на вашем устройстве)" >&2
-  echo "- Да" >&2
-  echo "- Нет, я сам решу эту проблему" >&2
+  echo "1) Да" >&2
+  echo "2) Нет, я сам решу эту проблему" >&2
 
   local answer
-  read -r -p "Выберите (Да/Нет): " answer </dev/tty || return 1
+  read -r -p "Введите 1 или 2: " answer </dev/tty || return 1
 
-  if [[ "${answer,,}" == "1" || "${answer,,}" == "да" || "${answer,,}" == "-да" || "${answer,,}" == "- да" ]]; then
+  if [[ "${answer,,}" == "1" || "${answer,,}" == "да" || "${answer,,}" == "-да" || "${answer,,}" == "- да" || "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
     echo "Выполняем анализ..." >&2
     
     local backups_size=0 cache_go=0 cache_npm=0 apt_cache=0 logs_gz=0
@@ -133,12 +133,12 @@ olc_disk_interactive_cleanup() {
 
     echo "" >&2
     echo "Хотите очистить диск прямо от сюда автоматически (ВСЕ бэкапы и кэш будут удалены):" >&2
-    echo "- Да, очистить всё найденное" >&2
-    echo "- Нет, я сам решу эту проблему" >&2
+    echo "1) Да, очистить всё найденное" >&2
+    echo "2) Нет, я сам решу эту проблему" >&2
 
     local ans2
-    read -r -p "Выберите (Да/Нет): " ans2 </dev/tty || return 1
-    if [[ "${ans2,,}" == "1" || "${ans2,,}" == "да" || "${ans2,,}" == "- да" || "${ans2,,}" == "-да" ]]; then
+    read -r -p "Введите 1 или 2: " ans2 </dev/tty || return 1
+    if [[ "${ans2,,}" == "1" || "${ans2,,}" == "да" || "${ans2,,}" == "- да" || "${ans2,,}" == "-да" || "${ans2,,}" == "y" || "${ans2,,}" == "yes" ]]; then
       echo "Очистка..." >&2
       rm -f /var/backups/olc-vps/*.tar.gz /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
       rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
@@ -164,17 +164,20 @@ olc_preflight_disk_space() {
   res=$?
   
   if [[ "$res" -ne 0 ]]; then
-    # Если мало места (failed=1) или warning (warned=2)
-    if olc_disk_interactive_cleanup; then
-      echo "[olc-disk] Повторная проверка диска после очистки..." >&2
-      _olc_preflight_disk_space_internal "$reason"
-      res=$?
-      # Если после очистки был failed, а стал warned (2) или ok (0), считаем успехом или пускаем дальше
-      [[ "$res" -eq 2 ]] && return 0
-      return "$res"
+    # Если мало места (failed=1)
+    if [[ "$res" -eq 1 ]]; then
+      if olc_disk_interactive_cleanup; then
+        echo "[olc-disk] Повторная проверка диска после очистки..." >&2
+        _olc_preflight_disk_space_internal "$reason"
+        res=$?
+        # Если после очистки был failed, а стал warned (2) или ok (0), считаем успехом или пускаем дальше
+        [[ "$res" -eq 2 ]] && return 0
+        return "$res"
+      fi
     fi
   fi
   
+  # Если это просто предупреждение (res=2), не запускаем интерактивную очистку, если места всё ещё > OLC_DISK_MIN_MB_ROOT
   [[ "$res" -eq 2 ]] && return 0
   return "$res"
 }
