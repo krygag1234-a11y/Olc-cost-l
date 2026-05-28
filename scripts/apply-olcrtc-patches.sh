@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/safety-lib.sh"
 source "$SCRIPT_DIR/lib-git-safe.sh"
 # shellcheck source=lib-cache-cleanup.sh
 source "$SCRIPT_DIR/lib-cache-cleanup.sh"
+# shellcheck source=lib-olc-ru.sh
+source "$SCRIPT_DIR/lib-olc-ru.sh"
 olc_git_safe_register "$REPO_ROOT"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
@@ -289,9 +291,9 @@ build_binaries() {
   fi
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   log "build olcrtc ($(go version))"
-  (cd "$OLCRTC_REPO" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc)
+  olc_run_with_progress "сборка olcrtc" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO"
   log "build olcrtc-manager"
-  (cd "$MGR_REPO" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager)
+  olc_run_with_progress "сборка olcrtc-manager" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO"
 }
 
 clone_repos

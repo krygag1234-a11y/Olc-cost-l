@@ -231,6 +231,7 @@ setup_split_routing() {
     log "skip split lists (foreign VPS or --no-split or --no-tor)"
     return 0
   fi
+  log "split: подготовка списков может занять 2-5 минут; если терминал молчит — процесс всё ещё работает"
   local quick=0
   local max_age="${OLCRTC_SPLIT_LISTS_MAX_AGE:-604800}"
   if [[ "$UPDATE" -eq 1 ]] && [[ "${OLCRTC_SPLIT_FORCE_REFRESH:-0}" != "1" ]] && [[ -s /var/lib/olcrtc/ru-direct-domains.txt ]]; then
@@ -241,10 +242,12 @@ setup_split_routing() {
     fi
   fi
   if [[ "$quick" -eq 1 ]]; then
-    OLCRTC_RU_VPS=1 OLCRTC_SKIP_GEOSITE_FETCH=1 OLCRTC_SKIP_BLOCKED_TOR_FETCH=1 \
+    olc_run_with_progress "обновление split-списков" env \
+      OLCRTC_RU_VPS=1 OLCRTC_SKIP_GEOSITE_FETCH=1 OLCRTC_SKIP_BLOCKED_TOR_FETCH=1 \
       bash "$SCRIPT_DIR/setup-split-ru.sh" --quick
   else
-    OLCRTC_RU_VPS=1 bash "$SCRIPT_DIR/setup-split-ru.sh"
+    olc_run_with_progress "полное обновление split-списков" env \
+      OLCRTC_RU_VPS=1 bash "$SCRIPT_DIR/setup-split-ru.sh"
   fi
 }
 
@@ -391,7 +394,7 @@ setup_zapret() {
   bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 2>/dev/null || true
   systemctl restart tor@default 2>/dev/null || true
   export OLCRTC_ZAPRET_FULL="${OLCRTC_ZAPRET_FULL:-1}"
-  bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
+  olc_run_with_progress "установка/обновление zapret" bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
 }
 
 if [[ "$UPDATE" -eq 1 ]]; then
@@ -411,6 +414,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   profile_apply_runtime_toggles 2>/dev/null || true
   state_finish
   log "Update done."
+  olc_print_finish_help 8888
   exit 0
 fi
 
@@ -453,3 +457,4 @@ else
 fi
 log "Olcbox: https://github.com/alananisimov/olcbox/releases (nightly: .../tag/nightly)"
 log "Set OLCRTC_PUBLIC_URL in panel.env (DDNS, not raw IP)"
+olc_print_finish_help 8888

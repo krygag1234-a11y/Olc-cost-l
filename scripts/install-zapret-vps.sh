@@ -7,11 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh"
+# shellcheck source=lib-olc-ru.sh
+source "$SCRIPT_DIR/lib-olc-ru.sh"
 
 ZAPRET_VER="${ZAPRET_VER:-72.12}"
 Z4R_SRC="${Z4R_SRC:-$REPO_ROOT/data/zapret4rocket}"
 Z4R_REPO_URL="${Z4R_REPO_URL:-https://github.com/IndeecFOX/zapret4rocket.git}"
 OPT="/opt/zapret"
+ZAPRET_INSTALL_LOG="${ZAPRET_INSTALL_LOG:-/var/log/olcrtc-zapret-install.log}"
 # Auto full on >=4G RAM unless overridden
 if [[ -z "${OLCRTC_ZAPRET_FULL:-}" ]]; then
   mem_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
@@ -100,9 +103,18 @@ noninteractive_install() {
   export INIT_APPLY_FW=1
   export PRESS_ENTER_TO_CONTINUE=0
   cd "$OPT"
-  # install_easy may ask Y/N, LAN/WAN, and "press enter to continue" — feed defaults.
-  yes "" | timeout 900 env PRESS_ENTER_TO_CONTINUE=0 sh ./install_easy.sh </dev/null \
-    || log "install_easy: non-zero, continuing"
+  # install_easy prints a huge generated config. Keep terminal readable by default.
+  log "install_easy: подробный лог → $ZAPRET_INSTALL_LOG"
+  if [[ "${OLC_VERBOSE_INSTALL:-0}" == "1" ]]; then
+    yes "" | timeout 900 env PRESS_ENTER_TO_CONTINUE=0 sh ./install_easy.sh </dev/null \
+      || log "install_easy: non-zero, continuing"
+  else
+    : >"$ZAPRET_INSTALL_LOG"
+    if ! yes "" | timeout 900 env PRESS_ENTER_TO_CONTINUE=0 sh ./install_easy.sh </dev/null >>"$ZAPRET_INSTALL_LOG" 2>&1; then
+      log "install_easy: non-zero, continuing (см. $ZAPRET_INSTALL_LOG)"
+      tail -20 "$ZAPRET_INSTALL_LOG" 2>/dev/null || true
+    fi
+  fi
 }
 
 enable_service() {
@@ -123,8 +135,8 @@ main() {
   install_deps
   fetch_zapret
   apply_config
-  noninteractive_install
-  enable_service
+  olc_run_with_progress "настройка zapret install_easy" noninteractive_install
+  olc_run_with_progress "запуск zapret/nfqws" enable_service
   log "done (full=$OLCRTC_ZAPRET_FULL) — zapret on direct egress; Tor 127.0.0.1:9050"
 }
 

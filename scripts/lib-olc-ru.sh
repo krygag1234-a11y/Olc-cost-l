@@ -56,3 +56,76 @@ olc_state_line() {
 olc_patch_skip_msg() {
   echo "[патчи] пропуск файла olcrtc-manager-main.go.patch — патч уже в upstream или не подходит к этой версии панели (это нормально)." >&2
 }
+
+olc_run_with_progress() {
+  local label="$1"
+  shift
+  local interval="${OLC_PROGRESS_INTERVAL:-10}"
+  local started pid rc elapsed
+
+  echo "[ожидание] ${label} — это может занять несколько минут" >&2
+  started="$(date +%s)"
+  "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep "$interval"
+    if kill -0 "$pid" 2>/dev/null; then
+      elapsed=$(( $(date +%s) - started ))
+      echo "[ожидание] ${label} — идёт ${elapsed}с, всё нормально" >&2
+    fi
+  done
+  rc=0
+  wait "$pid" || rc=$?
+  elapsed=$(( $(date +%s) - started ))
+  if [[ "$rc" -eq 0 ]]; then
+    echo "[ожидание] ${label} — готово (${elapsed}с)" >&2
+  else
+    echo "[ожидание] ${label} — ошибка rc=${rc} (${elapsed}с)" >&2
+  fi
+  return "$rc"
+}
+
+olc_detect_panel_host() {
+  local host=""
+  if command -v curl >/dev/null 2>&1; then
+    host="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+  fi
+  if [[ -z "$host" ]]; then
+    host="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  if [[ -z "$host" ]]; then
+    host="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}' || true)"
+  fi
+  printf '%s\n' "${host:-127.0.0.1}"
+}
+
+olc_print_finish_help() {
+  local port="${1:-8888}"
+  local host public_url
+  host="$(olc_detect_panel_host)"
+  public_url="http://${host}:${port}/admin"
+
+  cat >&2 <<EOF
+
+══════════════════════════════════════════════════════════
+  Olc-cost-l: установка завершена
+══════════════════════════════════════════════════════════
+  Панель:
+    ${public_url}
+
+  Если панель закрыта фаерволом или нужна локальная схема:
+    ssh -L ${port}:127.0.0.1:${port} root@${host}
+    затем открыть: http://127.0.0.1:${port}/admin
+
+  Короткие команды:
+    sudo olc-update          обновить / доустановить компоненты
+    sudo olc-feature status  статус Tor/Split/Zapret/WARP
+    sudo olc-cleanup-caches  очистить сборочные кэши
+    sudo olc-purge           удалить стек OlcRTC с VPS
+
+  Документация:
+    ${REPO_ROOT:-/opt/Olc-cost-l}/docs/VPS-SETUP.md
+══════════════════════════════════════════════════════════
+
+EOF
+}
