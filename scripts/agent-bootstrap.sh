@@ -143,13 +143,11 @@ install_deps() {
 }
 
 build_webtunnel() {
-  [[ "$ENABLE_TOR" -eq 1 ]] || return 0
-  log "webtunnel-client (optional — obfs4/snowflake work without it)"
+  log "webtunnel-client (always installed for full mode, optional for snowflake/obfs4)"
   build_webtunnel_client log || true
 }
 
 setup_warp() {
-  [[ "${ENABLE_WARP:-0}" -eq 1 ]] || { log "skip WARP (not in deploy profile)"; return 0; }
   bash "$SCRIPT_DIR/install-warp.sh"
   if [[ -f /etc/olcrtc-manager/features.env ]]; then
     # shellcheck disable=SC1091

@@ -36,6 +36,12 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
 
+> **Совет:** Вы можете комбинировать флаги, если хотите собрать кастомную конфигурацию.
+> Например, установить панель на RU VPS без разделения маршрутов и без DPI-обхода:
+> `curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --no-split --no-zapret`
+> 
+> **Короткая команда для обновлений:** После установки доступна утилита `olc-update`, которая позволяет быстро докачать обновления скриптов из GitHub и применить их, даже если предыдущая установка прервалась.
+
 Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [UPDATE.md](docs/UPDATE.md)
 
 ## Полное удаление

@@ -205,21 +205,18 @@ profile_apply_env() {
   [[ "$warp" == "true" ]] && ENABLE_WARP=1 || ENABLE_WARP=0
 
   export ENABLE_TOR ENABLE_SPLIT RU_VPS ENABLE_WARP
-  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP)"
+  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP)"
+  profile_log "Совет: для доустановки или обновления можно использовать короткую команду: olc-update"
 }
 
 profile_step_enabled() {
   local step="$1"
   case "$step" in
-    packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel)
+    packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel|warp)
       return 0
       ;;
     tor|bridges)
       [[ "${ENABLE_TOR:-1}" -eq 1 ]]
-      return
-      ;;
-    warp)
-      [[ "${ENABLE_WARP:-0}" -eq 1 ]]
       return
       ;;
     split)
