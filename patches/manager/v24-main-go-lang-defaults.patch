@@ -1,0 +1,682 @@
+--- cmd/olcrtc-manager/main.go	2026-05-28 16:04:44.124042437 +0000
++++ /opt/Olc-cost-l/packaging/golden-panel/main.go	2026-05-28 15:22:16.698259692 +0000
+@@ -1,11 +1,12 @@
+-/* olc-manager-hotfix-v24 */
+ /* olc-manager-hotfix-v22-room */
+ /* olc-manager-hotfix-v17 */
++/* olc-manager-hotfix-v18 */
+ /* olc-manager-hotfix-v15 */
+ /* olc-manager-hotfix-v16-bridge-pool */
+ /* olc-manager-hotfix-v12 */
+ /* olc-manager-hotfix-v13 */
+ /* olc-manager-hotfix-v10 */
++/* olc-manager-hotfix-v11 */
+ /* olc-manager-hotfix-v8 */
+ /* olc-manager-hotfix-v7 */
+ package main
+@@ -97,15 +98,14 @@
+ }
+ 
+ type Location struct {
+-	Name      string      `json:"name"`
+-	ClientID  string      `json:"client-id"`
+-	Endpoint  Endpoint    `json:"endpoint"`
+-	Carrier   string      `json:"carrier"`
+-	Transport Transport   `json:"transport"`
+-	Link      string      `json:"link"`
+-	Data      string      `json:"data"`
+-	DNS       string      `json:"dns"`
+-	Proxy     Socks5Proxy `json:"proxy,omitempty"`
++	Name      string    `json:"name"`
++	ClientID  string    `json:"client-id"`
++	Endpoint  Endpoint  `json:"endpoint"`
++	Carrier   string    `json:"carrier"`
++	Transport Transport `json:"transport"`
++	Link      string    `json:"link"`
++	Data      string    `json:"data"`
++	DNS       string    `json:"dns"`
+ }
+ 
+ type Endpoint struct {
+@@ -113,13 +113,6 @@
+ 	Key    string `json:"key"`
+ }
+ 
+-type Socks5Proxy struct {
+-	Addr string `json:"addr,omitempty"`
+-	Port int    `json:"port,omitempty"`
+-	User string `json:"user,omitempty"`
+-	Pass string `json:"pass,omitempty"`
+-}
+-
+ type Transport struct {
+ 	Type    string
+ 	Payload map[string]string
+@@ -166,10 +159,12 @@
+ }
+ 
+ type olcrtcSocksConfig struct {
+-	ProxyAddr string `yaml:"proxy_addr,omitempty"`
+-	ProxyPort int    `yaml:"proxy_port,omitempty"`
+-	ProxyUser string `yaml:"proxy_user,omitempty"`
+-	ProxyPass string `yaml:"proxy_pass,omitempty"`
++	ProxyAddr             string `yaml:"proxy_addr,omitempty"`
++	ProxyPort             int    `yaml:"proxy_port,omitempty"`
++	DirectCIDRsFile       string `yaml:"direct_cidrs_file,omitempty"`
++	DirectDomainsFile     string `yaml:"direct_domains_file,omitempty"`
++	BlockedTorDomainsFile string `yaml:"blocked_tor_domains_file,omitempty"`
++	ForceTorDomainsFile   string `yaml:"force_tor_domains_file,omitempty"`
+ }
+ 
+ type olcrtcVP8Config struct {
+@@ -379,6 +374,7 @@
+ 	handler.Handle("/api/auth/me", http.HandlerFunc(authMeHandler(configPath)))
+ 	handler.Handle("/api/auth/password", adminAuth(http.HandlerFunc(changePasswordHandler(configPath))))
+ 	handler.Handle("/api/settings", adminAuth(http.HandlerFunc(settingsHandler(configPath, supervisor, port != 0))))
++	handler.Handle("/api/panel/lang", adminAuth(http.HandlerFunc(panelLangHandler)))
+ 	handler.Handle("/api/project/status", adminAuth(http.HandlerFunc(projectStatusHandler)))
+ 	handler.Handle("/api/reload", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		if r.Method != http.MethodPost {
+@@ -426,6 +422,7 @@
+ 	handler.Handle("/api/notifications/scan", adminAuth(http.HandlerFunc(notificationsScanHandler)))
+ 	handler.Handle("/api/notifications/", adminAuth(http.HandlerFunc(notificationsPatchHandler)))
+ 	handler.Handle("/api/notification-settings", adminAuth(http.HandlerFunc(notificationSettingsHandler)))
++	handler.Handle("/api/instance-defaults", adminAuth(http.HandlerFunc(instanceDefaultsHandler)))
+ 	handler.Handle("/api/notifications", adminAuth(http.HandlerFunc(notificationsListHandler)))
+ 	handler.Handle("/api/components/", adminAuth(http.HandlerFunc(componentsActionHandler)))
+ 	handler.Handle("/api/capabilities", adminAuth(http.HandlerFunc(capabilitiesHandler())))
+@@ -602,7 +599,10 @@
+ 				http.Error(w, err.Error(), http.StatusBadRequest)
+ 				return
+ 			}
+-			go asyncReloadAfterLocationDelete(reload)
++			if err := reload(); err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			w.WriteHeader(http.StatusNoContent)
+ 			return
+ 		}
+@@ -815,7 +815,6 @@
+ 			Payload:   loc.Transport.Payload,
+ 			Link:      loc.Link,
+ 			DNS:       loc.DNS,
+-			Proxy:     loc.Proxy,
+ 			Running:   runtime.Running,
+ 			Runtime:   runtime,
+ 		})
+@@ -1064,7 +1063,6 @@
+ 	Payload   map[string]string `json:"payload"`
+ 	Link      string            `json:"link"`
+ 	DNS       string            `json:"dns"`
+-	Proxy     Socks5Proxy       `json:"proxy,omitempty"`
+ 	Running   bool              `json:"running"`
+ 	Runtime   RuntimeState      `json:"runtime"`
+ }
+@@ -1099,7 +1097,6 @@
+ 	Transport  string            `json:"transport"`
+ 	Payload    map[string]string `json:"payload"`
+ 	DNS        string            `json:"dns"`
+-	Proxy      Socks5Proxy       `json:"proxy"`
+ 	Name       string            `json:"name"`
+ }
+ 
+@@ -1114,7 +1111,6 @@
+ 	Transport string            `json:"transport"`
+ 	Payload   map[string]string `json:"payload"`
+ 	DNS       string            `json:"dns"`
+-	Proxy     Socks5Proxy       `json:"proxy"`
+ 	Name      string            `json:"name"`
+ }
+ 
+@@ -1126,7 +1122,7 @@
+ 	Transport string            `json:"transport"`
+ 	Payload   map[string]string `json:"payload"`
+ 	DNS       string            `json:"dns"`
+-	Proxy     Socks5Proxy       `json:"proxy"`
++	Link      string            `json:"link"`
+ }
+ 
+ type locationActionRequest struct {
+@@ -1162,6 +1158,38 @@
+ 	Refresh          string `json:"refresh"`
+ }
+ 
++func panelLangHandler(w http.ResponseWriter, r *http.Request) {
++	switch r.Method {
++	case http.MethodGet:
++		lang := strings.TrimSpace(readPanelEnvMap()["OLC_PANEL_LANG"])
++		if lang != "en" {
++			lang = "ru"
++		}
++		writeJSON(w, map[string]string{"lang": lang})
++	case http.MethodPut:
++		var req struct {
++			Lang string `json:"lang"`
++		}
++		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
++			http.Error(w, err.Error(), http.StatusBadRequest)
++			return
++		}
++		lang := strings.TrimSpace(req.Lang)
++		if lang != "en" && lang != "ru" {
++			http.Error(w, "lang must be ru or en", http.StatusBadRequest)
++			return
++		}
++		if err := setPanelEnvKey("OLC_PANEL_LANG", lang); err != nil {
++			http.Error(w, err.Error(), http.StatusInternalServerError)
++			return
++		}
++		writeJSON(w, map[string]string{"lang": lang, "status": "ok"})
++	default:
++		w.Header().Set("Allow", "GET, PUT")
++		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
++	}
++}
++
+ func settingsHandler(configPath string, supervisor *Supervisor, portOverride bool) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
+ 		switch r.Method {
+@@ -1506,7 +1534,6 @@
+ 		req.Transport != "" ||
+ 		req.DNS != "" ||
+ 		req.Name != "" ||
+-		req.Proxy != (Socks5Proxy{}) ||
+ 		len(req.Payload) > 0
+ }
+ 
+@@ -1514,7 +1541,7 @@
+ 	if len(req.Locations) > 0 {
+ 		return buildLocations(req.ClientID, req.Locations)
+ 	}
+-	if req.RoomID != "" || req.Key != "" || req.Carrier != "" || req.Transport != "" || req.DNS != "" || req.Name != "" || req.Proxy != (Socks5Proxy{}) {
++	if req.RoomID != "" || req.Key != "" || req.Carrier != "" || req.Transport != "" || req.DNS != "" || req.Name != "" {
+ 		return buildLocations(req.ClientID, []locationRequest{{
+ 			Name:      req.Name,
+ 			RoomID:    req.RoomID,
+@@ -1523,7 +1550,6 @@
+ 			Transport: req.Transport,
+ 			Payload:   req.Payload,
+ 			DNS:       req.DNS,
+-			Proxy:     req.Proxy,
+ 		}})
+ 	}
+ 	return templateLocations(cfg, req.FromClient)
+@@ -1541,7 +1567,6 @@
+ 		Transport: req.Transport,
+ 		Payload:   req.Payload,
+ 		DNS:       req.DNS,
+-		Proxy:     req.Proxy,
+ 	}})
+ }
+ 
+@@ -1568,7 +1593,6 @@
+ 		req.Transport = strings.TrimSpace(req.Transport)
+ 		req.Payload = cleanPayload(req.Payload)
+ 		req.DNS = strings.TrimSpace(req.DNS)
+-		req.Proxy = normalizeProxy(req.Proxy)
+ 
+ 		prefix := fmt.Sprintf("locations[%d]", i)
+ 		if err := validateRoomIDStrict(req.RoomID, req.Carrier); err != nil {
+@@ -1590,9 +1614,6 @@
+ 		if err := validatePayload(transportConfig); err != nil {
+ 			return nil, fmt.Errorf("%s.transport: %w", prefix, err)
+ 		}
+-		if err := validateProxy(req.Proxy); err != nil {
+-			return nil, fmt.Errorf("%s.proxy: %w", prefix, err)
+-		}
+ 		name := req.Name
+ 		if name == "" {
+ 			name = "Default location"
+@@ -1606,7 +1627,6 @@
+ 			Link:      defaultString(strings.TrimSpace(req.Link), defaultLocationLink()),
+ 			Data:      "data",
+ 			DNS:       dns,
+-			Proxy:     req.Proxy,
+ 		}
+ 		key := locationKey(loc)
+ 		if _, ok := seen[key]; ok {
+@@ -1631,34 +1651,6 @@
+ 	return nil
+ }
+ 
+-func normalizeProxy(proxy Socks5Proxy) Socks5Proxy {
+-	proxy.Addr = strings.TrimSpace(proxy.Addr)
+-	proxy.User = strings.TrimSpace(proxy.User)
+-	return proxy
+-}
+-
+-func validateProxy(proxy Socks5Proxy) error {
+-	if proxy.Addr == "" {
+-		if proxy.Port != 0 {
+-			return errors.New("addr is required when port is set")
+-		}
+-		if proxy.User != "" || proxy.Pass != "" {
+-			return errors.New("addr is required when credentials are set")
+-		}
+-		return nil
+-	}
+-	if proxy.Port <= 0 || proxy.Port > 65535 {
+-		return errors.New("port must be between 1 and 65535")
+-	}
+-	if len(proxy.User) > 255 {
+-		return errors.New("user must be at most 255 bytes")
+-	}
+-	if len(proxy.Pass) > 255 {
+-		return errors.New("pass must be at most 255 bytes")
+-	}
+-	return nil
+-}
+-
+ func deleteClient(configPath, clientID string) error {
+ 	cfg, err := loadConfig(configPath)
+ 	if err != nil {
+@@ -1702,15 +1694,6 @@
+ 	return ""
+ }
+ 
+-
+-func asyncReloadAfterLocationDelete(reloadFn func() error) {
+-	go func() {
+-		if err := reloadFn(); err != nil {
+-			log.Printf("reload after location delete: %v", err)
+-		}
+-	}()
+-}
+-
+ func syncPanelCarrierHost(action, carrier, roomID string) {
+ 	script := panelHostSyncScript()
+ 	if script == "" {
+@@ -1721,17 +1704,11 @@
+ 	if carrier == "" || roomID == "" {
+ 		return
+ 	}
+-	go func() {
+-		cmd := exec.Command("bash", script, action, carrier, roomID)
+-		env := append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+-		if action == "remove" {
+-			env = append(env, "OLC_SKIP_ZAPRET_SYNC=1")
+-		}
+-		cmd.Env = env
+-		if out, err := cmd.CombinedOutput(); err != nil {
+-			log.Printf("panel host sync %s %s: %v (%s)", action, roomID, err, strings.TrimSpace(string(out)))
+-		}
+-	}()
++	cmd := exec.Command("bash", script, action, carrier, roomID)
++	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
++	if out, err := cmd.CombinedOutput(); err != nil {
++		log.Printf("panel host sync %s %s: %v (%s)", action, roomID, err, strings.TrimSpace(string(out)))
++	}
+ }
+ 
+ func addLocationFromRequest(ctx context.Context, configPath, olcrtcPath, clientID string, r *http.Request) error {
+@@ -1751,7 +1728,6 @@
+ 	req.Payload = cleanPayload(req.Payload)
+ 	req.DNS = strings.TrimSpace(req.DNS)
+ 	req.Name = strings.TrimSpace(req.Name)
+-	req.Proxy = normalizeProxy(req.Proxy)
+ 	locs, err := createLocationsFromRequest(Config{}, req)
+ 	if err != nil {
+ 		return err
+@@ -1768,15 +1744,20 @@
+ 			if err := cfg.Validate(); err != nil {
+ 				return err
+ 			}
+-			for _, loc := range locs {
+-				syncPanelCarrierHost("add", loc.Carrier, loc.Endpoint.RoomID)
+-			}
+ 			return saveConfig(configPath, cfg)
+ 		}
+ 	}
+ 	return fmt.Errorf("client %q not found", clientID)
+ }
+ 
++func asyncReloadAfterLocationDelete(reloadFn func() error) {
++	go func() {
++		if err := reloadFn(); err != nil {
++			log.Printf("reload after location delete: %v", err)
++		}
++	}()
++}
++
+ func deleteLocation(configPath, clientID, roomID string) error {
+ 	cfg, err := loadConfig(configPath)
+ 	if err != nil {
+@@ -1799,12 +1780,6 @@
+ 		if !deleted {
+ 			return fmt.Errorf("location %q not found", roomID)
+ 		}
+-		for _, loc := range cfg.Clients[i].Locations {
+-			if loc.Endpoint.RoomID == roomID {
+-				syncPanelCarrierHost("remove", loc.Carrier, loc.Endpoint.RoomID)
+-				break
+-			}
+-		}
+ 		cfg.Clients[i].Locations = next
+ 		cfg.Normalize()
+ 		if err := cfg.Validate(); err != nil {
+@@ -2075,14 +2050,6 @@
+ 		Data:     loc.Data,
+ 		FFmpeg:   ffmpegPathFromEnv(),
+ 	}
+-	if loc.Proxy.Addr != "" {
+-		cfg.SOCKS = olcrtcSocksConfig{
+-			ProxyAddr: loc.Proxy.Addr,
+-			ProxyPort: loc.Proxy.Port,
+-			ProxyUser: loc.Proxy.User,
+-			ProxyPass: loc.Proxy.Pass,
+-		}
+-	}
+ 	if err := applyTransportPayload(&cfg, loc.Transport); err != nil {
+ 		return olcrtcRuntimeConfig{}, err
+ 	}
+@@ -3444,7 +3411,6 @@
+ 			if loc.ClientID == "" {
+ 				loc.ClientID = client.ClientID
+ 			}
+-			loc.Proxy = normalizeProxy(loc.Proxy)
+ 			locations = append(locations, loc)
+ 		}
+ 	}
+@@ -3488,9 +3454,6 @@
+ 		if loc.Transport.Type == "" {
+ 			return fmt.Errorf("%s.transport.type is required", prefix)
+ 		}
+-		if err := validateProxy(loc.Proxy); err != nil {
+-			return fmt.Errorf("%s.proxy: %w", prefix, err)
+-		}
+ 		key := locationKey(loc)
+ 		if _, exists := ids[key]; exists {
+ 			return fmt.Errorf("%s location key %q is duplicated", prefix, key)
+@@ -3543,7 +3506,7 @@
+ 			"datachannel":  true,
+ 			"vp8channel":   true,
+ 			"seichannel":   true,
+-			"videochannel": true,
++			"videochannel": false,
+ 		},
+ 	}
+ 	return matrix[carrier][transport]
+@@ -4843,6 +4806,7 @@
+ 		"OLCRTC_DEFAULT_CARRIER":  true,
+ 		"OLCRTC_SOCKS_PROXY":  true,
+ 		"OLCRTC_WARP_PROXY":  true,
++		"OLC_PANEL_LANG":          true,
+ 	}
+ 	if !allowed[key] {
+ 		return fmt.Errorf("key %q not allowed", key)
+@@ -5041,23 +5005,26 @@
+ 		repo := olcRepoRoot()
+ 		script := filepath.Join(repo, "scripts/tor-bridge-pool.sh")
+ 		if strings.Contains(strings.ToLower(types), "webtunnel") {
+-			wt := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
+-			if _, err := os.Stat(wt); err == nil {
+-				appendBridgePoolLog("[bridge-pool] installing webtunnel-client (mirror-cry first)...")
+-				wtCmd := exec.Command("bash", wt)
+-				wtCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+-				out, wtErr := wtCmd.CombinedOutput()
+-				if len(out) > 0 {
+-					appendBridgePoolLog(string(out))
+-				}
+-				if wtErr != nil {
+-					appendBridgePoolLog("[bridge-pool] webtunnel install error: " + wtErr.Error())
++			if !fileExists("/usr/bin/webtunnel-client") && !fileExists("/usr/local/bin/webtunnel-client") {
++				wt := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
++				if _, err := os.Stat(wt); err == nil {
++					appendBridgePoolLog("[bridge-pool] installing webtunnel-client (mirror-cry first)...")
++					wtCmd := exec.Command("bash", wt)
++					wtCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
++					out, wtErr := wtCmd.CombinedOutput()
++					if len(out) > 0 {
++						appendBridgePoolLog(string(out))
++					}
++					if wtErr != nil {
++						appendBridgePoolLog("[bridge-pool] webtunnel install error: " + wtErr.Error())
++					}
+ 				}
+ 			}
+ 		}
+ 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+ 		defer cancel()
+-		cmd := exec.CommandContext(ctx, "bash", script, "--fetch", "--types", types)
++		// Full pipeline: fetch + probe + apply → /etc/tor/bridges.conf (not --fetch-only).
++		cmd := exec.CommandContext(ctx, "bash", script, "--types", types)
+ 		cmd.Env = append(os.Environ(),
+ 			"PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin",
+ 			"BRIDGE_TYPES="+types,
+@@ -5713,6 +5680,17 @@
+ 				http.Error(w, err.Error(), http.StatusBadRequest)
+ 				return
+ 			}
++			if name == "bridges" {
++				if action, ok := body["action"].(string); ok && action == "refresh_pool" {
++					types := "obfs4,webtunnel"
++					if v, ok := body["types"].(string); ok && strings.TrimSpace(v) != "" {
++						types = strings.TrimSpace(v)
++					}
++					runBridgePoolRefresh(types)
++					writeJSON(w, map[string]any{"status": "ok", "pool_job": readBridgePoolStatus()})
++					return
++				}
++			}
+ 			if err := componentSettingsPut(name, body); err != nil {
+ 				http.Error(w, err.Error(), http.StatusBadRequest)
+ 				return
+@@ -5762,6 +5740,10 @@
+ 				Installed: componentInstalled("bridges"), Enabled: flags["webtunnel"],
+ 				Configurable: componentInstalled("tor"), Label: "Мосты", Requires: []string{"tor"},
+ 			},
++			"warp": {
++				Installed: componentInstalled("warp"), Enabled: flags["warp"],
++				Configurable: componentInstalled("warp"), Label: "WARP",
++			},
+ 		}
+ 		writeJSON(w, map[string]any{
+ 			"panel_version":  ver["panel"],
+@@ -5802,18 +5784,64 @@
+ func featureLogPaths(name string) []string {
+ 	switch name {
+ 	case "zapret":
+-		return []string{"/var/log/olcrtc-zapret-sync.log", "/var/log/syslog"}
++		return []string{
++			"/var/log/olcrtc-zapret-sync.log",
++			"/var/log/olcrtc-component-zapret-install.log",
++			"/var/log/olcrtc-component-zapret-uninstall.log",
++		}
+ 	case "tor":
+ 		return []string{"/var/log/olcrtc-healthcheck.log", "/var/log/tor/log"}
+ 	case "split":
+-		return []string{"/var/log/olcrtc-zapret-sync.log", "/var/log/olcrtc-healthcheck.log"}
++		return []string{
++			"/var/log/olcrtc-zapret-sync.log",
++			"/var/log/olcrtc-healthcheck.log",
++			"/var/log/olcrtc-component-split-install.log",
++			"/var/log/olcrtc-component-split-uninstall.log",
++		}
+ 	case "webtunnel":
+-		return []string{"/var/log/olcrtc-healthcheck.log"}
++		return []string{
++			"/var/log/olcrtc-bridge-pool.log",
++			"/var/log/olcrtc-bridge-monitor.log",
++			"/var/log/olcrtc-component-bridges-install.log",
++			"/var/log/olcrtc-component-bridges-uninstall.log",
++		}
++	case "warp":
++		return []string{
++			"/var/log/olcrtc-warp-install.log",
++			"/var/log/olcrtc-component-warp-install.log",
++			"/var/log/olcrtc-component-warp-uninstall.log",
++		}
++	case "olcrtc":
++		return []string{
++			"/var/log/olcrtc-healthcheck.log",
++			"/var/log/olcrtc-panel-update.log",
++			"/var/log/olcrtc-feature-restart.log",
++		}
+ 	default:
+ 		return nil
+ 	}
+ }
+ 
++
++func tailJournalUnit(unit string, maxLines int) ([]string, error) {
++	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
++	defer cancel()
++	cmd := exec.CommandContext(ctx, "journalctl", "-u", unit, "-n", fmt.Sprintf("%d", maxLines), "--no-pager", "-o", "cat")
++	out, err := cmd.CombinedOutput()
++	if err != nil {
++		return nil, err
++	}
++	text := strings.TrimSpace(string(out))
++	if text == "" {
++		return nil, fmt.Errorf("empty journal")
++	}
++	lines := strings.Split(text, "\n")
++	if len(lines) > maxLines {
++		lines = lines[len(lines)-maxLines:]
++	}
++	return lines, nil
++}
++
+ func tailFileLines(path string, maxLines int) ([]string, error) {
+ 	f, err := os.Open(path)
+ 	if err != nil {
+@@ -5853,6 +5881,12 @@
+ 				break
+ 			}
+ 		}
++		if !allowed && (name == "olcrtc" || name == "warp") {
++			allowed = true
++		}
++		if !allowed && name == "olcrtc" {
++			allowed = true
++		}
+ 		if !allowed {
+ 			http.Error(w, "unknown feature", http.StatusBadRequest)
+ 			return
+@@ -5860,8 +5894,11 @@
+ 		var usedPath string
+ 		var lines []string
+ 		for _, path := range featureLogPaths(name) {
++			if st, err := os.Stat(path); err != nil || st.Size() == 0 {
++				continue
++			}
+ 			got, err := tailFileLines(path, 200)
+-			if err != nil {
++			if err != nil || len(got) == 0 {
+ 				continue
+ 			}
+ 			usedPath = path
+@@ -5869,7 +5906,12 @@
+ 			break
+ 		}
+ 		if lines == nil {
+-			lines = []string{"(log file not found — run olc-update or check /var/log/olcrtc-*)"}
++			paths := featureLogPaths(name)
++			msg := fmt.Sprintf("(log file not found for %s — tried: %s)", name, strings.Join(paths, ", "))
++			if len(paths) == 0 {
++				msg = fmt.Sprintf("(no log paths configured for %s)", name)
++			}
++			lines = []string{msg}
+ 		}
+ 		writeJSON(w, map[string]any{"feature": name, "path": usedPath, "lines": lines})
+ 	}
+@@ -6186,12 +6228,66 @@
+ 	}
+ }
+ 
++const instanceDefaultsPath = "/var/lib/olcrtc/instance-defaults.json"
++
++func readInstanceDefaults() map[string]any {
++	out := map[string]any{
++		"schema":     1,
++		"globalPort": "",
++		"carriers":   map[string]any{},
++	}
++	var stored map[string]any
++	if readJSONFile(instanceDefaultsPath, &stored) {
++		for k, v := range stored {
++			out[k] = v
++		}
++	}
++	return out
++}
++
++func instanceDefaultsHandler(w http.ResponseWriter, r *http.Request) {
++	switch r.Method {
++	case http.MethodGet:
++		writeJSON(w, map[string]any{"defaults": readInstanceDefaults()})
++	case http.MethodPut:
++		var body map[string]any
++		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
++			http.Error(w, err.Error(), http.StatusBadRequest)
++			return
++		}
++		payload := body
++		if nested, ok := body["defaults"].(map[string]any); ok {
++			payload = nested
++		}
++		if err := os.MkdirAll(filepath.Dir(instanceDefaultsPath), 0755); err != nil {
++			http.Error(w, err.Error(), http.StatusInternalServerError)
++			return
++		}
++		b, err := json.MarshalIndent(payload, "", "  ")
++		if err != nil {
++			http.Error(w, err.Error(), http.StatusBadRequest)
++			return
++		}
++		if err := os.WriteFile(instanceDefaultsPath, b, 0644); err != nil {
++			http.Error(w, err.Error(), http.StatusInternalServerError)
++			return
++		}
++		writeJSON(w, map[string]any{"status": "ok", "defaults": payload})
++	default:
++		w.Header().Set("Allow", "GET, PUT")
++		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
++	}
++}
++
+ // panelBackendV4 — updates, notifications, jobs, component install
+ const (
+ 	panelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"
+ 	panelUpdateStatus = "/var/lib/olcrtc/panel-update-status.json"
+ 	panelJobsDir     = "/var/lib/olcrtc/panel-jobs"
+ 	panelNotifFile   = "/var/lib/olcrtc/notifications.json"
++	bridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
++	bridgeCronPath     = "/etc/cron.d/olcrtc-bridge-pool"
++	bridgePoolStatusFile = "/var/lib/olcrtc/bridge-pool-status.json"
+ )
+ 
+ func panelUpdateLocked() bool {
+@@ -6350,6 +6446,15 @@
+ 
+ 
+ 
++
++func fileContainsDoneMarker(path string) bool {
++	b, err := os.ReadFile(path)
++	if err != nil {
++		return false
++	}
++	return strings.Contains(string(b), "=== done ===")
++}
++
+ func componentJobStale(st map[string]any, mod time.Time) bool {
+ 	status, _ := st["status"].(string)
+ 	if status != "done" && status != "failed" {
+@@ -6400,6 +6505,15 @@
+ 		if componentJobStale(st, info.ModTime()) {
+ 			continue
+ 		}
++		if status, _ := st["status"].(string); status == "failed" {
++			logPath, _ := st["log_path"].(string)
++			if logPath != "" && fileContainsDoneMarker(logPath) {
++				st["status"] = "done"
++				st["exit_code"] = 0
++				st["error"] = ""
++				status = "done"
++			}
++		}
+ 		if status, _ := st["status"].(string); (status == "done" || status == "failed") && st["finished_at"] == nil {
+ 			st["finished_at"] = info.ModTime().Format(time.RFC3339)
+ 		}

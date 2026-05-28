@@ -112,7 +112,7 @@ if wt_warn_old in t:
 status_block_old = """      {jobStatus === "done" && poolJob.finished_at && (
         <p className="text-xs text-emerald-400">Готово {String(poolJob.finished_at).slice(11, 19)}</p>
       )}"""
-status_block_new = """      {jobStatus === "done" && poolJob.finished_at && (
+status_block_new = r"""      {jobStatus === "done" && poolJob.finished_at && (
         <p className="text-xs text-emerald-400">Готово {String(poolJob.finished_at).slice(11, 19)} · webtunnel-client: {wtInstalled ? "да" : "нет"}</p>
       )}
       {(jobStatus === "running" || jobStatus === "done" || jobStatus === "error") && logTail.length > 0 && (
@@ -139,5 +139,5 @@ if "olc-panel-hotfix-v12" not in t:
         t = "/* olc-panel-hotfix-v12 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v12] ok")
+print("[patch-panel-hotfix-v12] ok"); print(0); raise SystemExit(0)
 PY
