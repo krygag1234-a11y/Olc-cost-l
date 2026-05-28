@@ -13,8 +13,6 @@
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
-**Не используйте** голый `install.sh` панели — без Tor, split и патчей. Только этот репо.
-
 Olcbox: [releases](https://github.com/alananisimov/olcbox/releases) · [CLIENT.md](docs/CLIENT.md)
 
 ---
