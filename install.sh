@@ -130,6 +130,54 @@ resilient_git() {
   return 1
 }
 
+DETECT="$INSTALL_DIR/scripts/olc-detect-install.sh"
+STATE="fresh"
+if [[ -x "$DETECT" ]]; then
+  STATE="$("$DETECT" 2>/dev/null || echo fresh)"
+fi
+
+if [[ "$FORCE_MODE" == "--full" || "$FORCE_MODE" == "--fresh" ]]; then
+  MODE=full
+elif [[ "$FORCE_MODE" == "--update" ]]; then
+  MODE=update
+else
+  if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+      echo "" >&2
+      if [[ -d "$INSTALL_DIR/.git" ]]; then
+        echo "Проверка актуальности репозитория..." >&2
+        local_sha="$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || true)"
+        remote_sha="$(git ls-remote "$REPO_URL" "$BRANCH" 2>/dev/null | awk '{print $1}' || true)"
+        if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
+          echo "Репозиторий уже актуален (последняя версия)." >&2
+        else
+          echo "Доступны обновления репозитория." >&2
+        fi
+      fi
+      echo "Olc-cost-l уже установлен ($STATE). Выберите действие:" >&2
+      echo "1) Обновить / Доустановить компоненты (рекомендуется)" >&2
+      echo "2) Переустановить полностью (может занять больше времени)" >&2
+      echo "3) Отмена" >&2
+      local _ans2
+      read -r -p "Введите 1, 2 или 3 (по умолчанию 1): " _ans2 </dev/tty || _ans2="1"
+      if [[ "$_ans2" == "3" ]]; then
+        echo "Установка отменена." >&2
+        exit 0
+      elif [[ "$_ans2" == "2" ]]; then
+        MODE=full
+      else
+        MODE=update
+      fi
+    else
+      MODE=update
+    fi
+  else
+    MODE=full
+  fi
+fi
+
+echo "[install] обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
+
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   echo "[install] клонирование $REPO_URL → $INSTALL_DIR"
   rm -rf "$INSTALL_DIR.partial"
@@ -180,41 +228,6 @@ ln -sfn "$INSTALL_DIR/scripts/olc-sync-from-vps.sh" /usr/local/bin/olc-sync-from
 ln -sfn "$INSTALL_DIR/scripts/olc-panel-refresh-local.sh" /usr/local/bin/olc-panel-refresh-local 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-vps-snapshot.sh" /usr/local/bin/olc-vps-snapshot 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-purge.sh" /usr/local/bin/olc-purge 2>/dev/null || true
-
-DETECT="$INSTALL_DIR/scripts/olc-detect-install.sh"
-STATE="fresh"
-if [[ -x "$DETECT" ]]; then
-  STATE="$("$DETECT" 2>/dev/null || echo fresh)"
-fi
-
-case "$FORCE_MODE" in
-  --full)   MODE=full ;;
-  --fresh)  MODE=full ;;
-  --update) MODE=update ;;
-  *)
-    if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
-      if [ -t 0 ] || [ -c /dev/tty ]; then
-        echo ""
-        echo "Olc-cost-l уже установлен ($STATE). Выберите действие:"
-        echo "1) Обновить (скачать изменения из Git и применить патчи, сохранить данные)"
-        echo "2) Переустановить полностью (может занять больше времени)"
-        local _ans2
-        read -r -p "Введите 1 или 2 (по умолчанию 1): " _ans2 </dev/tty || _ans2="1"
-        if [[ "$_ans2" == "2" ]]; then
-          MODE=full
-        else
-          MODE=update
-        fi
-      else
-        MODE=update
-      fi
-    else
-      MODE=full
-    fi
-    ;;
-esac
-
-echo "[install] обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
 
 if [[ "$MODE" == "update" ]]; then
   exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --update "${BOOT_ARGS[@]}"

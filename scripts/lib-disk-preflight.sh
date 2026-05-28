@@ -93,6 +93,11 @@ olc_disk_interactive_cleanup() {
   if ! [ -t 0 ] && ! [ -c /dev/tty ]; then
     return 1
   fi
+  
+  if [[ "${_OLC_DISK_PROMPTED:-0}" == "1" ]]; then
+    return 1
+  fi
+  export _OLC_DISK_PROMPTED=1
 
   echo "" >&2
   echo "Хотите сделать анализ содержимого диска, чтобы прямо тут выяснить есть ли на диски только нужные или не нужные файлы? (мы не собираем никаких данных, все эти анализы хранятся на вашем устройстве)" >&2

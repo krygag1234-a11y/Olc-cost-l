@@ -54,8 +54,38 @@ main() {
   }
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
+  
+  echo "Проверка актуальности репозитория..." >&2
+  local_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+  remote_sha="$(git ls-remote origin main 2>/dev/null | awk '{print $1}' || true)"
+  
+  if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
+    echo "Репозиторий уже актуален (последняя версия)." >&2
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+      read -r -p "Всё равно запустить доустановку/обновление скриптов? (Да/Нет): " _ans </dev/tty || _ans="да"
+      if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then
+        echo "Отмена." >&2
+        exit 0
+      fi
+    fi
+  else
+    if [[ -n "$remote_sha" ]]; then
+      echo "Доступны обновления репозитория." >&2
+    fi
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+      read -r -p "Скачать обновления и установить? (Да/Нет): " _ans </dev/tty || _ans="да"
+      if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then
+        echo "Отмена." >&2
+        exit 0
+      fi
+    fi
+  fi
+
   olc_preflight_disk_space "olc-update" || exit 1
+  export _OLC_DISK_PROMPTED=1 # Чтобы не спрашивать дважды в agent-bootstrap.sh
   olc_preflight_vps_backup "olc-update" || true
+  export OLC_VPS_BACKUP_DISABLE=1 # Чтобы не делать бэкап дважды
+  
   olc_git_safe_register "$repo"
   olc_git "$repo" pull --ff-only origin main
   # Re-read profile id if passed as --profile <id>
