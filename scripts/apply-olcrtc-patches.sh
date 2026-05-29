@@ -326,9 +326,9 @@ build_binaries() {
   if [[ "$used_pct" -ge 90 ]]; then
     log "WARN: диск заполнен на ${used_pct}% — очистка кэшей перед go build"
     if [[ "$used_pct" -ge 95 ]]; then
-      OLC_CLEAN_GO_MOD_CACHE=1 olc_cleanup_build_caches "apply-patches-pre-build-critical" || true
+      OLC_KEEP_BUILD_CLONES=1 OLC_CLEAN_GO_MOD_CACHE=1 olc_cleanup_build_caches "apply-patches-pre-build-critical" || true
     else
-      olc_cleanup_build_caches "apply-patches-pre-build" || true
+      OLC_KEEP_BUILD_CLONES=1 olc_cleanup_build_caches "apply-patches-pre-build" || true
     fi
   fi
   log "build olcrtc ($(go version))"

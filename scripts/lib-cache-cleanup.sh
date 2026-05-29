@@ -27,8 +27,8 @@ olc_cleanup_build_caches() {
   local mode="${1:-post-build}"
   [[ "${OLC_CLEANUP_DISABLE:-0}" == "1" ]] && return 0
 
-  # During apply-patches go build, cloned repos in /tmp must stay intact.
-  if [[ "$mode" == *pre-build* ]]; then
+  # During active builds, cloned repos in /tmp must stay intact.
+  if [[ "$mode" == *pre-build* || "${OLC_KEEP_BUILD_CLONES:-0}" == "1" ]]; then
     olc_cleanup_go_caches "$mode"
     return 0
   fi
