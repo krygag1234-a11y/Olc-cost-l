@@ -412,6 +412,7 @@ func run() error {
 		}
 		writeJSON(w, map[string]any{"events": readAudit(configPath, 100)})
 	})))
+	handler.Handle("/api/settings/split/", adminAuth(http.HandlerFunc(splitSettingsActionHandler)))
 	handler.Handle("/api/settings/", adminAuth(http.HandlerFunc(componentSettingsHandler())))
 
 	handler.Handle("/api/updates/check", adminAuth(http.HandlerFunc(updatesCheckHandler)))
@@ -1709,6 +1710,57 @@ func syncPanelCarrierHost(action, carrier, roomID string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("panel host sync %s %s: %v (%s)", action, roomID, err, strings.TrimSpace(string(out)))
 	}
+}
+
+func splitAnalyzeScript() string {
+	for _, c := range []string{
+		filepath.Join(olcRepoRoot(), "scripts/olc-split-analyze.sh"),
+		"/usr/local/bin/olc-split-analyze",
+	} {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+func runSplitTool(ctx context.Context, args []string, input any, timeout time.Duration) (map[string]any, error) {
+	script := splitAnalyzeScript()
+	if script == "" {
+		return map[string]any{"status": "missing", "error": "olc-split-analyze.sh not found"}, nil
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmdArgs := append([]string{script}, args...)
+	cmd := exec.CommandContext(ctx, "bash", cmdArgs...)
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+	if input != nil {
+		b, err := json.Marshal(input)
+		if err != nil {
+			return nil, err
+		}
+		cmd.Env = append(cmd.Env, "OLC_SPLIT_TOOL_INPUT="+string(b))
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		return nil, fmt.Errorf("parse split tool output: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return decoded, nil
+}
+
+func splitDiscoveryManifest() map[string]any {
+	out, err := runSplitTool(context.Background(), []string{"manifest"}, nil, 15*time.Second)
+	if err != nil {
+		return map[string]any{"schema": 1, "groups": []any{}, "error": err.Error()}
+	}
+	return out
 }
 
 func addLocationFromRequest(ctx context.Context, configPath, olcrtcPath, clientID string, r *http.Request) error {
@@ -5202,6 +5254,10 @@ func componentSettingsGet(name string) (map[string]any, error) {
 		return map[string]any{
 			"custom_direct_domains": readTextFile("/var/lib/olcrtc/lists/custom-direct-domains.txt"),
 			"panel_hosts":           readTextFile("/var/lib/olcrtc/lists/panel-carrier-hosts.txt"),
+			"panel_cidrs":           readTextFile("/var/lib/olcrtc/lists/panel-carrier-cidrs.txt"),
+			"generated_domains":     readTextFile("/var/lib/olcrtc/lists/panel-carrier-generated-domains.txt"),
+			"generated_cidrs":       readTextFile("/var/lib/olcrtc/lists/panel-carrier-generated-cidrs.txt"),
+			"discovery":             splitDiscoveryManifest(),
 			"force_tor_domains":     readTextFile("/var/lib/olcrtc/force-tor-domains.txt"),
 			"blocked_tor_domains":   readTextFile("/var/lib/olcrtc/ru-blocked-tor-domains.txt"),
 			"ru_direct_count":       countLines("/var/lib/olcrtc/ru-direct-domains.txt"),
@@ -5506,6 +5562,21 @@ func componentSettingsPut(name string, body map[string]any) error {
 				return err
 			}
 		}
+		if v, ok := body["panel_cidrs"].(string); ok {
+			if err := writeTextFile("/var/lib/olcrtc/lists/panel-carrier-cidrs.txt", v); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["cidr_only"].(bool); ok {
+			val := "0"
+			if v {
+				val = "1"
+			}
+			_ = patchPanelEnvKey("OLCRTC_SPLIT_CIDR_ONLY", val)
+		}
+		if _, err := runSplitTool(context.Background(), []string{"rebuild"}, nil, time.Minute); err != nil {
+			log.Printf("split rebuild after settings save: %v", err)
+		}
 		return nil
 	case "bridges":
 
@@ -5614,6 +5685,71 @@ func splitCidrOnlyEnabled() bool {
 	return strings.Contains(cidr, "ru-cidrs") && !strings.Contains(cidr, "direct-all")
 }
 
+
+func splitSettingsActionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	action := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/settings/split/"), "/")
+	var body map[string]any
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	switch action {
+	case "analyze":
+		target, _ := body["target"].(string)
+		target = strings.TrimSpace(target)
+		if target == "" {
+			http.Error(w, "target is required", http.StatusBadRequest)
+			return
+		}
+		out, err := runSplitTool(r.Context(), []string{"analyze", target}, nil, 25*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "result": out})
+	case "apply-analysis":
+		out, err := runSplitTool(r.Context(), []string{"apply-analysis"}, body, 90*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	case "sync-config":
+		out, err := runSplitTool(context.Background(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 2*time.Minute)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	case "sync-logs":
+		out, err := runSplitTool(r.Context(), []string{"sync-logs"}, nil, 90*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func mustComponentSettings(name string) map[string]any {
+	out, err := componentSettingsGet(name)
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	return out
+}
 
 func componentSettingsAfterSave(name string, body map[string]any) {
 	repo := olcRepoRoot()

@@ -229,12 +229,14 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
     splitApplyDone: "Найденное добавлено в выбранный список",
-    splitSyncConfig: "Пересобрать общий авто-список",
+    splitSyncConfig: "Обновить авто-список из инстансов и логов",
+    splitSyncLogs: "Подтянуть CDN из логов сессии (VK и др.)",
     splitSyncRunning: "Пересобираю общий авто-список…",
     splitSyncDone: "Общий авто-список пересобран",
+    splitSyncLogsDone: "CDN из логов добавлены в общий список",
     splitAutoGroupsTitle: "Автоматически найдено",
     splitAutoGroupsHelp: "Глобальные группы, собранные из всех инстансов, ручных правил, анализа и разрешённых семейств из логов. Это общий список для всего olcrtc, а не только для последнего введённого домена.",
-    splitNoGroups: "Пока нет автоматических групп. Нажмите «Пересобрать общий авто-список» или выполните точечный анализ домена.",
+    splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните точечный анализ домена.",
     splitAdvancedTitle: "Расширенные правила",
     splitForceTor: "Всегда через Tor (по строке)",
     splitBlockedTor: "RU-сайты, которые открываем напрямую через VPS/zapret",
@@ -454,12 +456,14 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
     splitApplyDone: "Found items added to the selected list",
-    splitSyncConfig: "Rebuild shared auto-list",
+    splitSyncConfig: "Update auto-list from instances and logs",
+    splitSyncLogs: "Pull CDN from session logs (VK etc.)",
     splitSyncRunning: "Rebuilding shared auto-list…",
     splitSyncDone: "Shared auto-list rebuilt",
+    splitSyncLogsDone: "CDN from logs added to the shared list",
     splitAutoGroupsTitle: "Automatically discovered",
     splitAutoGroupsHelp: "Global groups collected from all instances, manual rules, analysis and allowed service families from logs. This is shared by the whole olcrtc, not only the last entered domain.",
-    splitNoGroups: "No automatic groups yet. Click Rebuild shared auto-list or run targeted domain analysis.",
+    splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or run targeted domain analysis.",
     splitAdvancedTitle: "Advanced rules",
     splitForceTor: "Always through Tor (one per line)",
     splitBlockedTor: "RU sites opened directly via VPS/zapret",
@@ -2934,7 +2938,7 @@ function ComponentSettingsModal({
 
   const splitSyncConfig = async () => {
     setSaving(true);
-    setMsg(t("splitSyncRunning"));
+    setSplitAnalyzeMsg(t("splitSyncRunning"));
     try {
       const res = await fetch("/api/settings/split/sync-config", { method: "POST" });
       const body = await readJsonOrText(res);
@@ -2942,6 +2946,23 @@ function ComponentSettingsModal({
       if (body.settings) setSettings(body.settings as Record<string, unknown>);
       else await reloadSettings();
       setSplitAnalyzeMsg(t("splitSyncDone"));
+    } catch (e) {
+      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const splitSyncLogs = async () => {
+    setSaving(true);
+    setSplitAnalyzeMsg(t("splitSyncRunning"));
+    try {
+      const res = await fetch("/api/settings/split/sync-logs", { method: "POST" });
+      const body = await readJsonOrText(res);
+      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
+      if (body.settings) setSettings(body.settings as Record<string, unknown>);
+      else await reloadSettings();
+      setSplitAnalyzeMsg(t("splitSyncLogsDone"));
     } catch (e) {
       setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -3113,6 +3134,9 @@ function ComponentSettingsModal({
                     </div>
                     <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncConfig()}>
                       {t("splitSyncConfig")}
+                    </button>
+                    <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncLogs()}>
+                      {t("splitSyncLogs")}
                     </button>
                   </div>
                 </section>
