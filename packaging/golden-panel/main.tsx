@@ -19,11 +19,12 @@ const COMPONENT_JOB_UI_TTL_MS = 120_000;
 const JOB_MSG_TTL_MS = 45_000;
 
 /* olc-panel-logs-verbose-v1 */
+/* olc-panel-logs-live-v1 */
 /* olc-jitsi-preflight-ui-v1 */
 /* olc-jitsi-preflight-ui-v2 */
 /* olc-jitsi-preflight-ui-v3 */
 /* olc-panel-ui-v10 */
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -132,6 +133,8 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     logExited: "Выход: {at}",
     logExitError: "Ошибка выхода: {err}",
     logsCopied: "Логи скопированы",
+    logsLive: "Live",
+    logsLiveOn: "Live: вкл",
     linkCopied: "Ссылка для {id} скопирована",
     subCopied: "Subscription для {id} скопирован",
     copyUri: "Копировать URI",
@@ -353,6 +356,8 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     logExited: "Exited: {at}",
     logExitError: "Exit error: {err}",
     logsCopied: "Logs copied",
+    logsLive: "Live",
+    logsLiveOn: "Live: on",
     linkCopied: "Link for {id} copied",
     subCopied: "Subscription for {id} copied",
     copyUri: "Copy URI",
@@ -1422,6 +1427,48 @@ function logsURL(clientID: string, location: LocationState) {
   return `/api/logs/?${params.toString()}`;
 }
 
+const LOGS_VERBOSE_STORAGE_KEY = "olc-panel-logs-verbose-v1";
+const LOGS_LIVE_INTERVAL_MS = 2_000;
+
+function readStoredBool(key: string, fallback = false) {
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value === "1") return true;
+    if (value === "0") return false;
+  } catch {
+    // localStorage can be unavailable in restricted browser contexts.
+  }
+  return fallback;
+}
+
+function writeStoredBool(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Ignore persistence failures; the UI state still works for this session.
+  }
+}
+
+function useStickyLogScroll<T extends HTMLElement>(deps: React.DependencyList, enabled = true) {
+  const ref = useRef<T | null>(null);
+  const stickToBottom = useRef(true);
+  const onScroll = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || !stickToBottom.current) return;
+    window.requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, deps);
+
+  return { ref, onScroll };
+}
+
 function cleanQuota(quota: Quota): Quota {
   return {
     speed_mbps: quota.speed_mbps || undefined,
@@ -1538,13 +1585,14 @@ function HeaderMetric({ label, value }: { label: string; value: React.ReactNode 
 }
 
 /** Прокрутка логов: колёсико не уезжает на фоновую страницу. */
-function LogScrollBox({
+const LogScrollBox = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function LogScrollBox({
   className = "",
   children,
   ...rest
-}: React.HTMLAttributes<HTMLDivElement>) {
+}, ref) {
   return (
     <div
+      ref={ref}
       className={`overscroll-contain ${className}`}
       onWheel={(e) => e.stopPropagation()}
       {...rest}
@@ -1552,15 +1600,16 @@ function LogScrollBox({
       {children}
     </div>
   );
-}
+});
 
-function LogScrollPre({
+const LogScrollPre = React.forwardRef<HTMLPreElement, React.HTMLAttributes<HTMLPreElement>>(function LogScrollPre({
   className = "",
   children,
   ...rest
-}: React.HTMLAttributes<HTMLPreElement>) {
+}, ref) {
   return (
     <pre
+      ref={ref}
       className={`overscroll-contain ${className}`}
       onWheel={(e) => e.stopPropagation()}
       {...rest}
@@ -1568,7 +1617,7 @@ function LogScrollPre({
       {children}
     </pre>
   );
-}
+});
 
 function Modal({
   title,
@@ -2261,28 +2310,42 @@ function FeatureLogsModal({
   const [lines, setLines] = useState<string[]>([]);
   const [path, setPath] = useState("");
   const [loading, setLoading] = useState(true);
+  const [live, setLive] = useState(false);
+  const logScroll = useStickyLogScroll<HTMLPreElement>([lines], true);
+
+  const loadFeatureLogs = useCallback(
+    async (showLoading = false) => {
+      if (showLoading) setLoading(true);
+      try {
+        const res = await fetch(`/api/features/logs/${feature}`, { cache: "no-store" });
+        const body = (await res.json()) as { lines?: string[]; path?: string };
+        setLines(body.lines ?? []);
+        setPath(body.path ?? "");
+      } catch (e) {
+        setLines([String(e)]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [feature],
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/features/logs/${feature}`, { cache: "no-store" });
-        const body = (await res.json()) as { lines?: string[]; path?: string };
-        if (!cancelled) {
-          setLines(body.lines ?? []);
-          setPath(body.path ?? "");
-        }
-      } catch (e) {
-        if (!cancelled) setLines([String(e)]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      if (cancelled) return;
+      await loadFeatureLogs(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [feature]);
+  }, [loadFeatureLogs]);
+
+  useEffect(() => {
+    if (!live) return;
+    const id = window.setInterval(() => void loadFeatureLogs(false), LOGS_LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [live, loadFeatureLogs]);
 
   return (
     <Modal title={t("logsTitle", { name: feature })} onClose={onClose}>
@@ -2293,19 +2356,19 @@ function FeatureLogsModal({
             <button
               type="button"
               className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
-              disabled={loading}
-              onClick={async () => {
-                try {
-                  const res = await fetch(`/api/features/logs/${feature}`, { cache: "no-store" });
-                  const body = (await res.json()) as { lines?: string[]; path?: string };
-                  setLines(body.lines ?? []);
-                  setPath(body.path ?? "");
-                } catch (e) {
-                  setLines([String(e)]);
-                }
-              }}
+              disabled={loading || live}
+              onClick={() => void loadFeatureLogs(true)}
             >
               {t("refresh")}
+            </button>
+            <button
+              type="button"
+              className={`inline-flex items-center rounded-md border border-border px-2 py-1 text-xs hover:bg-accent ${
+                live ? "bg-primary text-primary-foreground" : "bg-background"
+              }`}
+              onClick={() => setLive((value) => !value)}
+            >
+              {live ? t("logsLiveOn") : t("logsLive")}
             </button>
             <button
               type="button"
@@ -2335,7 +2398,11 @@ function FeatureLogsModal({
           </div>
         </div>
         {path && <div className="mb-2 text-xs text-muted-foreground">{path}</div>}
-        <LogScrollPre className="max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background p-3 text-xs">
+        <LogScrollPre
+          ref={logScroll.ref}
+          onScroll={logScroll.onScroll}
+          className="max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background p-3 text-xs"
+        >
           {loading ? t("loading") : lines.join("\n") || t("empty")}
         </LogScrollPre>
       </div>
@@ -4552,8 +4619,12 @@ function App() {
   const [showAutodetectInline, setShowAutodetectInline] = useState(false);
   const [autodetectMiniOpen, setAutodetectMiniOpen] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
-  const [logsVerbose, setLogsVerbose] = useState(false);
+  const [logsVerbose, setLogsVerbose] = useState(() => readStoredBool(LOGS_VERBOSE_STORAGE_KEY, false));
+  const [instanceLogsLive, setInstanceLogsLive] = useState(false);
+  const [clientLogsLive, setClientLogsLive] = useState(false);
   const [clientLogs, setClientLogs] = useState<ClientLogGroup[]>([]);
+  const instanceLogScroll = useStickyLogScroll<HTMLDivElement>([logs], Boolean(logTarget));
+  const clientLogScroll = useStickyLogScroll<HTMLDivElement>([clientLogs], Boolean(clientLogTarget));
   const [createForm, setCreateForm] = useState<ClientForm>(defaultForm);
   const [editForm, setEditForm] = useState<ClientForm>(defaultForm);
   const [locationForm, setLocationForm] = useState<ClientLocationForm>(defaultLocationForm);
@@ -4644,6 +4715,10 @@ function App() {
     }, 5000);
     return () => window.clearInterval(id);
   }, [authenticated]);
+
+  useEffect(() => {
+    writeStoredBool(LOGS_VERBOSE_STORAGE_KEY, logsVerbose);
+  }, [logsVerbose]);
 
 
   const locationActionKey = (clientID: string, location: LocationState) =>
@@ -4945,13 +5020,17 @@ function App() {
     }
   };
 
+  const refreshLogs = useCallback(async (clientID: string, location: LocationState) => {
+    const res = await request(logsURL(clientID, location), { cache: "no-store" });
+    const body = (await res.json()) as { logs: LogLine[] };
+    setLogs(body.logs ?? []);
+  }, []);
+
   const openLogs = async (clientID: string, location: LocationState) => {
     setLogs([]);
     setNotice("");
     try {
-      const res = await request(logsURL(clientID, location), { cache: "no-store" });
-      const body = (await res.json()) as { logs: LogLine[] };
-      setLogs(body.logs ?? []);
+      await refreshLogs(clientID, location);
       setLogTarget({ clientID, location });
     } catch (err) {
       setLogTarget(null);
@@ -4959,10 +5038,7 @@ function App() {
     }
   };
 
-  const openClientLogs = async (client: ClientState) => {
-    setClientLogs([]);
-    setNotice("");
-    setClientLogTarget(client);
+  const refreshClientLogs = useCallback(async (client: ClientState) => {
     const groups = await Promise.all(
       client.locations.map(async (location) => {
         try {
@@ -4975,7 +5051,34 @@ function App() {
       }),
     );
     setClientLogs(groups);
+  }, []);
+
+  const openClientLogs = async (client: ClientState) => {
+    setClientLogs([]);
+    setNotice("");
+    setClientLogTarget(client);
+    await refreshClientLogs(client);
   };
+
+  useEffect(() => {
+    if (!logTarget || !instanceLogsLive) return;
+    const id = window.setInterval(() => {
+      refreshLogs(logTarget.clientID, logTarget.location).catch((err) =>
+        setNotice(err instanceof Error ? err.message : String(err)),
+      );
+    }, LOGS_LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [logTarget, instanceLogsLive, refreshLogs]);
+
+  useEffect(() => {
+    if (!clientLogTarget || !clientLogsLive) return;
+    const id = window.setInterval(() => {
+      refreshClientLogs(clientLogTarget).catch((err) =>
+        setNotice(err instanceof Error ? err.message : String(err)),
+      );
+    }, LOGS_LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [clientLogTarget, clientLogsLive, refreshClientLogs]);
 
   const copyLogs = () =>
     runAction(async () => {
@@ -5558,7 +5661,11 @@ function App() {
       {clientLogTarget && (
         <Modal title={t("logsClient", { id: clientLogTarget.client_id })} onClose={() => setClientLogTarget(null)}>
           <div className="p-5">
-            <LogScrollBox className="max-h-[520px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
+            <LogScrollBox
+              ref={clientLogScroll.ref}
+              onScroll={clientLogScroll.onScroll}
+              className="max-h-[520px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100"
+            >
               {clientLogs.length === 0 ? (
                 <div className="text-muted-foreground">{t("loadingLogs")}</div>
               ) : (
@@ -5598,10 +5705,19 @@ function App() {
                 {t("logsVerbose")}
               </label>
               <button
-                className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+                className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80 disabled:opacity-50"
+                disabled={clientLogsLive}
                 onClick={() => openClientLogs(clientLogTarget)}
               >
                 {t("refresh")}
+              </button>
+              <button
+                className={`h-9 rounded-md border border-border px-3 text-sm hover:bg-muted/80 ${
+                  clientLogsLive ? "bg-primary text-primary-foreground" : "bg-muted"
+                }`}
+                onClick={() => setClientLogsLive((value) => !value)}
+              >
+                {clientLogsLive ? t("logsLiveOn") : t("logsLive")}
               </button>
             </div>
           </div>
@@ -5621,7 +5737,11 @@ function App() {
               )}
             </div>
 
-            <LogScrollBox className="mt-4 max-h-[420px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100">
+            <LogScrollBox
+              ref={instanceLogScroll.ref}
+              onScroll={instanceLogScroll.onScroll}
+              className="mt-4 max-h-[420px] overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100"
+            >
               {logs.length === 0 ? (
                 <div className="text-muted-foreground">{t("noLogsYet")}</div>
               ) : (
@@ -5649,10 +5769,19 @@ function App() {
               </label>
               <div className="flex justify-end gap-2">
                 <button
-                  className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+                  className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80 disabled:opacity-50"
+                  disabled={instanceLogsLive}
                   onClick={() => openLogs(logTarget.clientID, logTarget.location)}
                 >
                   {t("refresh")}
+                </button>
+                <button
+                  className={`h-9 rounded-md border border-border px-3 text-sm hover:bg-muted/80 ${
+                    instanceLogsLive ? "bg-primary text-primary-foreground" : "bg-muted"
+                  }`}
+                  onClick={() => setInstanceLogsLive((value) => !value)}
+                >
+                  {instanceLogsLive ? t("logsLiveOn") : t("logsLive")}
                 </button>
                 <button
                   className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80 disabled:opacity-60"
