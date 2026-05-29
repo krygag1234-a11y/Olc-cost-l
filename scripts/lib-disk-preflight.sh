@@ -12,6 +12,8 @@ OLC_DISK_WARN_USE_PCT="${OLC_DISK_WARN_USE_PCT:-95}"
 # 1 = только предупреждение, не выходить с ошибкой
 OLC_DISK_CHECK_WARN_ONLY="${OLC_DISK_CHECK_WARN_ONLY:-0}"
 OLC_DISK_PROMPT_ON_WARN="${OLC_DISK_PROMPT_ON_WARN:-1}"
+OLC_BUILD_MIN_MB_ROOT="${OLC_BUILD_MIN_MB_ROOT:-2500}"
+OLC_BUILD_MIN_MB_TMP="${OLC_BUILD_MIN_MB_TMP:-1200}"
 
 olc_disk_available_mb() {
   local path="$1"
@@ -75,6 +77,57 @@ olc_disk_print_report_ru() {
   echo "  Освободите минимум ~${OLC_DISK_MIN_MB_ROOT} МБ на / и ~${OLC_DISK_MIN_MB_TMP} МБ в /tmp." >&2
   echo "══════════════════════════════════════════════════════════" >&2
   echo "" >&2
+}
+
+olc_disk_print_build_block_ru() {
+  local reason="${1:-сборка OlcRTC/панели}"
+  echo "" >&2
+  echo "══════════════════════════════════════════════════════════" >&2
+  echo "  Olc-cost-l: сборка остановлена — мало свободного места" >&2
+  echo "══════════════════════════════════════════════════════════" >&2
+  echo "  Этап: $reason" >&2
+  echo "" >&2
+  echo "  Нужно до старта сборки:" >&2
+  echo "    /    >= ${OLC_BUILD_MIN_MB_ROOT} МБ свободно" >&2
+  echo "    /tmp >= ${OLC_BUILD_MIN_MB_TMP} МБ свободно" >&2
+  echo "" >&2
+  for mp in / /tmp; do
+    [[ -d "$mp" ]] || continue
+    echo "  ${mp}: $(olc_disk_size_human "$mp"), занято $(olc_disk_use_pct "$mp")%" >&2
+  done
+  echo "" >&2
+  echo "  Панель и бинарники не пересобирались, чтобы не оставить недоустановленную версию." >&2
+  echo "" >&2
+  echo "  Что сделать:" >&2
+  echo "    sudo olc-cleanup-caches" >&2
+  echo "    df -h / /tmp" >&2
+  echo "    sudo olc-update" >&2
+  echo "" >&2
+  echo "  Если нужна диагностика:" >&2
+  echo "    sudo tail -n 80 /var/log/olcrtc-apply-patches.log" >&2
+  echo "    sudo tail -n 80 /var/log/olcrtc-split-update.log" >&2
+  echo "    sudo tail -n 80 /var/log/olcrtc-zapret-sync.log" >&2
+  echo "══════════════════════════════════════════════════════════" >&2
+  echo "" >&2
+}
+
+olc_preflight_build_space() {
+  [[ "${OLC_DISK_CHECK_DISABLE:-0}" == "1" ]] && return 0
+  command -v df >/dev/null 2>&1 || return 0
+  local reason="${1:-сборка OlcRTC/панели}"
+  local failed=0
+
+  if ! olc_disk_check_critical / "$OLC_BUILD_MIN_MB_ROOT"; then
+    failed=1
+  fi
+  if [[ -d /tmp ]] && ! olc_disk_check_critical /tmp "$OLC_BUILD_MIN_MB_TMP"; then
+    failed=1
+  fi
+  if [[ "$failed" -eq 1 ]]; then
+    olc_disk_print_build_block_ru "$reason"
+    return 1
+  fi
+  return 0
 }
 
 # Возвращает 0 если места достаточно, 1 если критично мало.

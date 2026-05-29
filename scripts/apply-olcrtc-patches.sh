@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib-git-safe.sh"
 source "$SCRIPT_DIR/lib-cache-cleanup.sh"
 # shellcheck source=lib-olc-ru.sh
 source "$SCRIPT_DIR/lib-olc-ru.sh"
+# shellcheck source=lib-disk-preflight.sh
+source "$SCRIPT_DIR/lib-disk-preflight.sh"
 olc_git_safe_register "$REPO_ROOT"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
@@ -45,6 +47,14 @@ run_quiet() {
   log "ERROR: $label failed (rc=$rc); последние строки $log_file:"
   tail -40 "$log_file" 2>/dev/null || true
   return "$rc"
+}
+
+show_failure_logs_hint() {
+  local main_log="${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}"
+  log "Диагностика:"
+  log "  sudo tail -n 80 $main_log"
+  log "  sudo tail -n 80 /var/log/olcrtc-split-update.log"
+  log "  sudo tail -n 80 /var/log/olcrtc-zapret-sync.log"
 }
 
 pin_olcrtc_sha() {
@@ -321,6 +331,7 @@ build_binaries() {
     export PATH="/usr/local/go/bin:$PATH"
   fi
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
+  olc_preflight_build_space "сборка olcrtc + olcrtc-manager" || return 1
   local used_pct
   used_pct="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $5+0}' || echo 0)"
   if [[ "$used_pct" -ge 90 ]]; then
@@ -336,6 +347,7 @@ build_binaries() {
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     log "ERROR: olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
+    show_failure_logs_hint
     return "$rc"
   fi
   install -d /var/lib/olcrtc
@@ -345,6 +357,7 @@ build_binaries() {
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     log "ERROR: olcrtc-manager build failed (rc=$rc)"
+    show_failure_logs_hint
     return "$rc"
   fi
 }
