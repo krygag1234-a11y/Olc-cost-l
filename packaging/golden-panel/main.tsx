@@ -210,8 +210,10 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitCustomDirect: "Домены/IP/CIDR вручную (по строке)",
     splitPanelHosts: "Авто-хосты из инстансов и сервисов",
     splitPanelCidrs: "Авто-IP/CIDR из инстансов и DNS",
-    splitAnalyzeTitle: "Найти домены, поддомены, IP и CDN для сайта",
-    splitAnalyzeHelp: "Вставьте домен, ссылку, IP или CIDR. Панель проверит DNS, сертификаты, whois и текущие split/zapret списки, затем предложит что добавить.",
+    splitGlobalSyncTitle: "Глобальный авто-список",
+    splitGlobalSyncHelp: "Это не привязано к полю ниже. Кнопка пересобирает общий список по всем инстансам, сохранённым ручным правилам и runtime-логам сервера. Она не ищет только VK и не зависит от последнего введённого сайта.",
+    splitAnalyzeTitle: "Точечный анализ одного сайта",
+    splitAnalyzeHelp: "Это относится только к тому, что введено в поле: домен, ссылка, IP или CIDR. Панель проверит DNS, сертификаты, whois и текущие split/zapret списки, затем предложит что добавить.",
     splitAnalyzeButton: "Анализировать",
     splitAnalyzeNeedTarget: "Введите домен, ссылку, IP или CIDR",
     splitAnalyzing: "Анализирую домены и IP…",
@@ -227,12 +229,12 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
     splitApplyDone: "Найденное добавлено в выбранный список",
-    splitSyncConfig: "Пересобрать из инстансов",
-    splitSyncRunning: "Пересобираю список из инстансов…",
-    splitSyncDone: "Список инстансов пересобран",
+    splitSyncConfig: "Пересобрать общий авто-список",
+    splitSyncRunning: "Пересобираю общий авто-список…",
+    splitSyncDone: "Общий авто-список пересобран",
     splitAutoGroupsTitle: "Автоматически найдено",
-    splitAutoGroupsHelp: "Группы из инстансов и анализа. Главный домен/IP виден сразу, список поддоменов и CIDR можно раскрыть.",
-    splitNoGroups: "Пока нет автоматических групп. Нажмите «Пересобрать из инстансов» или выполните анализ домена.",
+    splitAutoGroupsHelp: "Глобальные группы, собранные из всех инстансов, ручных правил, анализа и разрешённых семейств из логов. Это общий список для всего olcrtc, а не только для последнего введённого домена.",
+    splitNoGroups: "Пока нет автоматических групп. Нажмите «Пересобрать общий авто-список» или выполните точечный анализ домена.",
     splitAdvancedTitle: "Расширенные правила",
     splitForceTor: "Всегда через Tor (по строке)",
     splitBlockedTor: "RU-сайты, которые открываем напрямую через VPS/zapret",
@@ -433,8 +435,10 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitCustomDirect: "Manual domains/IP/CIDR (one per line)",
     splitPanelHosts: "Auto hosts from instances and services",
     splitPanelCidrs: "Auto IP/CIDR from instances and DNS",
-    splitAnalyzeTitle: "Find domains, subdomains, IPs and CDN for a site",
-    splitAnalyzeHelp: "Paste a domain, URL, IP or CIDR. The panel checks DNS, certificates, whois and current split/zapret lists, then suggests what to add.",
+    splitGlobalSyncTitle: "Global auto-list",
+    splitGlobalSyncHelp: "This is not tied to the field below. The button rebuilds the shared list from all instances, saved manual rules and server runtime logs. It is not VK-only and does not depend on the last entered site.",
+    splitAnalyzeTitle: "Targeted analysis for one site",
+    splitAnalyzeHelp: "This applies only to the value entered in the field: domain, URL, IP or CIDR. The panel checks DNS, certificates, whois and current split/zapret lists, then suggests what to add.",
     splitAnalyzeButton: "Analyze",
     splitAnalyzeNeedTarget: "Enter a domain, URL, IP or CIDR",
     splitAnalyzing: "Analyzing domains and IPs…",
@@ -450,12 +454,12 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
     splitApplyDone: "Found items added to the selected list",
-    splitSyncConfig: "Rebuild from instances",
-    splitSyncRunning: "Rebuilding from instances…",
-    splitSyncDone: "Instance list rebuilt",
+    splitSyncConfig: "Rebuild shared auto-list",
+    splitSyncRunning: "Rebuilding shared auto-list…",
+    splitSyncDone: "Shared auto-list rebuilt",
     splitAutoGroupsTitle: "Automatically discovered",
-    splitAutoGroupsHelp: "Groups from instances and analysis. The main domain/IP is visible, subdomains and CIDRs are expandable.",
-    splitNoGroups: "No automatic groups yet. Click Rebuild from instances or analyze a domain.",
+    splitAutoGroupsHelp: "Global groups collected from all instances, manual rules, analysis and allowed service families from logs. This is shared by the whole olcrtc, not only the last entered domain.",
+    splitNoGroups: "No automatic groups yet. Click Rebuild shared auto-list or run targeted domain analysis.",
     splitAdvancedTitle: "Advanced rules",
     splitForceTor: "Always through Tor (one per line)",
     splitBlockedTor: "RU sites opened directly via VPS/zapret",
@@ -3079,12 +3083,21 @@ function ComponentSettingsModal({
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="font-medium">{t("splitAnalyzeTitle")}</div>
-                      <p className="text-xs text-muted-foreground">{t("splitAnalyzeHelp")}</p>
+                      <div className="font-medium">{t("splitGlobalSyncTitle")}</div>
+                      <p className="text-xs text-muted-foreground">{t("splitGlobalSyncHelp")}</p>
                     </div>
                     <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncConfig()}>
                       {t("splitSyncConfig")}
                     </button>
+                  </div>
+                </section>
+
+                <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{t("splitAnalyzeTitle")}</div>
+                      <p className="text-xs text-muted-foreground">{t("splitAnalyzeHelp")}</p>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <input
