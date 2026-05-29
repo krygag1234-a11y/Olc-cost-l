@@ -107,6 +107,7 @@ apply_olcrtc() {
     "$OLCRTC_REPO/internal/config/config.go" \
     "$OLCRTC_REPO/internal/app/session/session.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-route-log.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-reconnect-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-jitsi-no-smux-reconnect.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-join-retry.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
@@ -311,6 +312,8 @@ build_binaries() {
     log "ERROR: olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
     return "$rc"
   fi
+  install -d /var/lib/olcrtc
+  date -Is > /var/lib/olcrtc/.split-routing-reload
   log "build olcrtc-manager"
   olc_run_with_progress "сборка olcrtc-manager" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then

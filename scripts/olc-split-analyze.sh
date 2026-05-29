@@ -419,6 +419,9 @@ def service_log_hosts():
             continue
         out.extend(domain_candidates(value))
     return ordered_unique(out)
+
+
+def strip_autogen(text):
     lines = text.splitlines()
     out = []
     skipping = False
@@ -592,29 +595,37 @@ def sync_config(path):
         cfg = json.loads(read_text(Path(path)))
     except Exception as e:
         raise SystemExit(f"cannot read config: {e}")
-    targets = extract_config_targets(cfg)
-    if not targets:
-        targets = extract_targets(cfg)
-    anchors = ordered_unique(targets + read_rules(CUSTOM_DIRECT) + read_rules(PANEL_HOSTS) + seeded_direct_domains())
-    targets.extend(related_runtime_log_hosts(anchors))
-    targets.extend(service_log_hosts())
-    targets = ordered_unique(targets)
-    visible_hosts, visible_cidrs = [], []
-    for target in targets[:120]:
-        res = analyze(target, deep=True)
+    instance_targets = extract_config_targets(cfg)
+    if not instance_targets:
+        instance_targets = extract_targets(cfg)
+    anchors = ordered_unique(instance_targets + read_rules(CUSTOM_DIRECT) + read_rules(PANEL_HOSTS) + seeded_direct_domains())
+    log_hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts())
+    visible_hosts, visible_cidrs = list(log_hosts), []
+    for target in instance_targets[:20]:
+        res = analyze(target, deep=False)
         visible_hosts.extend(res.get("domains", []))
         visible_cidrs.extend(res.get("cidrs", []))
         upsert_group(data, "instance", target, res.get("domains", []), res.get("cidrs", []), label=target)
-    visible_hosts = ordered_unique(visible_hosts + targets)
+    for host in log_hosts:
+        domains = domain_candidates(host)
+        upsert_group(data, "instance", host, domains, [], label=host)
+        visible_hosts.extend(domains)
+    visible_hosts = ordered_unique(visible_hosts + instance_targets + log_hosts)
     write_text(PANEL_HOSTS, "\n".join(visible_hosts) + ("\n" if visible_hosts else ""))
     write_text(PANEL_CIDRS, "\n".join(ordered_unique(visible_cidrs)) + ("\n" if visible_cidrs else ""))
-    log_hosts = service_log_hosts()
     if log_hosts:
         cur = read_rules(CUSTOM_DIRECT)
         write_text(CUSTOM_DIRECT, "\n".join(ordered_unique(cur + log_hosts)) + ("\n" if cur or log_hosts else ""))
     save_manifest(data)
     rebuilt = rebuild()
-    return {"status": "ok", "targets": len(targets), "hosts": len(visible_hosts), "cidrs": len(visible_cidrs), "log_hosts": len(log_hosts), **rebuilt}
+    return {
+        "status": "ok",
+        "targets": len(instance_targets),
+        "hosts": len(visible_hosts),
+        "cidrs": len(visible_cidrs),
+        "log_hosts": len(log_hosts),
+        **rebuilt,
+    }
 
 
 def sync_logs():

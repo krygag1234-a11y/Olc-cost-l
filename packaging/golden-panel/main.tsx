@@ -227,13 +227,13 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyManualDirect: "В ручной список direct-исключений (рекомендуется)",
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
-    splitApplyDone: "Добавлено в список, инстансы перезапускаются…",
+    splitApplyDone: "Добавлено в список, маршрутизация применяется…",
     splitSyncConfig: "Обновить авто-список из инстансов и логов",
     splitSyncLogs: "Подтянуть CDN из логов сессии (VK и др.)",
     splitSyncRunning: "Ищу домены/IP в инстансах и их логах…",
-    splitSyncDone: "Списки обновлены, инстансы перезапускаются…",
-    splitSyncLogsDone: "CDN из логов добавлены, инстансы перезапускаются…",
-    splitRestartHint: "Списки split читаются olcrtc только при старте — после изменений инстансы перезапускаются автоматически.",
+    splitSyncDone: "Списки обновлены, маршрутизация применяется…",
+    splitSyncLogsDone: "CDN из логов добавлены, маршрутизация применяется…",
+    splitRestartHint: "После olc-update split-списки подгружаются в olcrtc через SIGUSR1 без разрыва Jitsi-сессии. Без обновления — полный перезапуск инстанса.",
     splitAutoGroupsTitle: "Автоматически найдено по инстансам",
     splitAutoGroupsHelp: "Группы из ваших инстансов и их логов. Это не дубль результата анализа — здесь только то, что привязано к room_id/carrier в config.json.",
     splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните анализ домена.",
@@ -455,13 +455,13 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyManualDirect: "To manual direct exceptions (recommended)",
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
-    splitApplyDone: "Added to list, restarting instances…",
+    splitApplyDone: "Added to list, applying routing…",
     splitSyncConfig: "Update auto-list from instances and logs",
     splitSyncLogs: "Pull CDN from session logs (VK etc.)",
     splitSyncRunning: "Searching domains/IPs in instances and their logs…",
-    splitSyncDone: "Lists updated, restarting instances…",
-    splitSyncLogsDone: "CDN from logs added, restarting instances…",
-    splitRestartHint: "olcrtc reads split lists only at startup — instances restart automatically after changes.",
+    splitSyncDone: "Lists updated, applying routing…",
+    splitSyncLogsDone: "CDN from logs added, applying routing…",
+    splitRestartHint: "After olc-update, split lists reload in olcrtc via SIGUSR1 without dropping the Jitsi session. Without update — full instance restart.",
     splitAutoGroupsTitle: "Auto-discovered from instances",
     splitAutoGroupsHelp: "Groups from your instances and their logs. Not a duplicate of analyzer results — only hosts tied to room_id/carrier in config.json.",
     splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or analyze a domain.",
@@ -2747,24 +2747,6 @@ function ComponentSettingsModal({
       cancelled = true;
     };
   }, [apiName]);
-
-  useEffect(() => {
-    if (feature !== "split" || loading) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/settings/split/sync-config", { method: "POST" });
-        const body = await readJsonOrText(res);
-        if (!res.ok) return;
-        if (!cancelled && body.settings) setSettings(body.settings as Record<string, unknown>);
-      } catch {
-        /* background sync — ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [feature, loading]);
 
   if (feature === "olcrtc" && instanceDefaultsOpen) {
     return <InstanceDefaultsModal onBack={() => setInstanceDefaultsOpen(false)} onClose={onClose} />;

@@ -5721,32 +5721,55 @@ func splitDiscoveryManifest() map[string]any {
 }
 
 func restartRunningOlcrtcInstances(reason string) {
+	applySplitRoutingToInstances(reason)
+}
+
+func splitRoutingReloadSupported() bool {
+	_, err := os.Stat("/var/lib/olcrtc/.split-routing-reload")
+	return err == nil
+}
+
+func applySplitRoutingToInstances(reason string) {
 	if panelSupervisor == nil {
 		return
 	}
+	useReload := splitRoutingReloadSupported()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
 		panelSupervisor.mu.RLock()
-		type item struct{ c, r, t string }
-		var items []item
-		for key := range panelSupervisor.processes {
-			parts := strings.SplitN(key, ":", 3)
-			if len(parts) != 3 {
-				continue
-			}
-			items = append(items, item{parts[0], parts[1], parts[2]})
+		procs := make([]*process, 0, len(panelSupervisor.processes))
+		for _, p := range panelSupervisor.processes {
+			procs = append(procs, p)
 		}
 		panelSupervisor.mu.RUnlock()
-		if len(items) == 0 {
+		if len(procs) == 0 {
 			return
 		}
-		for _, it := range items {
-			if err := panelSupervisor.Restart(ctx, it.c, it.r, it.t); err != nil {
-				log.Printf("split restart %s/%s: %v", it.c, it.r, err)
+		if useReload {
+			n := 0
+			for _, p := range procs {
+				if p == nil || p.cmd == nil || p.cmd.Process == nil {
+					continue
+				}
+				if err := p.cmd.Process.Signal(syscall.SIGUSR1); err == nil {
+					n++
+				} else {
+					log.Printf("split reload signal %s/%s: %v", p.location.ClientID, p.location.Endpoint.RoomID, err)
+				}
+			}
+			log.Printf("split: routing reload (SIGUSR1) sent to %d instance(s) (%s)", n, reason)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		for _, p := range procs {
+			if p == nil {
+				continue
+			}
+			if err := panelSupervisor.Restart(ctx, p.location.ClientID, p.location.Endpoint.RoomID, p.location.Transport.Type); err != nil {
+				log.Printf("split restart %s/%s: %v", p.location.ClientID, p.location.Endpoint.RoomID, err)
 			}
 		}
-		log.Printf("split: restarted %d running instance(s) (%s)", len(items), reason)
+		log.Printf("split: restarted %d running instance(s) (%s)", len(procs), reason)
 	}()
 }
 
@@ -5785,16 +5808,16 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
 		restartRunningOlcrtcInstances("split apply-analysis")
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "instances_restarted": true})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
 	case "sync-config":
-		out, err := runSplitTool(context.Background(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 2*time.Minute)
+		out, err := runSplitTool(r.Context(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 90*time.Second)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
 		restartRunningOlcrtcInstances("split sync-config")
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "instances_restarted": true})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
 	case "sync-logs":
 		out, err := runSplitTool(r.Context(), []string{"sync-logs"}, nil, 90*time.Second)
 		if err != nil {
@@ -5803,7 +5826,7 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
 		restartRunningOlcrtcInstances("split sync-logs")
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "instances_restarted": true})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
 	default:
 		http.NotFound(w, r)
 	}
