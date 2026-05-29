@@ -203,10 +203,14 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     torTestLine: "TestSocks: {test} · SafeSocks: {safe} · DNS: {dns}",
     torBridgesLine: "webtunnel-client: {wt} · bridges.conf подключён: {bridges}",
     splitDirectTitle: "Исключения для прямого подключения",
-    splitDirectHelp: "Домены, поддомены, IP или CIDR, которые должны идти напрямую с VPS, а не через Tor. Достаточно указать vk.com — поддомены тоже будут учитываться.",
-    splitCustomDirect: "Домены/IP/CIDR вручную (по строке)",
-    splitPanelHosts: "Авто-хосты из инстансов и сервисов",
+    splitDirectHelp: "Дополнительные правила поверх базовых списков (~20k RU-доменов и geoip CIDR). Сюда — ваши инстансы, CDN и ручные исключения.",
+    splitBaseListsInfo: "Базовые списки уже загружены на VPS и работают в фоне (все *.ru, geosite RU, плееры и т.д.). Поля ниже — только ваши дополнения и авто-данные из инстансов.",
+    splitCustomDirect: "Вручную добавленные домены/IP/CIDR",
+    splitCustomDirectHelp: "Появляются здесь после кнопки «Добавить» или ручного ввода. vk.com достаточно — поддомены учитываются автоматически.",
+    splitPanelHosts: "Авто-домены из ваших инстансов",
+    splitPanelHostsHelp: "Jitsi URL, telemost/wbstream CDN и связанные хосты. Обновляются при сохранении инстанса или кнопкой «Обновить авто-список».",
     splitPanelCidrs: "Авто-IP/CIDR из инстансов и DNS",
+    splitPanelCidrsHelp: "IP-адреса и подсети, найденные для хостов из инстансов. Отличается от списка доменов — это именно IP/диапазоны.",
     splitAnalyzeTitle: "Найти домены, поддомены, IP и CDN для сайта",
     splitAnalyzeHelp: "Вставьте домен, ссылку, IP или CIDR. Панель проверит DNS, сертификаты, whois и текущие split/zapret списки, затем предложит что добавить.",
     splitAnalyzeButton: "Анализировать",
@@ -217,18 +221,18 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitFoundDomains: "Найденные домены/поддомены",
     splitFoundCidrs: "Найденные IP/CIDR",
     splitApplyAnalysis: "Добавить найденное в Split",
-    splitApplyDefault: "Добавить",
+    splitApplyDefault: "Добавить в ручной список",
     splitApplyChoose: "Выбрать список для добавления",
-    splitApplyDirect: "В прямое подключение: сайт и найденные CDN идут напрямую, не через Tor",
-    splitApplyManualDirect: "В ручные direct-исключения: показать в верхнем списке и применять напрямую",
+    splitApplyDirect: "В авто-группу direct (без показа в ручном списке)",
+    splitApplyManualDirect: "В ручной список direct-исключений (рекомендуется)",
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
     splitApplyDone: "Найденное добавлено в выбранный список",
     splitSyncConfig: "Обновить авто-список из инстансов и логов",
     splitSyncRunning: "Ищу домены/IP в инстансах и их логах…",
     splitSyncDone: "Авто-список из инстансов и логов обновлён",
-    splitAutoGroupsTitle: "Автоматически найдено",
-    splitAutoGroupsHelp: "Группы из настроек инстансов, ссылок, payload и свежих логов работающих инстансов. Это не полный анализ сайта, а авто-добавление того, что реально используется вашими инстансами.",
+    splitAutoGroupsTitle: "Автоматически найдено по инстансам",
+    splitAutoGroupsHelp: "Группы из ваших инстансов и их логов. Это не дубль результата анализа — здесь только то, что привязано к room_id/carrier в config.json.",
     splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните анализ домена.",
     splitAdvancedTitle: "Расширенные правила",
     splitForceTor: "Всегда через Tor (по строке)",
@@ -424,10 +428,14 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     torTestLine: "TestSocks: {test} · SafeSocks: {safe} · DNS: {dns}",
     torBridgesLine: "webtunnel-client: {wt} · bridges.conf: {bridges}",
     splitDirectTitle: "Direct connection exceptions",
-    splitDirectHelp: "Domains, subdomains, IPs or CIDRs that should go directly from the VPS instead of Tor. Entering vk.com is enough — subdomains are covered too.",
-    splitCustomDirect: "Manual domains/IP/CIDR (one per line)",
-    splitPanelHosts: "Auto hosts from instances and services",
+    splitDirectHelp: "Extra rules on top of base lists (~20k RU domains and geoip CIDR). Use this for your instances, CDN and manual overrides.",
+    splitBaseListsInfo: "Base lists are already loaded on the VPS (*.ru, geosite RU, players, etc.). The fields below are only your additions and auto-data from instances.",
+    splitCustomDirect: "Manually added domains/IPs/CIDRs",
+    splitCustomDirectHelp: "Shown here after «Add» or manual edit. vk.com is enough — subdomains are covered automatically.",
+    splitPanelHosts: "Auto domains from your instances",
+    splitPanelHostsHelp: "Jitsi URLs, telemost/wbstream CDN and related hosts. Updated when you save an instance or click «Refresh auto-list».",
     splitPanelCidrs: "Auto IP/CIDR from instances and DNS",
+    splitPanelCidrsHelp: "IPs and subnets resolved for instance hosts. Unlike the domain list, this contains only IPs/ranges.",
     splitAnalyzeTitle: "Find domains, subdomains, IPs and CDN for a site",
     splitAnalyzeHelp: "Paste a domain, URL, IP or CIDR. The panel checks DNS, certificates, whois and current split/zapret lists, then suggests what to add.",
     splitAnalyzeButton: "Analyze",
@@ -438,18 +446,18 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitFoundDomains: "Found domains/subdomains",
     splitFoundCidrs: "Found IP/CIDR",
     splitApplyAnalysis: "Add found items to Split",
-    splitApplyDefault: "Add",
+    splitApplyDefault: "Add to manual list",
     splitApplyChoose: "Choose destination list",
-    splitApplyDirect: "Direct connection: site and discovered CDN go directly, not through Tor",
-    splitApplyManualDirect: "Manual direct exceptions: show in the top list and route directly",
+    splitApplyDirect: "To auto direct group (not shown in manual list)",
+    splitApplyManualDirect: "To manual direct exceptions (recommended)",
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
     splitApplyDone: "Found items added to the selected list",
     splitSyncConfig: "Update auto-list from instances and logs",
     splitSyncRunning: "Searching domains/IPs in instances and their logs…",
     splitSyncDone: "Auto-list from instances and logs updated",
-    splitAutoGroupsTitle: "Automatically discovered",
-    splitAutoGroupsHelp: "Groups from instance settings, links, payloads and recent logs of running instances. This is not full site analysis, but auto-adding what your instances actually use.",
+    splitAutoGroupsTitle: "Auto-discovered from instances",
+    splitAutoGroupsHelp: "Groups from your instances and their logs. Not a duplicate of analyzer results — only hosts tied to room_id/carrier in config.json.",
     splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or analyze a domain.",
     splitAdvancedTitle: "Advanced rules",
     splitForceTor: "Always through Tor (one per line)",
@@ -2695,6 +2703,15 @@ function ComponentSettingsModal({
   const [splitAnalyzeMsg, setSplitAnalyzeMsg] = useState("");
   const [splitApplyMenuOpen, setSplitApplyMenuOpen] = useState(false);
 
+  const readJsonOrText = async (res: Response): Promise<Record<string, unknown>> => {
+    const raw = await res.text();
+    try {
+      return (raw ? JSON.parse(raw) : {}) as Record<string, unknown>;
+    } catch {
+      return { error: raw || `HTTP ${res.status}` };
+    }
+  };
+
   useEffect(() => {
     setInstanceDefaultsOpen(false);
   }, [feature]);
@@ -2724,6 +2741,24 @@ function ComponentSettingsModal({
       cancelled = true;
     };
   }, [apiName]);
+
+  useEffect(() => {
+    if (feature !== "split" || loading) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/settings/split/sync-config", { method: "POST" });
+        const body = await readJsonOrText(res);
+        if (!res.ok) return;
+        if (!cancelled && body.settings) setSettings(body.settings as Record<string, unknown>);
+      } catch {
+        /* background sync — ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [feature, loading]);
 
   if (feature === "olcrtc" && instanceDefaultsOpen) {
     return <InstanceDefaultsModal onBack={() => setInstanceDefaultsOpen(false)} onClose={onClose} />;
@@ -2771,15 +2806,6 @@ function ComponentSettingsModal({
   const setStr = (key: string, value: string) => setSettings((s) => ({ ...s, [key]: value }));
   const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));
 
-  const readJsonOrText = async (res: Response): Promise<Record<string, unknown>> => {
-    const raw = await res.text();
-    try {
-      return (raw ? JSON.parse(raw) : {}) as Record<string, unknown>;
-    } catch {
-      return { error: raw || `HTTP ${res.status}` };
-    }
-  };
-
   const reloadSettings = async () => {
     const res = await fetch(`/api/settings/${apiName}`, { cache: "no-store" });
     const raw = await res.text();
@@ -2813,7 +2839,7 @@ function ComponentSettingsModal({
     }
   };
 
-  const splitApplyAnalysis = async (targetList = "direct") => {
+  const splitApplyAnalysis = async (targetList = "custom_direct") => {
     if (!splitAnalysis) return;
     setSaving(true);
     setSplitAnalyzeMsg("");
@@ -2828,6 +2854,7 @@ function ComponentSettingsModal({
       if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
       if (body.settings) setSettings(body.settings as Record<string, unknown>);
       else await reloadSettings();
+      if (targetList === "custom_direct") setSplitAnalysis(null);
       setSplitAnalyzeMsg(t("splitApplyDone"));
     } catch (e) {
       setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
@@ -2855,7 +2882,19 @@ function ComponentSettingsModal({
   };
 
   const splitDiscovery = (settings.discovery ?? {}) as { groups?: Array<Record<string, unknown>> };
-  const splitGroups = Array.isArray(splitDiscovery.groups) ? splitDiscovery.groups : [];
+  const splitGroups = useMemo(() => {
+    const raw = Array.isArray(splitDiscovery.groups) ? splitDiscovery.groups : [];
+    const byTarget = new Map<string, Record<string, unknown>>();
+    for (const g of raw) {
+      const target = String(g.target ?? g.label ?? "").trim().toLowerCase();
+      if (!target) continue;
+      const existing = byTarget.get(target);
+      if (!existing || (g.source === "instance" && existing.source !== "instance")) {
+        byTarget.set(target, g);
+      }
+    }
+    return Array.from(byTarget.values());
+  }, [splitDiscovery.groups]);
   const splitAnalysisDomains = splitAnalysis && Array.isArray(splitAnalysis.domains) ? splitAnalysis.domains.map(String) : [];
   const splitAnalysisCidrs = splitAnalysis && Array.isArray(splitAnalysis.cidrs) ? splitAnalysis.cidrs.map(String) : [];
 
@@ -2978,6 +3017,10 @@ function ComponentSettingsModal({
             )}
             {feature === "split" && (
               <>
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs space-y-1">
+                  <p>{t("splitBaseListsInfo")}</p>
+                  <p className="text-muted-foreground">{t("splitRuDirectLine", { count: String(settings.ru_direct_count ?? "?"), file: String(settings.direct_cidrs_file ?? "—") })}</p>
+                </div>
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
                   <div>
                     <div className="font-medium">{t("splitDirectTitle")}</div>
@@ -2985,6 +3028,7 @@ function ComponentSettingsModal({
                   </div>
                   <label className="grid gap-1 text-muted-foreground">
                     {t("splitCustomDirect")}
+                    <span className="text-[10px]">{t("splitCustomDirectHelp")}</span>
                     <textarea
                       className="min-h-[90px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                       placeholder="vk.com&#10;userapi.com&#10;87.240.128.0/18"
@@ -2994,6 +3038,7 @@ function ComponentSettingsModal({
                   </label>
                   <label className="grid gap-1 text-muted-foreground">
                     {t("splitPanelHosts")}
+                    <span className="text-[10px]">{t("splitPanelHostsHelp")}</span>
                     <textarea
                       className="min-h-[70px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                       value={String(settings.panel_hosts ?? "")}
@@ -3002,6 +3047,7 @@ function ComponentSettingsModal({
                   </label>
                   <label className="grid gap-1 text-muted-foreground">
                     {t("splitPanelCidrs")}
+                    <span className="text-[10px]">{t("splitPanelCidrsHelp")}</span>
                     <textarea
                       className="min-h-[50px] rounded-md border border-border bg-background p-2 font-mono text-xs"
                       value={String(settings.panel_cidrs ?? "")}
@@ -3046,7 +3092,7 @@ function ComponentSettingsModal({
                       </div>
                       {String(splitAnalysis.whois ?? "") && <LogScrollPre className="max-h-[90px] overflow-y-auto rounded bg-muted p-2">{String(splitAnalysis.whois)}</LogScrollPre>}
                       <div className="relative inline-flex">
-                        <button type="button" className="rounded-l border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyAnalysis("direct")}>
+                        <button type="button" className="rounded-l border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyAnalysis("custom_direct")}>
                           {t("splitApplyDefault")}
                         </button>
                         <button type="button" className="rounded-r border border-l-0 border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => setSplitApplyMenuOpen((v) => !v)} aria-label={t("splitApplyChoose")}>
@@ -3054,11 +3100,11 @@ function ComponentSettingsModal({
                         </button>
                         {splitApplyMenuOpen && (
                           <div className="absolute left-0 top-8 z-20 w-80 rounded border border-border bg-background p-1 shadow-lg">
-                            <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("direct")}>
-                              {t("splitApplyDirect")}
-                            </button>
                             <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("custom_direct")}>
                               {t("splitApplyManualDirect")}
+                            </button>
+                            <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("direct")}>
+                              {t("splitApplyDirect")}
                             </button>
                             <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("force_tor")}>
                               {t("splitApplyForceTor")}
@@ -3123,9 +3169,6 @@ function ComponentSettingsModal({
                   </label>
                 </section>
 
-                <p className="text-xs text-muted-foreground">
-                  {t("splitRuDirectLine", { count: String(settings.ru_direct_count ?? "?"), file: String(settings.direct_cidrs_file ?? "—") })}
-                </p>
                 <button
                   type="button"
                   className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"

@@ -338,12 +338,24 @@ def group_id(source, target):
 
 def upsert_group(data, source, target, domains, cidrs, label=None, replace_source=False):
     target = target_value(target)
+    if source == "analyzer":
+        inst = next(
+            (g for g in data.get("groups", [])
+             if g.get("source") == "instance" and target_value(g.get("target")) == target),
+            None,
+        )
+        if inst:
+            source = "instance"
+            domains = ordered_unique((inst.get("domains") or []) + list(domains or []))
+            cidrs = ordered_unique((inst.get("cidrs") or []) + list(cidrs or []))
     gid = group_id(source, target)
     groups = []
     for g in data.get("groups", []):
         if replace_source and g.get("source") == source:
             continue
         if g.get("id") == gid:
+            continue
+        if source == "instance" and g.get("source") == "analyzer" and target_value(g.get("target")) == target:
             continue
         groups.append(g)
     existing = next((g for g in data.get("groups", []) if g.get("id") == gid), {})
@@ -419,7 +431,68 @@ def rebuild():
     return {"status": "ok", "domains": len(domains), "cidrs": len(cidrs), "manifest": str(MANIFEST)}
 
 
+CARRIER_DEFAULT_HOSTS = {
+    "telemost": ["telemost.yandex.ru", "cloud-api.yandex.ru", "yandex.ru"],
+    "wbstream": ["stream.wb.ru", "wb.ru"],
+    "jazz": [],
+    "jitsi": [],
+}
+
+
+def carrier_seed_hosts():
+    out = []
+    for hosts in CARRIER_DEFAULT_HOSTS.values():
+        out.extend(hosts)
+    for line in read_text(ROOT / "data/zapret-carrier-hosts.txt").splitlines():
+        line = clean_line(line)
+        if not line or line.startswith("suffix:"):
+            continue
+        out.append(line.lstrip("*."))
+    return ordered_unique(out)
+
+
+def location_targets(loc):
+    if not isinstance(loc, dict):
+        return []
+    targets = []
+    carrier = (loc.get("carrier") or "").strip().lower()
+    endpoint = loc.get("endpoint") if isinstance(loc.get("endpoint"), dict) else {}
+    room = target_value(endpoint.get("room_id") or loc.get("room_id") or "")
+    dns_raw = (loc.get("dns") or "").strip()
+    if dns_raw:
+        dns_host = target_value(dns_raw.split(",")[0].split()[0])
+        if dns_host:
+            targets.append(dns_host)
+    if room:
+        if is_ip(room) or is_cidr(room) or "." in room:
+            targets.append(room)
+    for host in CARRIER_DEFAULT_HOSTS.get(carrier, []):
+        targets.append(host)
+    transport = loc.get("transport") if isinstance(loc.get("transport"), dict) else {}
+    payload = transport.get("payload") if isinstance(transport.get("payload"), dict) else loc.get("payload")
+    if isinstance(payload, dict):
+        for value in payload.values():
+            if isinstance(value, str):
+                for match in HOST_RE.finditer(value):
+                    targets.append(match.group(1))
+    return ordered_unique([target_value(t) for t in targets if target_value(t)])
+
+
+def extract_config_targets(cfg):
+    targets = []
+    if not isinstance(cfg, dict):
+        return targets
+    for client in cfg.get("clients") or []:
+        if not isinstance(client, dict):
+            continue
+        for loc in client.get("locations") or []:
+            targets.extend(location_targets(loc))
+    return ordered_unique(targets)
+
+
 def extract_targets(obj):
+    if isinstance(obj, dict) and "clients" in obj:
+        return extract_config_targets(obj)
     targets = []
     def walk(v, key=""):
         if isinstance(v, dict):
@@ -476,20 +549,23 @@ def sync_config(path):
         cfg = json.loads(read_text(Path(path)))
     except Exception as e:
         raise SystemExit(f"cannot read config: {e}")
-    targets = extract_targets(cfg)
+    targets = extract_config_targets(cfg)
+    if not targets:
+        targets = extract_targets(cfg)
     targets.extend(related_runtime_log_hosts(targets))
     targets = ordered_unique(targets)
     visible_hosts, visible_cidrs = [], []
     for target in targets[:120]:
-        res = analyze(target, deep=False)
+        res = analyze(target, deep=True)
         visible_hosts.extend(res.get("domains", []))
         visible_cidrs.extend(res.get("cidrs", []))
         upsert_group(data, "instance", target, res.get("domains", []), res.get("cidrs", []), label=target)
-    write_text(PANEL_HOSTS, "\n".join(ordered_unique(visible_hosts)) + ("\n" if visible_hosts else ""))
+    visible_hosts = ordered_unique(visible_hosts + targets)
+    write_text(PANEL_HOSTS, "\n".join(visible_hosts) + ("\n" if visible_hosts else ""))
     write_text(PANEL_CIDRS, "\n".join(ordered_unique(visible_cidrs)) + ("\n" if visible_cidrs else ""))
     save_manifest(data)
     rebuilt = rebuild()
-    return {"status": "ok", "targets": len(targets), **rebuilt}
+    return {"status": "ok", "targets": len(targets), "hosts": len(visible_hosts), "cidrs": len(visible_cidrs), **rebuilt}
 
 
 def apply_analysis(payload):
@@ -510,8 +586,18 @@ def apply_analysis(payload):
         return {"status": "ok", "target_list": "blocked_tor", "domains": len(domains), "cidrs": 0}
     if target_list in {"manual", "custom_direct"}:
         cur = read_rules(CUSTOM_DIRECT)
-        write_text(CUSTOM_DIRECT, "\n".join(ordered_unique(cur + domains + cidrs)) + "\n")
-        return rebuild()
+        manual_domains = ordered_unique(cur + [d for d in domains if d and not is_cidr(d)])
+        manual_cidrs = ordered_unique([c for c in cidrs if is_cidr(c)])
+        for d in domains:
+            if is_ip(d):
+                manual_cidrs.append(d + ("/32" if ":" not in d else "/128"))
+        write_text(CUSTOM_DIRECT, "\n".join(manual_domains + manual_cidrs) + ("\n" if manual_domains or manual_cidrs else ""))
+        if manual_cidrs:
+            cur_c = [clean_line(x) for x in read_text(PANEL_CIDRS).splitlines() if clean_line(x)]
+            write_text(PANEL_CIDRS, "\n".join(ordered_unique(cur_c + manual_cidrs)) + "\n")
+        out = rebuild()
+        out["target_list"] = "custom_direct"
+        return out
     upsert_group(data, payload.get("source", "analyzer"), target, domains, cidrs, label=payload.get("label") or target)
     save_manifest(data)
     out = rebuild()
