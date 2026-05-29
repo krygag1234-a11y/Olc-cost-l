@@ -16,10 +16,12 @@ log() { echo "[golden-panel] $*"; }
 }
 
 if [[ -f "$GOLDEN_DIR/SHA256SUMS" ]]; then
-  (cd "$GOLDEN_DIR" && sha256sum -c SHA256SUMS) || {
-    log "ОШИБКА: checksum эталона не совпадает"
+  if ! (cd "$GOLDEN_DIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+    log "ОШИБКА: checksum эталона не совпадает (main.go/main.tsx изменены без обновления SHA256SUMS)"
+    log "  cd $GOLDEN_DIR && sha256sum main.go main.tsx > SHA256SUMS && git add SHA256SUMS && git commit"
+    (cd "$GOLDEN_DIR" && sha256sum -c SHA256SUMS 2>&1 | sed 's/^/  /') || true
     exit 1
-  }
+  fi
 fi
 
 [[ -d "$MGR_REPO/src" ]] || { log "ОШИБКА: нет $MGR_REPO/src"; exit 1; }
