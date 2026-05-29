@@ -412,6 +412,7 @@ func run() error {
 		}
 		writeJSON(w, map[string]any{"events": readAudit(configPath, 100)})
 	})))
+	handler.Handle("/api/settings/split", adminAuth(http.HandlerFunc(componentSettingsHandler())))
 	handler.Handle("/api/settings/split/", adminAuth(http.HandlerFunc(splitSettingsActionHandler)))
 	handler.Handle("/api/settings/", adminAuth(http.HandlerFunc(componentSettingsHandler())))
 
@@ -5258,8 +5259,8 @@ func componentSettingsGet(name string) (map[string]any, error) {
 			"generated_domains":     readTextFile("/var/lib/olcrtc/lists/panel-carrier-generated-domains.txt"),
 			"generated_cidrs":       readTextFile("/var/lib/olcrtc/lists/panel-carrier-generated-cidrs.txt"),
 			"discovery":             splitDiscoveryManifest(),
-			"force_tor_domains":     readTextFile("/var/lib/olcrtc/force-tor-domains.txt"),
-			"blocked_tor_domains":   readTextFile("/var/lib/olcrtc/ru-blocked-tor-domains.txt"),
+			"force_tor_domains":     readSplitRulesWithSeed("/var/lib/olcrtc/force-tor-domains.txt", "data/global-force-tor-domains.txt"),
+			"blocked_tor_domains":   readSplitRulesWithSeed("/var/lib/olcrtc/ru-blocked-tor-domains.txt", "data/ru-blocked-tor-seed.txt"),
 			"ru_direct_count":       countLines("/var/lib/olcrtc/ru-direct-domains.txt"),
 			"direct_cidrs_file":     env["OLCRTC_DIRECT_CIDRS"],
 			"cidr_only":             splitCidrOnlyEnabled(),
@@ -5370,6 +5371,14 @@ func countLines(path string) int {
 		}
 	}
 	return n
+}
+
+func readSplitRulesWithSeed(path, seedPath string) string {
+	value := strings.TrimSpace(readTextFile(path))
+	if value != "" {
+		return value
+	}
+	return readTextFile(filepath.Join(olcRepoRoot(), seedPath))
 }
 
 
