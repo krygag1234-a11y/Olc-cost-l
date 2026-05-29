@@ -3,19 +3,38 @@
 set -euo pipefail
 SERVER_GO="${1:-/tmp/olcrtc-src/internal/server/server.go}"
 [[ -f "$SERVER_GO" ]] || exit 1
-grep -q 'reloadRoutingLists' "$SERVER_GO" && { echo "[patch-routing-reload] already applied"; exit 0; }
+grep -q 'func (s \*Server) reloadRoutingLists() error' "$SERVER_GO" && {
+  echo "[patch-routing-reload] already applied"
+  exit 0
+}
 
 python3 - "$SERVER_GO" <<'PY'
+import re
 import sys
 from pathlib import Path
 
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if '"os/signal"' not in t:
-    t = t.replace('"os"\n\t', '"os"\n\t"os/signal"\n\t', 1)
-if '"syscall"' not in t:
-    t = t.replace('"sync"\n\t', '"sync"\n\t"syscall"\n\t', 1)
+# Remove broken earlier attempt (wrong logger type / missing imports).
+t = re.sub(
+    r"\nfunc \(s \*Server\) reloadRoutingLists\(logger names\.Logger\) error \{.*?\n\}\n",
+    "\n",
+    t,
+    count=1,
+    flags=re.S,
+)
+t = re.sub(
+    r"\n\treloadRouting := make\(chan os\.Signal, 1\)\n\tsignal\.Notify\(reloadRouting, syscall\.SIGUSR1\)\n\tgo func\(\) \{.*?\n\t\}\(\)\n\n",
+    "\n",
+    t,
+    count=1,
+    flags=re.S,
+)
+
+for imp in ('"os"', '"os/signal"', '"syscall"'):
+    if imp not in t:
+        t = t.replace('"net"\n', '"net"\n\t' + imp + '\n', 1)
 
 if "directDomainsPath   string" not in t:
     t = t.replace(
@@ -37,7 +56,7 @@ if "s.directCIDRsPath = cfg.DirectCIDRsFile" not in t:
     )
 
 reload_fn = """
-func (s *Server) reloadRoutingLists(logger names.Logger) error {
+func (s *Server) reloadRoutingLists() error {
 \tif s.directCIDRsPath != \"\" {
 \t\tm, err := routing.LoadFile(s.directCIDRsPath)
 \t\tif err != nil {
@@ -74,7 +93,7 @@ func (s *Server) reloadRoutingLists(logger names.Logger) error {
 }
 
 """
-if "func (s *Server) reloadRoutingLists" not in t:
+if "func (s *Server) reloadRoutingLists() error" not in t:
     t = t.replace(
         "func (s *Server) shouldDialDirect(host string) bool {",
         reload_fn + "func (s *Server) shouldDialDirect(host string) bool {",
@@ -86,7 +105,7 @@ sig_block = """
 \tsignal.Notify(reloadRouting, syscall.SIGUSR1)
 \tgo func() {
 \t\tfor range reloadRouting {
-\t\t\tif err := s.reloadRoutingLists(logger); err != nil {
+\t\t\tif err := s.reloadRoutingLists(); err != nil {
 \t\t\t\tlogger.Warnf(\"routing reload failed: %v\", err)
 \t\t\t}
 \t\t}
