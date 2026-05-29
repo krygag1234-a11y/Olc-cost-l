@@ -227,10 +227,13 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyManualDirect: "В ручной список direct-исключений (рекомендуется)",
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
-    splitApplyDone: "Найденное добавлено в выбранный список",
+    splitApplyDone: "Добавлено в список, инстансы перезапускаются…",
     splitSyncConfig: "Обновить авто-список из инстансов и логов",
+    splitSyncLogs: "Подтянуть CDN из логов сессии (VK и др.)",
     splitSyncRunning: "Ищу домены/IP в инстансах и их логах…",
-    splitSyncDone: "Авто-список из инстансов и логов обновлён",
+    splitSyncDone: "Списки обновлены, инстансы перезапускаются…",
+    splitSyncLogsDone: "CDN из логов добавлены, инстансы перезапускаются…",
+    splitRestartHint: "Списки split читаются olcrtc только при старте — после изменений инстансы перезапускаются автоматически.",
     splitAutoGroupsTitle: "Автоматически найдено по инстансам",
     splitAutoGroupsHelp: "Группы из ваших инстансов и их логов. Это не дубль результата анализа — здесь только то, что привязано к room_id/carrier в config.json.",
     splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните анализ домена.",
@@ -452,10 +455,13 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyManualDirect: "To manual direct exceptions (recommended)",
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
-    splitApplyDone: "Found items added to the selected list",
+    splitApplyDone: "Added to list, restarting instances…",
     splitSyncConfig: "Update auto-list from instances and logs",
+    splitSyncLogs: "Pull CDN from session logs (VK etc.)",
     splitSyncRunning: "Searching domains/IPs in instances and their logs…",
-    splitSyncDone: "Auto-list from instances and logs updated",
+    splitSyncDone: "Lists updated, restarting instances…",
+    splitSyncLogsDone: "CDN from logs added, restarting instances…",
+    splitRestartHint: "olcrtc reads split lists only at startup — instances restart automatically after changes.",
     splitAutoGroupsTitle: "Auto-discovered from instances",
     splitAutoGroupsHelp: "Groups from your instances and their logs. Not a duplicate of analyzer results — only hosts tied to room_id/carrier in config.json.",
     splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or analyze a domain.",
@@ -2877,7 +2883,25 @@ function ComponentSettingsModal({
       setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
-      window.setTimeout(() => setSplitAnalyzeMsg((m) => (m === t("splitSyncDone") ? "" : m)), 5000);
+      window.setTimeout(() => setSplitAnalyzeMsg((m) => (m === t("splitSyncDone") ? "" : m)), 8000);
+    }
+  };
+
+  const splitSyncLogs = async () => {
+    setSaving(true);
+    setSplitAnalyzeMsg(t("splitSyncRunning"));
+    try {
+      const res = await fetch("/api/settings/split/sync-logs", { method: "POST" });
+      const body = await readJsonOrText(res);
+      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
+      if (body.settings) setSettings(body.settings as Record<string, unknown>);
+      else await reloadSettings();
+      setSplitAnalyzeMsg(t("splitSyncLogsDone"));
+    } catch (e) {
+      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setSplitAnalyzeMsg((m) => (m === t("splitSyncLogsDone") ? "" : m)), 8000);
     }
   };
 
@@ -3065,7 +3089,11 @@ function ComponentSettingsModal({
                     <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncConfig()}>
                       {t("splitSyncConfig")}
                     </button>
+                    <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncLogs()}>
+                      {t("splitSyncLogs")}
+                    </button>
                   </div>
+                  <p className="text-[10px] text-muted-foreground">{t("splitRestartHint")}</p>
                   <div className="flex gap-2">
                     <input
                       className="h-9 flex-1 rounded-md border border-border bg-background px-2 text-xs"
@@ -3117,7 +3145,7 @@ function ComponentSettingsModal({
                       </div>
                     </div>
                   )}
-                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
+                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") || splitAnalyzeMsg === t("splitSyncLogsDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
                 </section>
 
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">

@@ -376,7 +376,49 @@ def upsert_group(data, source, target, domains, cidrs, label=None, replace_sourc
     data["groups"] = sorted(groups, key=lambda x: (x.get("source", ""), x.get("label", "")))
 
 
-def strip_autogen(text):
+def seeded_direct_domains():
+    domains = []
+    for path in [
+        ROOT / "data/zapret-vk-cdn-extra.txt",
+        ROOT / "data/panel-carrier-domain-seed.txt",
+    ]:
+        for line in read_text(path).splitlines():
+            line = clean_line(line)
+            if not line:
+                continue
+            if line.startswith("suffix:"):
+                line = line[7:].strip().lstrip("*.")
+            elif line.startswith("exact:"):
+                line = line[6:].strip()
+            line = line.lstrip("*.").strip()
+            if line:
+                domains.extend(domain_candidates(line))
+    return ordered_unique(domains)
+
+
+def is_service_cdn_host(host):
+    host = target_value(host)
+    if not host or is_ip(host) or is_cidr(host):
+        return False
+    suffixes = (
+        ".vk.com", ".vk.ru", ".vk.cc", ".vk.me", ".vk.link", ".vk-portal.net", ".vk-portal.ru",
+        ".userapi.com", ".vkuseraudio.net", ".vkuservideo.net", ".vkuser.net", ".vk-cdn.net",
+        ".mail.ru", ".mycdn.me", ".habr.com", ".yandex.ru", ".yandex.net",
+    )
+    for suffix in suffixes:
+        if host == suffix.lstrip(".") or host.endswith(suffix):
+            return True
+    return False
+
+
+def service_log_hosts():
+    out = []
+    for line in read_text(RUNTIME_LOG_HOSTS).splitlines():
+        value = target_value(clean_line(line))
+        if not value or not is_service_cdn_host(value):
+            continue
+        out.extend(domain_candidates(value))
+    return ordered_unique(out)
     lines = text.splitlines()
     out = []
     skipping = False
@@ -417,6 +459,7 @@ def rebuild():
     ensure_dirs()
     data = load_manifest()
     domains, cidrs = normalize_manual_files()
+    domains.extend(seeded_direct_domains())
     for g in data.get("groups", []):
         domains.extend(g.get("selected_domains") or g.get("domains") or [])
         cidrs.extend(g.get("selected_cidrs") or g.get("cidrs") or [])
@@ -552,7 +595,9 @@ def sync_config(path):
     targets = extract_config_targets(cfg)
     if not targets:
         targets = extract_targets(cfg)
-    targets.extend(related_runtime_log_hosts(targets))
+    anchors = ordered_unique(targets + read_rules(CUSTOM_DIRECT) + read_rules(PANEL_HOSTS) + seeded_direct_domains())
+    targets.extend(related_runtime_log_hosts(anchors))
+    targets.extend(service_log_hosts())
     targets = ordered_unique(targets)
     visible_hosts, visible_cidrs = [], []
     for target in targets[:120]:
@@ -563,9 +608,35 @@ def sync_config(path):
     visible_hosts = ordered_unique(visible_hosts + targets)
     write_text(PANEL_HOSTS, "\n".join(visible_hosts) + ("\n" if visible_hosts else ""))
     write_text(PANEL_CIDRS, "\n".join(ordered_unique(visible_cidrs)) + ("\n" if visible_cidrs else ""))
+    log_hosts = service_log_hosts()
+    if log_hosts:
+        cur = read_rules(CUSTOM_DIRECT)
+        write_text(CUSTOM_DIRECT, "\n".join(ordered_unique(cur + log_hosts)) + ("\n" if cur or log_hosts else ""))
     save_manifest(data)
     rebuilt = rebuild()
-    return {"status": "ok", "targets": len(targets), "hosts": len(visible_hosts), "cidrs": len(visible_cidrs), **rebuilt}
+    return {"status": "ok", "targets": len(targets), "hosts": len(visible_hosts), "cidrs": len(visible_cidrs), "log_hosts": len(log_hosts), **rebuilt}
+
+
+def sync_logs():
+    anchors = read_rules(CUSTOM_DIRECT) + read_rules(PANEL_HOSTS) + seeded_direct_domains()
+    try:
+        cfg = json.loads(read_text(Path("/etc/olcrtc-manager/config.json")))
+        anchors.extend(extract_config_targets(cfg))
+    except Exception:
+        pass
+    anchors = ordered_unique([target_value(a) for a in anchors if target_value(a)])
+    hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts())
+    cur = read_rules(CUSTOM_DIRECT)
+    if not hosts:
+        out = rebuild()
+        out["added"] = 0
+        return out
+    merged = ordered_unique(cur + hosts)
+    write_text(CUSTOM_DIRECT, "\n".join(merged) + ("\n" if merged else ""))
+    out = rebuild()
+    out["added"] = max(0, len(merged) - len(cur))
+    out["hosts"] = len(hosts)
+    return out
 
 
 def apply_analysis(payload):
@@ -607,7 +678,7 @@ def apply_analysis(payload):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("command", choices=["analyze", "sync-config", "rebuild", "apply-analysis", "manifest"])
+    p.add_argument("command", choices=["analyze", "sync-config", "sync-logs", "rebuild", "apply-analysis", "manifest"])
     p.add_argument("target", nargs="?")
     p.add_argument("--config", default="/etc/olcrtc-manager/config.json")
     p.add_argument("--shallow", action="store_true")
@@ -616,6 +687,8 @@ def main():
         print(json.dumps(analyze(args.target or "", deep=not args.shallow), ensure_ascii=False, indent=2))
     elif args.command == "sync-config":
         print(json.dumps(sync_config(args.target or args.config), ensure_ascii=False, indent=2))
+    elif args.command == "sync-logs":
+        print(json.dumps(sync_logs(), ensure_ascii=False, indent=2))
     elif args.command == "rebuild":
         print(json.dumps(rebuild(), ensure_ascii=False, indent=2))
     elif args.command == "apply-analysis":

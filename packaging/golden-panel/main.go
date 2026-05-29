@@ -269,6 +269,8 @@ type Supervisor struct {
 	quota      *QuotaEnforcer
 }
 
+var panelSupervisor *Supervisor
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -316,6 +318,7 @@ func run() error {
 	defer stop()
 
 	supervisor := NewSupervisor(olcrtcPath, startInstance)
+	panelSupervisor = supervisor
 	quotaEnforcer := NewQuotaEnforcer(configPath, supervisor)
 	supervisor.SetQuotaEnforcer(quotaEnforcer)
 	if err := supervisor.StartAll(ctx, cfg); err != nil {
@@ -5717,6 +5720,36 @@ func splitDiscoveryManifest() map[string]any {
 	return out
 }
 
+func restartRunningOlcrtcInstances(reason string) {
+	if panelSupervisor == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		panelSupervisor.mu.RLock()
+		type item struct{ c, r, t string }
+		var items []item
+		for key := range panelSupervisor.processes {
+			parts := strings.SplitN(key, ":", 3)
+			if len(parts) != 3 {
+				continue
+			}
+			items = append(items, item{parts[0], parts[1], parts[2]})
+		}
+		panelSupervisor.mu.RUnlock()
+		if len(items) == 0 {
+			return
+		}
+		for _, it := range items {
+			if err := panelSupervisor.Restart(ctx, it.c, it.r, it.t); err != nil {
+				log.Printf("split restart %s/%s: %v", it.c, it.r, err)
+			}
+		}
+		log.Printf("split: restarted %d running instance(s) (%s)", len(items), reason)
+	}()
+}
+
 func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -5751,7 +5784,8 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 			return
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+		restartRunningOlcrtcInstances("split apply-analysis")
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "instances_restarted": true})
 	case "sync-config":
 		out, err := runSplitTool(context.Background(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 2*time.Minute)
 		if err != nil {
@@ -5759,7 +5793,17 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 			return
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+		restartRunningOlcrtcInstances("split sync-config")
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "instances_restarted": true})
+	case "sync-logs":
+		out, err := runSplitTool(r.Context(), []string{"sync-logs"}, nil, 90*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		restartRunningOlcrtcInstances("split sync-logs")
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "instances_restarted": true})
 	default:
 		http.NotFound(w, r)
 	}
@@ -5807,6 +5851,7 @@ func componentSettingsAfterSave(name string, body map[string]any) {
 					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
 					_, _ = cmd.CombinedOutput()
 				}
+				restartRunningOlcrtcInstances("split settings saved")
 			}()
 		}
 	case "tor":
