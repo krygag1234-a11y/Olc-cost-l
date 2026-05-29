@@ -6,6 +6,7 @@ _OLC_VPS_BACKUP_LOADED=1
 OLC_VPS_BACKUP_ROOT="${OLC_VPS_BACKUP_ROOT:-/var/backups/olc-vps}"
 OLC_VPS_BACKUP_TTL_DAYS="${OLC_VPS_BACKUP_TTL_DAYS:-14}"
 OLC_VPS_BACKUP_ONCE_PER_DAY="${OLC_VPS_BACKUP_ONCE_PER_DAY:-1}"
+OLC_VPS_BACKUP_MIN_FREE_MB="${OLC_VPS_BACKUP_MIN_FREE_MB:-1200}"
 
 _olc_backup_now() { date -u +%Y%m%dT%H%M%SZ; }
 _olc_backup_day() { date -u +%Y%m%d; }
@@ -42,6 +43,24 @@ olc_preflight_vps_backup() {
   fi
 
   local reason="${1:-run}"
+  if [[ "$reason" == "olc-update" && "${OLC_VPS_BACKUP_FORCE:-0}" != "1" && "${OLC_VPS_BACKUP_UPDATE_FULL:-0}" != "1" ]]; then
+    echo "[olc-vps-backup] skip full VPS backup for olc-update (use OLC_VPS_BACKUP_UPDATE_FULL=1 to force)" >&2
+    return 0
+  fi
+
+  # Prune old/generated archives before deciding whether a new full backup is safe.
+  find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.tar.gz' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true
+  find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.meta.txt' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true
+  find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.tsv' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true
+  find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.txt' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true
+
+  local avail
+  avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
+  if [[ -n "$avail" && "$avail" -lt "$OLC_VPS_BACKUP_MIN_FREE_MB" && "${OLC_VPS_BACKUP_FORCE:-0}" != "1" ]]; then
+    echo "[olc-vps-backup] skip: мало места для full backup (~${avail} МБ свободно, нужно >= ${OLC_VPS_BACKUP_MIN_FREE_MB} МБ)" >&2
+    return 0
+  fi
+
   local day="$(_olc_backup_day)"
   local day_marker="$OLC_VPS_BACKUP_ROOT/.daily-${day}"
   if [[ "${OLC_VPS_BACKUP_FORCE:-0}" != "1" ]] && [[ "$OLC_VPS_BACKUP_ONCE_PER_DAY" == "1" && -f "$day_marker" ]]; then
@@ -76,7 +95,7 @@ olc_preflight_vps_backup() {
   touch "$day_marker"
   echo "[olc-vps-backup] saved $archive ($(du -h "$archive" 2>/dev/null | awk '{print $1}')) reason=$reason" >&2
 
-  # prune old backups
+  # prune old backups after success too
   find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.tar.gz' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true
   find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.meta.txt' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true
   find "$OLC_VPS_BACKUP_ROOT" -type f -name '*.tsv' -mtime +"$OLC_VPS_BACKUP_TTL_DAYS" -delete 2>/dev/null || true

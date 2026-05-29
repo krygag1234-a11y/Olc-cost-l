@@ -11,6 +11,7 @@ OLC_DISK_FAIL_USE_PCT="${OLC_DISK_FAIL_USE_PCT:-98}"
 OLC_DISK_WARN_USE_PCT="${OLC_DISK_WARN_USE_PCT:-95}"
 # 1 = только предупреждение, не выходить с ошибкой
 OLC_DISK_CHECK_WARN_ONLY="${OLC_DISK_CHECK_WARN_ONLY:-0}"
+OLC_DISK_PROMPT_ON_WARN="${OLC_DISK_PROMPT_ON_WARN:-1}"
 
 olc_disk_available_mb() {
   local path="$1"
@@ -181,8 +182,12 @@ olc_preflight_disk_space() {
     fi
   fi
   
-  # Если это просто предупреждение (res=2), не запускаем интерактивную очистку, если места всё ещё > OLC_DISK_MIN_MB_ROOT
-  [[ "$res" -eq 2 ]] && return 0
+  if [[ "$res" -eq 2 ]]; then
+    if [[ "$OLC_DISK_PROMPT_ON_WARN" == "1" ]]; then
+      olc_disk_interactive_cleanup || true
+    fi
+    return 0
+  fi
   return "$res"
 }
 
