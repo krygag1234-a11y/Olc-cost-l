@@ -11,6 +11,9 @@ suffix:.vk-cdn.net
 st.vk.com
 im.vk.com
 i.vk.com
+queuev4.vk.com
+suffix:.mycdn.me
+suffix:.mradx.net
 sts.vk.com
 login.vk.ru
 m.vk.ru

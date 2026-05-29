@@ -5820,8 +5820,7 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 			return
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
-		restartRunningOlcrtcInstances("split apply-analysis")
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_pending": true})
 	case "sync-config":
 		out, err := runSplitTool(r.Context(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 90*time.Second)
 		if err != nil {
@@ -5829,8 +5828,7 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 			return
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
-		restartRunningOlcrtcInstances("split sync-config")
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_pending": true})
 	case "sync-logs":
 		out, err := runSplitTool(r.Context(), []string{"sync-logs"}, nil, 90*time.Second)
 		if err != nil {
@@ -5838,8 +5836,10 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 			return
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
-		restartRunningOlcrtcInstances("split sync-logs")
-		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split"), "routing_pending": true})
+	case "apply-routing":
+		applySplitRoutingToInstances("split apply-routing")
+		writeJSON(w, map[string]any{"status": "ok", "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
 	default:
 		http.NotFound(w, r)
 	}
@@ -5887,7 +5887,6 @@ func componentSettingsAfterSave(name string, body map[string]any) {
 					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
 					_, _ = cmd.CombinedOutput()
 				}
-				applySplitRoutingToInstances("split settings saved")
 			}()
 		}
 	case "tor":

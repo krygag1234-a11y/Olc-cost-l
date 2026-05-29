@@ -109,6 +109,7 @@ apply_olcrtc() {
   bash "$SCRIPT_DIR/patch-olcrtc-server-route-log.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload-skip.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-reconnect-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-jitsi-no-smux-reconnect.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-join-retry.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"

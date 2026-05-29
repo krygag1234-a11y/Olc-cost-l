@@ -227,13 +227,15 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyManualDirect: "В ручной список direct-исключений (рекомендуется)",
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
-    splitApplyDone: "Добавлено в список, маршрутизация применяется…",
+    splitApplyDone: "Списки сохранены — нажмите «Применить маршрутизацию»",
     splitSyncConfig: "Обновить авто-список из инстансов и логов",
     splitSyncLogs: "Подтянуть CDN из логов сессии (VK и др.)",
     splitSyncRunning: "Ищу домены/IP в инстансах и их логах…",
-    splitSyncDone: "Списки обновлены, маршрутизация применяется…",
-    splitSyncLogsDone: "CDN из логов добавлены, маршрутизация применяется…",
-    splitRestartHint: "После olc-update split-списки подгружаются в olcrtc через SIGUSR1 без разрыва Jitsi-сессии. Без обновления — полный перезапуск инстанса.",
+    splitSyncDone: "Авто-списки обновлены на диске",
+    splitSyncLogsDone: "CDN из логов записаны на диск",
+    splitApplyRouting: "Применить маршрутизацию",
+    splitApplyRoutingDone: "Маршрутизация применена к инстансам",
+    splitRestartHint: "Списки сначала пишутся на диск. «Применить маршрутизацию» — отдельно, когда VK/сайт не грузится. Не жми во время загрузки страницы. TikTok/Google в фоне забивают туннель.",
     splitAutoGroupsTitle: "Автоматически найдено по инстансам",
     splitAutoGroupsHelp: "Группы из ваших инстансов и их логов. Это не дубль результата анализа — здесь только то, что привязано к room_id/carrier в config.json.",
     splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните анализ домена.",
@@ -455,13 +457,15 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyManualDirect: "To manual direct exceptions (recommended)",
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
-    splitApplyDone: "Added to list, applying routing…",
+    splitApplyDone: "Lists saved — click Apply routing",
     splitSyncConfig: "Update auto-list from instances and logs",
     splitSyncLogs: "Pull CDN from session logs (VK etc.)",
     splitSyncRunning: "Searching domains/IPs in instances and their logs…",
-    splitSyncDone: "Lists updated, applying routing…",
-    splitSyncLogsDone: "CDN from logs added, applying routing…",
-    splitRestartHint: "After olc-update, split lists reload in olcrtc via SIGUSR1 without dropping the Jitsi session. Without update — full instance restart.",
+    splitSyncDone: "Auto-lists updated on disk",
+    splitSyncLogsDone: "CDN from logs written to disk",
+    splitApplyRouting: "Apply routing",
+    splitApplyRoutingDone: "Routing applied to instances",
+    splitRestartHint: "Lists are written to disk first. Apply routing separately when needed — not while a page is loading. Background TikTok/Google traffic saturates the tunnel.",
     splitAutoGroupsTitle: "Auto-discovered from instances",
     splitAutoGroupsHelp: "Groups from your instances and their logs. Not a duplicate of analyzer results — only hosts tied to room_id/carrier in config.json.",
     splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or analyze a domain.",
@@ -2887,6 +2891,22 @@ function ComponentSettingsModal({
     }
   };
 
+  const splitApplyRouting = async () => {
+    setSaving(true);
+    setSplitAnalyzeMsg("");
+    try {
+      const res = await fetch("/api/settings/split/apply-routing", { method: "POST" });
+      const body = await readJsonOrText(res);
+      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
+      setSplitAnalyzeMsg(t("splitApplyRoutingDone"));
+    } catch (e) {
+      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+      window.setTimeout(() => setSplitAnalyzeMsg((m) => (m === t("splitApplyRoutingDone") ? "" : m)), 8000);
+    }
+  };
+
   const splitDiscovery = (settings.discovery ?? {}) as { groups?: Array<Record<string, unknown>> };
   const splitGroups = useMemo(() => {
     const raw = Array.isArray(splitDiscovery.groups) ? splitDiscovery.groups : [];
@@ -3074,6 +3094,9 @@ function ComponentSettingsModal({
                     <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncLogs()}>
                       {t("splitSyncLogs")}
                     </button>
+                    <button type="button" className="rounded border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyRouting()}>
+                      {t("splitApplyRouting")}
+                    </button>
                   </div>
                   <p className="text-[10px] text-muted-foreground">{t("splitRestartHint")}</p>
                   <div className="flex gap-2">
@@ -3127,7 +3150,7 @@ function ComponentSettingsModal({
                       </div>
                     </div>
                   )}
-                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") || splitAnalyzeMsg === t("splitSyncLogsDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
+                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") || splitAnalyzeMsg === t("splitSyncLogsDone") || splitAnalyzeMsg === t("splitApplyRoutingDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
                 </section>
 
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
