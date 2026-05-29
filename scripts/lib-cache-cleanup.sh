@@ -13,6 +13,7 @@ olc_cleanup_build_caches() {
 
   olc_cleanup_log "${mode}: remove temporary build caches"
   rm -rf /tmp/olcrtc-src /tmp/olcrtc-manager-panel /tmp/go-build* 2>/dev/null || true
+  find /tmp -maxdepth 1 -type d -name 'go-*' -exec rm -rf {} + 2>/dev/null || true
   rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
   npm cache clean --force >/dev/null 2>&1 || true
 

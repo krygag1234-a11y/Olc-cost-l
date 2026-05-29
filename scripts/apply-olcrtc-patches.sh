@@ -279,21 +279,44 @@ apply_manager() {
       rm -rf "$MGR_REPO/web/dist"
       (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install)
       (cd "$MGR_REPO" && npm run build) || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
-      bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
+      if [[ -x "$SCRIPT_DIR/olc-panel-verify.sh" ]]; then
+        bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
+      else
+        log "WARN: olc-panel-verify.sh не найден — пропуск проверки эталона"
+      fi
     fi
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already
 }
 
 build_binaries() {
+  local rc=0
   if [[ -x /usr/local/go/bin/go ]]; then
     export PATH="/usr/local/go/bin:$PATH"
   fi
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
+  local used_pct
+  used_pct="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $5+0}' || echo 0)"
+  if [[ "$used_pct" -ge 90 ]]; then
+    log "WARN: диск заполнен на ${used_pct}% — очистка кэшей перед go build"
+    if [[ "$used_pct" -ge 95 ]]; then
+      OLC_CLEAN_GO_MOD_CACHE=1 olc_cleanup_build_caches "apply-patches-pre-build-critical" || true
+    else
+      olc_cleanup_build_caches "apply-patches-pre-build" || true
+    fi
+  fi
   log "build olcrtc ($(go version))"
-  olc_run_with_progress "сборка olcrtc" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO"
+  olc_run_with_progress "сборка olcrtc" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    log "ERROR: olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
+    return "$rc"
+  fi
   log "build olcrtc-manager"
-  olc_run_with_progress "сборка olcrtc-manager" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO"
+  olc_run_with_progress "сборка olcrtc-manager" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    log "ERROR: olcrtc-manager build failed (rc=$rc)"
+    return "$rc"
+  fi
 }
 
 clone_repos
@@ -301,7 +324,7 @@ apply_olcrtc
 apply_manager
 if [[ "${BUILD:-1}" == "1" ]]; then
   bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>/dev/null || true
-  build_binaries
+  build_binaries || exit 1
 fi
   install -m 0755 "$SCRIPT_DIR/olc-panel-update-run.sh" /usr/local/bin/olc-panel-update-run 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-error-scan.sh" /usr/local/bin/olc-error-scan 2>/dev/null || true

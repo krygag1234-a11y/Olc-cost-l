@@ -377,7 +377,10 @@ ensure_panel_jitsi_tls() {
 
 run_patches() {
   ensure_ui_build_deps
-  BUILD=1 bash "$PATCH_SCRIPT"
+  if ! BUILD=1 bash "$PATCH_SCRIPT"; then
+    log "ERROR: патчи/сборка не удались — проверьте место на диске (df -h /) и лог выше"
+    return 1
+  fi
   ensure_panel_jitsi_tls
 }
 run_community_lists() { bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true; }
