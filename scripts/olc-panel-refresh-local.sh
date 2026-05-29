@@ -2,7 +2,7 @@
 # Применить packaging/golden-panel на ЭТОМ VPS и пересобрать olcrtc-manager (без полного install).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
 

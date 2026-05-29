@@ -9,7 +9,7 @@
 #   olc-vps-backup prune [days]        # default TTL from lib
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib-vps-backup.sh
 source "$SCRIPT_DIR/lib-vps-backup.sh"
 

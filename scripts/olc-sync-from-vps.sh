@@ -2,7 +2,7 @@
 # Полный «синк olc»: тестовый VPS → репозиторий Olc-cost-l (без деплоя на VPS).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 SSH_KEY="${OLC_SYNC_SSH_KEY:-~/.ssh/yandex_bm_test_key}"
 SSH_HOST="${OLC_SYNC_HOST:-kryga@111.88.151.186}"

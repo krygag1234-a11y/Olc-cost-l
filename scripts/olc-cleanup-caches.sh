@@ -2,7 +2,7 @@
 # Clean temporary Olc-cost-l build caches without uninstalling services.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib-cache-cleanup.sh
 source "$SCRIPT_DIR/lib-cache-cleanup.sh"
 

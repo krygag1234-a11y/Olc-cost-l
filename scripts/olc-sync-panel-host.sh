@@ -11,7 +11,7 @@
 # a full setup-split-ru run.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PANEL_HOSTS=/var/lib/olcrtc/lists/panel-carrier-hosts.txt
 PANEL_CIDRS=/var/lib/olcrtc/lists/panel-carrier-cidrs.txt

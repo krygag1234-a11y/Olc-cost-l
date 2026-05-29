@@ -2,7 +2,7 @@
 # Снимок состояния VPS в packaging/vps-snapshot/ (для отладки и «синк olc»).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 OUT="${OLC_SNAPSHOT_DIR:-$REPO_ROOT/packaging/vps-snapshot}"
 

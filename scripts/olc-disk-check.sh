@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ручная проверка места на диске с подсказками на русском.
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
 
