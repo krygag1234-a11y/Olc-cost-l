@@ -20,6 +20,7 @@ CIDR_LIST=/var/lib/olcrtc/ru-cidrs.txt
 CONFIG=/etc/olcrtc-manager/config.json
 SEED_DOMAINS="$REPO_ROOT/data/panel-carrier-domain-seed.txt"
 SEED_CIDRS="$REPO_ROOT/data/panel-carrier-ip-seed.txt"
+ANALYZER="$REPO_ROOT/scripts/olc-split-analyze.sh"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "root required" >&2; exit 1; }
 install -d /var/lib/olcrtc/lists
@@ -49,6 +50,16 @@ is_ipv4() {
 }
 
 merge_hosts() {
+  if [[ -x "$ANALYZER" ]]; then
+    bash "$ANALYZER" rebuild >/dev/null 2>&1 || true
+    if [[ "${OLC_SKIP_ZAPRET_SYNC:-0}" != "1" ]] \
+      && [[ -x "$REPO_ROOT/scripts/zapret-sync-excludes.sh" ]] \
+      && [[ "${OLCRTC_ENABLE_ZAPRET:-1}" == "1" ]]; then
+      bash "$REPO_ROOT/scripts/zapret-sync-excludes.sh" --reload-zapret 2>/dev/null \
+        || bash "$REPO_ROOT/scripts/zapret-sync-excludes.sh" 2>/dev/null || true
+    fi
+    return 0
+  fi
   [[ -f "$DIRECT_LIST" ]] || touch "$DIRECT_LIST"
   local h
   while IFS= read -r h || [[ -n "$h" ]]; do
@@ -149,6 +160,10 @@ remove_host() {
 }
 
 sync_config() {
+  if [[ -x "$ANALYZER" ]]; then
+    bash "$ANALYZER" sync-config "$CONFIG"
+    return $?
+  fi
   : >"$PANEL_HOSTS"
   : >"$PANEL_CIDRS"
   [[ -f "$CONFIG" ]] || { merge_hosts; return 0; }

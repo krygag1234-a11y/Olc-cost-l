@@ -268,8 +268,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v24-lang-defaults.sh" "$MGR_REPO"
-  # Эталон с тестового VPS — финальное выравнивание UI и main.go (поверх всех hotfix).
-  # bash "$SCRIPT_DIR/apply-golden-panel.sh" "$MGR_REPO"
+  # Эталон панели — финальное выравнивание UI и main.go (поверх всех hotfix).
+  bash "$SCRIPT_DIR/apply-golden-panel.sh" "$MGR_REPO"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then

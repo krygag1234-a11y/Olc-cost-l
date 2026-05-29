@@ -79,6 +79,14 @@ sed -i 's|^# RU IP → direct.*|# Olc-cost-l split (см. setup-split-ru.sh в �
 
 dom_n="$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
 install -d /var/lib/olcrtc/lists
+if [[ -x "$SCRIPT_DIR/olc-split-analyze.sh" ]]; then
+  if [[ -f /etc/olcrtc-manager/config.json ]]; then
+    bash "$SCRIPT_DIR/olc-split-analyze.sh" sync-config /etc/olcrtc-manager/config.json >/dev/null 2>&1 || true
+  else
+    bash "$SCRIPT_DIR/olc-split-analyze.sh" rebuild >/dev/null 2>&1 || true
+  fi
+  dom_n="$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
+fi
 echo "[setup-split-ru] done: CIDR=$(wc -l <"$DIRECT_CIDRS") domains=${dom_n} (+ builtin *.ru in olcrtc)"
 
 if [[ -x /opt/zapret/nfq/nfqws ]] && [[ "${OLCRTC_ENABLE_ZAPRET:-1}" == "1" ]]; then

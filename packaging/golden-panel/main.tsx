@@ -202,14 +202,35 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     torAfterSave: "После сохранения применяется configure-tor-exit (может потребоваться перезапуск инстансов).",
     torTestLine: "TestSocks: {test} · SafeSocks: {safe} · DNS: {dns}",
     torBridgesLine: "webtunnel-client: {wt} · bridges.conf подключён: {bridges}",
-    splitCustomDirect: "Доп. direct-домены (по строке)",
-    splitPanelHosts: "Список panel/carrier hosts",
-    splitForceTor: "Force-Tor домены",
-    splitBlockedTor: "RU-blocked → Tor",
-    splitCidrOnly: "Только CIDR (без CDN /32) — меньше 404 на nginx edge",
-    splitRuDirectLine: "RU-direct: {count} · файл: {file}",
-    splitRefreshLists: "Обновить списки split (фон)",
-    splitRefreshStarted: "Обновление списков запущено в фоне",
+    splitDirectTitle: "Исключения для прямого подключения",
+    splitDirectHelp: "Домены, поддомены, IP или CIDR, которые должны идти напрямую с VPS, а не через Tor. Достаточно указать vk.com — поддомены тоже будут учитываться.",
+    splitCustomDirect: "Домены/IP/CIDR вручную (по строке)",
+    splitPanelHosts: "Авто-хосты из инстансов и сервисов",
+    splitPanelCidrs: "Авто-IP/CIDR из инстансов и DNS",
+    splitAnalyzeTitle: "Найти домены, поддомены, IP и CDN для сайта",
+    splitAnalyzeHelp: "Вставьте домен, ссылку, IP или CIDR. Панель проверит DNS, сертификаты, whois и текущие split/zapret списки, затем предложит что добавить.",
+    splitAnalyzeButton: "Анализировать",
+    splitAnalyzeNeedTarget: "Введите домен, ссылку, IP или CIDR",
+    splitAnalyzing: "Анализирую домены и IP…",
+    splitAnalyzeDone: "Анализ готов",
+    splitAnalyzeResult: "Результат: {target}",
+    splitFoundDomains: "Найденные домены/поддомены",
+    splitFoundCidrs: "Найденные IP/CIDR",
+    splitApplyAnalysis: "Добавить найденное в Split",
+    splitApplyDone: "Найденное добавлено в Split",
+    splitSyncConfig: "Пересобрать из инстансов",
+    splitSyncRunning: "Пересобираю список из инстансов…",
+    splitSyncDone: "Список инстансов пересобран",
+    splitAutoGroupsTitle: "Автоматически найдено",
+    splitAutoGroupsHelp: "Группы из инстансов и анализа. Главный домен/IP виден сразу, список поддоменов и CIDR можно раскрыть.",
+    splitNoGroups: "Пока нет автоматических групп. Нажмите «Пересобрать из инстансов» или выполните анализ домена.",
+    splitAdvancedTitle: "Расширенные правила",
+    splitForceTor: "Всегда через Tor (по строке)",
+    splitBlockedTor: "RU-сайты, которые открываем напрямую через VPS/zapret",
+    splitCidrOnly: "Только RU CIDR без CDN /32 — меньше 404 на nginx edge",
+    splitRuDirectLine: "Активных direct-доменов: {count} · CIDR файл: {file}",
+    splitRefreshLists: "Обновить split/zapret списки в фоне",
+    splitRefreshStarted: "Обновление split/zapret списков запущено в фоне",
     olcrtcJitsiTls: "OLCRTC_JITSI_INSECURE_TLS (самоподписанные сертификаты Jitsi)",
     olcrtcPublicUrl: "Публичный URL панели (OLCRTC_PUBLIC_URL)",
     olcrtcDefaultCarrier: "Default carrier",
@@ -396,14 +417,35 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     torAfterSave: "After save, configure-tor-exit runs (instance restart may be required).",
     torTestLine: "TestSocks: {test} · SafeSocks: {safe} · DNS: {dns}",
     torBridgesLine: "webtunnel-client: {wt} · bridges.conf: {bridges}",
-    splitCustomDirect: "Extra direct domains (one per line)",
-    splitPanelHosts: "Panel/carrier hosts list",
-    splitForceTor: "Force-Tor domains",
-    splitBlockedTor: "RU-blocked → Tor",
-    splitCidrOnly: "CIDR only (no CDN /32) — fewer nginx edge 404s",
-    splitRuDirectLine: "RU-direct: {count} · file: {file}",
-    splitRefreshLists: "Refresh split lists (background)",
-    splitRefreshStarted: "List refresh started in background",
+    splitDirectTitle: "Direct connection exceptions",
+    splitDirectHelp: "Domains, subdomains, IPs or CIDRs that should go directly from the VPS instead of Tor. Entering vk.com is enough — subdomains are covered too.",
+    splitCustomDirect: "Manual domains/IP/CIDR (one per line)",
+    splitPanelHosts: "Auto hosts from instances and services",
+    splitPanelCidrs: "Auto IP/CIDR from instances and DNS",
+    splitAnalyzeTitle: "Find domains, subdomains, IPs and CDN for a site",
+    splitAnalyzeHelp: "Paste a domain, URL, IP or CIDR. The panel checks DNS, certificates, whois and current split/zapret lists, then suggests what to add.",
+    splitAnalyzeButton: "Analyze",
+    splitAnalyzeNeedTarget: "Enter a domain, URL, IP or CIDR",
+    splitAnalyzing: "Analyzing domains and IPs…",
+    splitAnalyzeDone: "Analysis complete",
+    splitAnalyzeResult: "Result: {target}",
+    splitFoundDomains: "Found domains/subdomains",
+    splitFoundCidrs: "Found IP/CIDR",
+    splitApplyAnalysis: "Add found items to Split",
+    splitApplyDone: "Found items added to Split",
+    splitSyncConfig: "Rebuild from instances",
+    splitSyncRunning: "Rebuilding from instances…",
+    splitSyncDone: "Instance list rebuilt",
+    splitAutoGroupsTitle: "Automatically discovered",
+    splitAutoGroupsHelp: "Groups from instances and analysis. The main domain/IP is visible, subdomains and CIDRs are expandable.",
+    splitNoGroups: "No automatic groups yet. Click Rebuild from instances or analyze a domain.",
+    splitAdvancedTitle: "Advanced rules",
+    splitForceTor: "Always through Tor (one per line)",
+    splitBlockedTor: "RU sites opened directly via VPS/zapret",
+    splitCidrOnly: "Only RU CIDR without CDN /32 — fewer nginx edge 404s",
+    splitRuDirectLine: "Active direct domains: {count} · CIDR file: {file}",
+    splitRefreshLists: "Refresh split/zapret lists in background",
+    splitRefreshStarted: "Split/zapret refresh started in background",
     olcrtcJitsiTls: "OLCRTC_JITSI_INSECURE_TLS (self-signed Jitsi certs)",
     olcrtcPublicUrl: "Public panel URL (OLCRTC_PUBLIC_URL)",
     olcrtcDefaultCarrier: "Default carrier",
@@ -2635,6 +2677,9 @@ function ComponentSettingsModal({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [instanceDefaultsOpen, setInstanceDefaultsOpen] = useState(false);
+  const [splitAnalyzeTarget, setSplitAnalyzeTarget] = useState("");
+  const [splitAnalysis, setSplitAnalysis] = useState<Record<string, unknown> | null>(null);
+  const [splitExpanded, setSplitExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setInstanceDefaultsOpen(false);
@@ -2711,6 +2756,83 @@ function ComponentSettingsModal({
 
   const setStr = (key: string, value: string) => setSettings((s) => ({ ...s, [key]: value }));
   const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));
+
+  const reloadSettings = async () => {
+    const res = await fetch(`/api/settings/${apiName}`, { cache: "no-store" });
+    const raw = await res.text();
+    const body = raw ? JSON.parse(raw) : {};
+    if (!res.ok) throw new Error(body?.error || raw || `HTTP ${res.status}`);
+    setSettings(body.settings ?? {});
+  };
+
+  const splitAnalyze = async () => {
+    const target = splitAnalyzeTarget.trim();
+    if (!target) {
+      setMsg(t("splitAnalyzeNeedTarget"));
+      return;
+    }
+    setSaving(true);
+    setMsg(t("splitAnalyzing"));
+    try {
+      const res = await fetch("/api/settings/split/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      setSplitAnalysis((body.result ?? body) as Record<string, unknown>);
+      setMsg(t("splitAnalyzeDone"));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const splitApplyAnalysis = async () => {
+    if (!splitAnalysis) return;
+    setSaving(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/settings/split/apply-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(splitAnalysis),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      if (body.settings) setSettings(body.settings);
+      else await reloadSettings();
+      setMsg(t("splitApplyDone"));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const splitSyncConfig = async () => {
+    setSaving(true);
+    setMsg(t("splitSyncRunning"));
+    try {
+      const res = await fetch("/api/settings/split/sync-config", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      if (body.settings) setSettings(body.settings);
+      else await reloadSettings();
+      setMsg(t("splitSyncDone"));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const splitDiscovery = (settings.discovery ?? {}) as { groups?: Array<Record<string, unknown>> };
+  const splitGroups = Array.isArray(splitDiscovery.groups) ? splitDiscovery.groups : [];
+  const splitAnalysisDomains = splitAnalysis && Array.isArray(splitAnalysis.domains) ? splitAnalysis.domains.map(String) : [];
+  const splitAnalysisCidrs = splitAnalysis && Array.isArray(splitAnalysis.cidrs) ? splitAnalysis.cidrs.map(String) : [];
 
   return (
     <Modal title={t("settingsTitle", { name: title })} onClose={onClose}>
@@ -2831,46 +2953,129 @@ function ComponentSettingsModal({
             )}
             {feature === "split" && (
               <>
-                <label className="grid gap-1 text-muted-foreground">
-                  {t("splitCustomDirect")}
-                  <textarea
-                    className="min-h-[100px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                    value={String(settings.custom_direct_domains ?? "")}
-                    onChange={(e) => setStr("custom_direct_domains", e.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1 text-muted-foreground">
-                  {t("splitPanelHosts")}
-                  <textarea
-                    className="min-h-[80px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                    value={String(settings.panel_hosts ?? "")}
-                    onChange={(e) => setStr("panel_hosts", e.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1 text-muted-foreground">
-                  {t("splitForceTor")}
-                  <textarea
-                    className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                    value={String(settings.force_tor_domains ?? "")}
-                    onChange={(e) => setStr("force_tor_domains", e.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1 text-muted-foreground">
-                  {t("splitBlockedTor")}
-                  <textarea
-                    className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs"
-                    value={String(settings.blocked_tor_domains ?? "")}
-                    onChange={(e) => setStr("blocked_tor_domains", e.target.value)}
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings.cidr_only)}
-                    onChange={(e) => setBool("cidr_only", e.target.checked)}
-                  />
-                  {t("splitCidrOnly")}
-                </label>
+                <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                  <div>
+                    <div className="font-medium">{t("splitDirectTitle")}</div>
+                    <p className="text-xs text-muted-foreground">{t("splitDirectHelp")}</p>
+                  </div>
+                  <label className="grid gap-1 text-muted-foreground">
+                    {t("splitCustomDirect")}
+                    <textarea
+                      className="min-h-[90px] rounded-md border border-border bg-background p-2 font-mono text-xs"
+                      placeholder="vk.com&#10;userapi.com&#10;87.240.128.0/18"
+                      value={String(settings.custom_direct_domains ?? "")}
+                      onChange={(e) => setStr("custom_direct_domains", e.target.value)}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-muted-foreground">
+                    {t("splitPanelHosts")}
+                    <textarea
+                      className="min-h-[70px] rounded-md border border-border bg-background p-2 font-mono text-xs"
+                      value={String(settings.panel_hosts ?? "")}
+                      onChange={(e) => setStr("panel_hosts", e.target.value)}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-muted-foreground">
+                    {t("splitPanelCidrs")}
+                    <textarea
+                      className="min-h-[50px] rounded-md border border-border bg-background p-2 font-mono text-xs"
+                      value={String(settings.panel_cidrs ?? "")}
+                      onChange={(e) => setStr("panel_cidrs", e.target.value)}
+                    />
+                  </label>
+                </section>
+
+                <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{t("splitAnalyzeTitle")}</div>
+                      <p className="text-xs text-muted-foreground">{t("splitAnalyzeHelp")}</p>
+                    </div>
+                    <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncConfig()}>
+                      {t("splitSyncConfig")}
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      className="h-9 flex-1 rounded-md border border-border bg-background px-2 text-xs"
+                      placeholder="vk.com, meet.example.ru, 1.2.3.4, 1.2.3.0/24"
+                      value={splitAnalyzeTarget}
+                      onChange={(e) => setSplitAnalyzeTarget(e.target.value)}
+                    />
+                    <button type="button" className="rounded border border-primary px-3 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitAnalyze()}>
+                      {t("splitAnalyzeButton")}
+                    </button>
+                  </div>
+                  {splitAnalysis && (
+                    <div className="rounded border border-border bg-background p-2 text-xs space-y-2">
+                      <div className="font-medium">{t("splitAnalyzeResult", { target: String(splitAnalysis.normalized ?? splitAnalysis.input ?? "") })}</div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <div>
+                          <div className="text-muted-foreground">{t("splitFoundDomains")}</div>
+                          <LogScrollPre className="max-h-[120px] overflow-y-auto rounded bg-muted p-2">{splitAnalysisDomains.slice(0, 80).join("\n") || t("empty")}</LogScrollPre>
+                        </div>
+                        <div>
+                          <div className="text-muted-foreground">{t("splitFoundCidrs")}</div>
+                          <LogScrollPre className="max-h-[120px] overflow-y-auto rounded bg-muted p-2">{splitAnalysisCidrs.slice(0, 80).join("\n") || t("empty")}</LogScrollPre>
+                        </div>
+                      </div>
+                      {String(splitAnalysis.whois ?? "") && <LogScrollPre className="max-h-[90px] overflow-y-auto rounded bg-muted p-2">{String(splitAnalysis.whois)}</LogScrollPre>}
+                      <button type="button" className="rounded border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyAnalysis()}>
+                        {t("splitApplyAnalysis")}
+                      </button>
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                  <div>
+                    <div className="font-medium">{t("splitAutoGroupsTitle")}</div>
+                    <p className="text-xs text-muted-foreground">{t("splitAutoGroupsHelp")}</p>
+                  </div>
+                  {splitGroups.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t("splitNoGroups")}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {splitGroups.map((g) => {
+                        const id = String(g.id ?? g.target ?? g.label ?? Math.random());
+                        const domains = Array.isArray(g.selected_domains) ? g.selected_domains.map(String) : Array.isArray(g.domains) ? g.domains.map(String) : [];
+                        const cidrs = Array.isArray(g.selected_cidrs) ? g.selected_cidrs.map(String) : Array.isArray(g.cidrs) ? g.cidrs.map(String) : [];
+                        const open = Boolean(splitExpanded[id]);
+                        return (
+                          <div key={id} className="rounded border border-border bg-background p-2 text-xs">
+                            <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setSplitExpanded((s) => ({ ...s, [id]: !open }))}>
+                              <span className="font-medium">{String(g.label ?? g.target ?? id)}</span>
+                              <span className="text-muted-foreground">{String(g.source ?? "auto")} · {domains.length} domains · {cidrs.length} cidr</span>
+                            </button>
+                            {open && (
+                              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                                <LogScrollPre className="max-h-[120px] overflow-y-auto rounded bg-muted p-2">{domains.join("\n") || t("empty")}</LogScrollPre>
+                                <LogScrollPre className="max-h-[120px] overflow-y-auto rounded bg-muted p-2">{cidrs.join("\n") || t("empty")}</LogScrollPre>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                  <div className="font-medium">{t("splitAdvancedTitle")}</div>
+                  <label className="grid gap-1 text-muted-foreground">
+                    {t("splitForceTor")}
+                    <textarea className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs" value={String(settings.force_tor_domains ?? "")} onChange={(e) => setStr("force_tor_domains", e.target.value)} />
+                  </label>
+                  <label className="grid gap-1 text-muted-foreground">
+                    {t("splitBlockedTor")}
+                    <textarea className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs" value={String(settings.blocked_tor_domains ?? "")} onChange={(e) => setStr("blocked_tor_domains", e.target.value)} />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={Boolean(settings.cidr_only)} onChange={(e) => setBool("cidr_only", e.target.checked)} />
+                    {t("splitCidrOnly")}
+                  </label>
+                </section>
+
                 <p className="text-xs text-muted-foreground">
                   {t("splitRuDirectLine", { count: String(settings.ru_direct_count ?? "?"), file: String(settings.direct_cidrs_file ?? "—") })}
                 </p>
