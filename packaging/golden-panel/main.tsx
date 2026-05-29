@@ -224,12 +224,12 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
     splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
     splitApplyDone: "Найденное добавлено в выбранный список",
-    splitSyncConfig: "Пересобрать из инстансов",
-    splitSyncRunning: "Пересобираю список из инстансов…",
-    splitSyncDone: "Список инстансов пересобран",
+    splitSyncConfig: "Обновить авто-список из инстансов и логов",
+    splitSyncRunning: "Ищу домены/IP в инстансах и их логах…",
+    splitSyncDone: "Авто-список из инстансов и логов обновлён",
     splitAutoGroupsTitle: "Автоматически найдено",
-    splitAutoGroupsHelp: "Группы из инстансов и анализа. Главный домен/IP виден сразу, список поддоменов и CIDR можно раскрыть.",
-    splitNoGroups: "Пока нет автоматических групп. Нажмите «Пересобрать из инстансов» или выполните анализ домена.",
+    splitAutoGroupsHelp: "Группы из настроек инстансов, ссылок, payload и свежих логов работающих инстансов. Это не полный анализ сайта, а авто-добавление того, что реально используется вашими инстансами.",
+    splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните анализ домена.",
     splitAdvancedTitle: "Расширенные правила",
     splitForceTor: "Всегда через Tor (по строке)",
     splitBlockedTor: "RU-сайты, которые открываем напрямую через VPS/zapret",
@@ -445,12 +445,12 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitApplyForceTor: "Always through Tor: when the site must not go directly",
     splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
     splitApplyDone: "Found items added to the selected list",
-    splitSyncConfig: "Rebuild from instances",
-    splitSyncRunning: "Rebuilding from instances…",
-    splitSyncDone: "Instance list rebuilt",
+    splitSyncConfig: "Update auto-list from instances and logs",
+    splitSyncRunning: "Searching domains/IPs in instances and their logs…",
+    splitSyncDone: "Auto-list from instances and logs updated",
     splitAutoGroupsTitle: "Automatically discovered",
-    splitAutoGroupsHelp: "Groups from instances and analysis. The main domain/IP is visible, subdomains and CIDRs are expandable.",
-    splitNoGroups: "No automatic groups yet. Click Rebuild from instances or analyze a domain.",
+    splitAutoGroupsHelp: "Groups from instance settings, links, payloads and recent logs of running instances. This is not full site analysis, but auto-adding what your instances actually use.",
+    splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or analyze a domain.",
     splitAdvancedTitle: "Advanced rules",
     splitForceTor: "Always through Tor (one per line)",
     splitBlockedTor: "RU sites opened directly via VPS/zapret",
@@ -2838,7 +2838,7 @@ function ComponentSettingsModal({
 
   const splitSyncConfig = async () => {
     setSaving(true);
-    setMsg(t("splitSyncRunning"));
+    setSplitAnalyzeMsg(t("splitSyncRunning"));
     try {
       const res = await fetch("/api/settings/split/sync-config", { method: "POST" });
       const body = await readJsonOrText(res);
@@ -2850,6 +2850,7 @@ function ComponentSettingsModal({
       setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+      window.setTimeout(() => setSplitAnalyzeMsg((m) => (m === t("splitSyncDone") ? "" : m)), 5000);
     }
   };
 

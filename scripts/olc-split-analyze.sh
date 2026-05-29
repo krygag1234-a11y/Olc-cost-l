@@ -26,6 +26,7 @@ LIST_DIR = Path("/var/lib/olcrtc/lists")
 MANIFEST = LIST_DIR / "panel-carrier-discovered.json"
 PANEL_HOSTS = LIST_DIR / "panel-carrier-hosts.txt"
 PANEL_CIDRS = LIST_DIR / "panel-carrier-cidrs.txt"
+RUNTIME_LOG_HOSTS = LIST_DIR / "panel-runtime-log-hosts.txt"
 CUSTOM_DIRECT = LIST_DIR / "custom-direct-domains.txt"
 GENERATED_DOMAINS = LIST_DIR / "panel-carrier-generated-domains.txt"
 GENERATED_CIDRS = LIST_DIR / "panel-carrier-generated-cidrs.txt"
@@ -284,6 +285,7 @@ def analyze(raw, deep=True):
         ips.extend(resolved)
         if cname:
             domains.extend(domain_candidates(cname))
+        domains.extend(related_runtime_log_hosts([value]))
         if deep:
             domains.extend(cert_names(value))
             domains.extend(crtsh_names(value))
@@ -439,6 +441,34 @@ def extract_targets(obj):
     return ordered_unique([target_value(t) for t in targets if target_value(t)])
 
 
+def host_related(host, anchors):
+    host = target_value(host)
+    if not host or is_ip(host) or is_cidr(host):
+        return False
+    host_base = base_domain(host)
+    for anchor in anchors:
+        anchor = target_value(anchor)
+        if not anchor or is_ip(anchor) or is_cidr(anchor):
+            continue
+        anchor_base = base_domain(anchor)
+        if host == anchor or host.endswith("." + anchor) or anchor.endswith("." + host):
+            return True
+        if host_base == anchor_base:
+            return True
+    return False
+
+
+def related_runtime_log_hosts(anchors):
+    if not anchors:
+        return []
+    out = []
+    for line in read_text(RUNTIME_LOG_HOSTS).splitlines():
+        value = target_value(clean_line(line))
+        if host_related(value, anchors):
+            out.extend(domain_candidates(value))
+    return ordered_unique(out)
+
+
 def sync_config(path):
     data = load_manifest()
     data["groups"] = [g for g in data.get("groups", []) if g.get("source") != "instance"]
@@ -447,9 +477,16 @@ def sync_config(path):
     except Exception as e:
         raise SystemExit(f"cannot read config: {e}")
     targets = extract_targets(cfg)
+    targets.extend(related_runtime_log_hosts(targets))
+    targets = ordered_unique(targets)
+    visible_hosts, visible_cidrs = [], []
     for target in targets[:120]:
         res = analyze(target, deep=False)
+        visible_hosts.extend(res.get("domains", []))
+        visible_cidrs.extend(res.get("cidrs", []))
         upsert_group(data, "instance", target, res.get("domains", []), res.get("cidrs", []), label=target)
+    write_text(PANEL_HOSTS, "\n".join(ordered_unique(visible_hosts)) + ("\n" if visible_hosts else ""))
+    write_text(PANEL_CIDRS, "\n".join(ordered_unique(visible_cidrs)) + ("\n" if visible_cidrs else ""))
     save_manifest(data)
     rebuilt = rebuild()
     return {"status": "ok", "targets": len(targets), **rebuilt}

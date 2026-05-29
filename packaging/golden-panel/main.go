@@ -2375,6 +2375,7 @@ func (b *logBuffer) Append(stream, line string) {
 	if b == nil || len(b.lines) == 0 {
 		return
 	}
+	recordSplitLogHosts(line)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.lines[b.next] = LogLine{
@@ -2386,6 +2387,43 @@ func (b *logBuffer) Append(stream, line string) {
 	if b.next == 0 {
 		b.full = true
 	}
+}
+
+var splitLogHostRE = regexp.MustCompile(`(?i)\b(?:https?://)?([a-z0-9а-яё.-]+\.[a-zа-яё]{2,}|(?:\d{1,3}\.){3}\d{1,3})(?::\d{1,5})?`)
+
+func recordSplitLogHosts(line string) {
+	if !strings.Contains(line, ".") {
+		return
+	}
+	matches := splitLogHostRE.FindAllStringSubmatch(line, 12)
+	if len(matches) == 0 {
+		return
+	}
+	path := "/var/lib/olcrtc/lists/panel-runtime-log-hosts.txt"
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	existing := map[string]bool{}
+	for _, l := range strings.Split(readTextFile(path), "\n") {
+		l = strings.TrimSpace(strings.ToLower(l))
+		if l != "" {
+			existing[l] = true
+		}
+	}
+	for _, m := range matches {
+		host := strings.Trim(strings.ToLower(m[1]), "[]")
+		host = strings.TrimSuffix(host, ".")
+		if host != "" {
+			existing[host] = true
+		}
+	}
+	keys := make([]string, 0, len(existing))
+	for k := range existing {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 500 {
+		keys = keys[len(keys)-500:]
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(keys, "\n")+"\n"), 0644)
 }
 
 func (b *logBuffer) Snapshot() []LogLine {
@@ -5715,7 +5753,7 @@ func splitSettingsActionHandler(action string, w http.ResponseWriter, r *http.Re
 		componentSettingsAfterSave("zapret", map[string]any{})
 		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
 	case "sync-config":
-		out, err := runSplitTool(r.Context(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 2*time.Minute)
+		out, err := runSplitTool(context.Background(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 2*time.Minute)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
