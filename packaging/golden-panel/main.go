@@ -5658,7 +5658,7 @@ func runSplitTool(ctx context.Context, args []string, input any, timeout time.Du
 		if err != nil {
 			return nil, err
 		}
-		cmd.Stdin = bytes.NewReader(b)
+		cmd.Env = append(cmd.Env, "OLC_SPLIT_TOOL_INPUT="+string(b))
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {

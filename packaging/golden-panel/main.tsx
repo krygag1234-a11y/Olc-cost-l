@@ -217,7 +217,13 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitFoundDomains: "Найденные домены/поддомены",
     splitFoundCidrs: "Найденные IP/CIDR",
     splitApplyAnalysis: "Добавить найденное в Split",
-    splitApplyDone: "Найденное добавлено в Split",
+    splitApplyDefault: "Добавить",
+    splitApplyChoose: "Выбрать список для добавления",
+    splitApplyDirect: "В прямое подключение: сайт и найденные CDN идут напрямую, не через Tor",
+    splitApplyManualDirect: "В ручные direct-исключения: показать в верхнем списке и применять напрямую",
+    splitApplyForceTor: "Всегда через Tor: если сайт нельзя пускать напрямую",
+    splitApplyBlockedTor: "В RU через VPS/zapret: для заблокированных RU-сайтов, которые надо открывать напрямую",
+    splitApplyDone: "Найденное добавлено в выбранный список",
     splitSyncConfig: "Пересобрать из инстансов",
     splitSyncRunning: "Пересобираю список из инстансов…",
     splitSyncDone: "Список инстансов пересобран",
@@ -432,7 +438,13 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitFoundDomains: "Found domains/subdomains",
     splitFoundCidrs: "Found IP/CIDR",
     splitApplyAnalysis: "Add found items to Split",
-    splitApplyDone: "Found items added to Split",
+    splitApplyDefault: "Add",
+    splitApplyChoose: "Choose destination list",
+    splitApplyDirect: "Direct connection: site and discovered CDN go directly, not through Tor",
+    splitApplyManualDirect: "Manual direct exceptions: show in the top list and route directly",
+    splitApplyForceTor: "Always through Tor: when the site must not go directly",
+    splitApplyBlockedTor: "RU via VPS/zapret: for blocked RU sites that should open directly",
+    splitApplyDone: "Found items added to the selected list",
     splitSyncConfig: "Rebuild from instances",
     splitSyncRunning: "Rebuilding from instances…",
     splitSyncDone: "Instance list rebuilt",
@@ -2680,6 +2692,8 @@ function ComponentSettingsModal({
   const [splitAnalyzeTarget, setSplitAnalyzeTarget] = useState("");
   const [splitAnalysis, setSplitAnalysis] = useState<Record<string, unknown> | null>(null);
   const [splitExpanded, setSplitExpanded] = useState<Record<string, boolean>>({});
+  const [splitAnalyzeMsg, setSplitAnalyzeMsg] = useState("");
+  const [splitApplyMenuOpen, setSplitApplyMenuOpen] = useState(false);
 
   useEffect(() => {
     setInstanceDefaultsOpen(false);
@@ -2757,6 +2771,15 @@ function ComponentSettingsModal({
   const setStr = (key: string, value: string) => setSettings((s) => ({ ...s, [key]: value }));
   const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));
 
+  const readJsonOrText = async (res: Response): Promise<Record<string, unknown>> => {
+    const raw = await res.text();
+    try {
+      return (raw ? JSON.parse(raw) : {}) as Record<string, unknown>;
+    } catch {
+      return { error: raw || `HTTP ${res.status}` };
+    }
+  };
+
   const reloadSettings = async () => {
     const res = await fetch(`/api/settings/${apiName}`, { cache: "no-store" });
     const raw = await res.text();
@@ -2768,45 +2791,46 @@ function ComponentSettingsModal({
   const splitAnalyze = async () => {
     const target = splitAnalyzeTarget.trim();
     if (!target) {
-      setMsg(t("splitAnalyzeNeedTarget"));
+      setSplitAnalyzeMsg(t("splitAnalyzeNeedTarget"));
       return;
     }
     setSaving(true);
-    setMsg(t("splitAnalyzing"));
+    setSplitAnalyzeMsg(t("splitAnalyzing"));
     try {
       const res = await fetch("/api/settings/split/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target }),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      const body = await readJsonOrText(res);
+      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
       setSplitAnalysis((body.result ?? body) as Record<string, unknown>);
-      setMsg(t("splitAnalyzeDone"));
+      setSplitAnalyzeMsg(t("splitAnalyzeDone"));
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
   };
 
-  const splitApplyAnalysis = async () => {
+  const splitApplyAnalysis = async (targetList = "direct") => {
     if (!splitAnalysis) return;
     setSaving(true);
-    setMsg("");
+    setSplitAnalyzeMsg("");
+    setSplitApplyMenuOpen(false);
     try {
       const res = await fetch("/api/settings/split/apply-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(splitAnalysis),
+        body: JSON.stringify({ ...splitAnalysis, target_list: targetList }),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-      if (body.settings) setSettings(body.settings);
+      const body = await readJsonOrText(res);
+      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
+      if (body.settings) setSettings(body.settings as Record<string, unknown>);
       else await reloadSettings();
-      setMsg(t("splitApplyDone"));
+      setSplitAnalyzeMsg(t("splitApplyDone"));
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -2817,13 +2841,13 @@ function ComponentSettingsModal({
     setMsg(t("splitSyncRunning"));
     try {
       const res = await fetch("/api/settings/split/sync-config", { method: "POST" });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-      if (body.settings) setSettings(body.settings);
+      const body = await readJsonOrText(res);
+      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
+      if (body.settings) setSettings(body.settings as Record<string, unknown>);
       else await reloadSettings();
-      setMsg(t("splitSyncDone"));
+      setSplitAnalyzeMsg(t("splitSyncDone"));
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -3020,11 +3044,33 @@ function ComponentSettingsModal({
                         </div>
                       </div>
                       {String(splitAnalysis.whois ?? "") && <LogScrollPre className="max-h-[90px] overflow-y-auto rounded bg-muted p-2">{String(splitAnalysis.whois)}</LogScrollPre>}
-                      <button type="button" className="rounded border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyAnalysis()}>
-                        {t("splitApplyAnalysis")}
-                      </button>
+                      <div className="relative inline-flex">
+                        <button type="button" className="rounded-l border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyAnalysis("direct")}>
+                          {t("splitApplyDefault")}
+                        </button>
+                        <button type="button" className="rounded-r border border-l-0 border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => setSplitApplyMenuOpen((v) => !v)} aria-label={t("splitApplyChoose")}>
+                          ▾
+                        </button>
+                        {splitApplyMenuOpen && (
+                          <div className="absolute left-0 top-8 z-20 w-80 rounded border border-border bg-background p-1 shadow-lg">
+                            <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("direct")}>
+                              {t("splitApplyDirect")}
+                            </button>
+                            <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("custom_direct")}>
+                              {t("splitApplyManualDirect")}
+                            </button>
+                            <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("force_tor")}>
+                              {t("splitApplyForceTor")}
+                            </button>
+                            <button type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => void splitApplyAnalysis("blocked_tor")}>
+                              {t("splitApplyBlockedTor")}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
+                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
                 </section>
 
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">

@@ -460,11 +460,26 @@ def apply_analysis(payload):
     target = target_value(payload.get("target") or payload.get("normalized") or payload.get("input") or "")
     domains = payload.get("selected_domains") or payload.get("domains") or []
     cidrs = payload.get("selected_cidrs") or payload.get("cidrs") or []
+    target_list = (payload.get("target_list") or payload.get("mode") or "direct").strip().lower()
     if not target:
         raise SystemExit("target is required")
+    if target_list in {"force_tor", "tor"}:
+        existing = read_rules(FORCE_TOR)
+        write_text(FORCE_TOR, "\n".join(ordered_unique(existing + domains)) + "\n")
+        return {"status": "ok", "target_list": "force_tor", "domains": len(domains), "cidrs": 0}
+    if target_list in {"blocked_tor", "blocked_ru", "zapret"}:
+        existing = read_rules(BLOCKED_TOR)
+        write_text(BLOCKED_TOR, "\n".join(ordered_unique(existing + domains)) + "\n")
+        return {"status": "ok", "target_list": "blocked_tor", "domains": len(domains), "cidrs": 0}
+    if target_list in {"manual", "custom_direct"}:
+        cur = read_rules(CUSTOM_DIRECT)
+        write_text(CUSTOM_DIRECT, "\n".join(ordered_unique(cur + domains + cidrs)) + "\n")
+        return rebuild()
     upsert_group(data, payload.get("source", "analyzer"), target, domains, cidrs, label=payload.get("label") or target)
     save_manifest(data)
-    return rebuild()
+    out = rebuild()
+    out["target_list"] = "direct"
+    return out
 
 
 def main():
@@ -481,7 +496,8 @@ def main():
     elif args.command == "rebuild":
         print(json.dumps(rebuild(), ensure_ascii=False, indent=2))
     elif args.command == "apply-analysis":
-        payload = json.load(sys.stdin)
+        raw_payload = os.environ.get("OLC_SPLIT_TOOL_INPUT", "").strip()
+        payload = json.loads(raw_payload) if raw_payload else json.load(sys.stdin)
         print(json.dumps(apply_analysis(payload), ensure_ascii=False, indent=2))
     elif args.command == "manifest":
         print(json.dumps(load_manifest(), ensure_ascii=False, indent=2))
