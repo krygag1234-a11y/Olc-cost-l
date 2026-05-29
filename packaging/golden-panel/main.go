@@ -271,6 +271,11 @@ type Supervisor struct {
 
 var panelSupervisor *Supervisor
 
+var (
+	splitReloadMu   sync.Mutex
+	splitReloadLast time.Time
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -5733,6 +5738,14 @@ func applySplitRoutingToInstances(reason string) {
 	if panelSupervisor == nil {
 		return
 	}
+	splitReloadMu.Lock()
+	if time.Since(splitReloadLast) < 10*time.Second {
+		splitReloadMu.Unlock()
+		log.Printf("split: routing reload debounced (%s)", reason)
+		return
+	}
+	splitReloadLast = time.Now()
+	splitReloadMu.Unlock()
 	useReload := splitRoutingReloadSupported()
 	go func() {
 		panelSupervisor.mu.RLock()
@@ -5874,7 +5887,7 @@ func componentSettingsAfterSave(name string, body map[string]any) {
 					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
 					_, _ = cmd.CombinedOutput()
 				}
-				restartRunningOlcrtcInstances("split settings saved")
+				applySplitRoutingToInstances("split settings saved")
 			}()
 		}
 	case "tor":

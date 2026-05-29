@@ -5,6 +5,12 @@ suffix:.vkuseraudio.net
 exact:vkuseraudio.net
 suffix:.vkuservideo.net
 exact:vkuservideo.net
+suffix:.vkuser.net
+exact:vkuser.net
+suffix:.vk-cdn.net
+st.vk.com
+im.vk.com
+i.vk.com
 sts.vk.com
 login.vk.ru
 m.vk.ru
