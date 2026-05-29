@@ -1011,7 +1011,7 @@ function InstanceDefaultsModal({ onBack, onClose }: { onBack: () => void; onClos
           ← Назад к настройкам OlcRTC
         </button>
         {loading ? (
-          <p className="text-xs text-muted-foreground">{t('loading')}</p>
+          <LoadingState label={t("loading")} />
         ) : (
         <>
         <label className="grid gap-1 text-muted-foreground">
@@ -1622,6 +1622,21 @@ const LogScrollPre = React.forwardRef<HTMLPreElement, React.HTMLAttributes<HTMLP
     </pre>
   );
 });
+
+function LoadingState({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+      <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-primary/30 bg-primary/10">
+        <span className="absolute h-9 w-9 animate-ping rounded-full bg-primary/20" />
+        <span className="relative h-3 w-3 animate-pulse rounded-full bg-primary" />
+      </span>
+      <div className="grid gap-0.5">
+        <span className="font-medium text-foreground">{label}</span>
+        <span>Подгружаем данные и обновляем состояние панели…</span>
+      </div>
+    </div>
+  );
+}
 
 function Modal({
   title,
@@ -2407,7 +2422,7 @@ function FeatureLogsModal({
           onScroll={logScroll.onScroll}
           className="max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background p-3 text-xs"
         >
-          {loading ? t("loading") : lines.join("\n") || t("empty")}
+          {loading ? `${t("loading")}\n\n…` : lines.join("\n") || t("empty")}
         </LogScrollPre>
       </div>
     </Modal>
@@ -2798,6 +2813,16 @@ function ComponentSettingsModal({
 
   if (feature === "olcrtc" && instanceDefaultsOpen) {
     return <InstanceDefaultsModal onBack={() => setInstanceDefaultsOpen(false)} onClose={onClose} />;
+  }
+
+  if (loading) {
+    return (
+      <Modal title={`Настройки: ${title}`} onClose={onClose} wide={feature === "split"}>
+        <div className="p-4">
+          <LoadingState label={t("loading")} />
+        </div>
+      </Modal>
+    );
   }
 
   const save = async () => {

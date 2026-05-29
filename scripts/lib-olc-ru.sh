@@ -85,6 +85,46 @@ olc_run_with_progress() {
   return "$rc"
 }
 
+olc_run_quiet_with_progress() {
+  local label="$1"
+  local log_file="$2"
+  shift 2
+  local interval="${OLC_PROGRESS_INTERVAL:-10}"
+  local started pid rc elapsed spinner_idx spinner_chars spinner
+
+  if [[ "${OLC_VERBOSE_INSTALL:-0}" == "1" ]]; then
+    olc_run_with_progress "$label" "$@"
+    return
+  fi
+
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  echo "[ожидание] ${label} — запущено · детали: ${log_file}" >&2
+  started="$(date +%s)"
+  "$@" >>"$log_file" 2>&1 &
+  pid=$!
+  spinner_idx=0
+  spinner_chars='|/-\'
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep "$interval"
+    if kill -0 "$pid" 2>/dev/null; then
+      elapsed=$(( $(date +%s) - started ))
+      spinner="${spinner_chars:spinner_idx % ${#spinner_chars}:1}"
+      spinner_idx=$((spinner_idx + 1))
+      echo "[ожидание] ${spinner} ${label} · ${elapsed}с · детали: ${log_file}" >&2
+    fi
+  done
+  rc=0
+  wait "$pid" || rc=$?
+  elapsed=$(( $(date +%s) - started ))
+  if [[ "$rc" -eq 0 ]]; then
+    echo "[ожидание] ✓ ${label} — готово (${elapsed}с)" >&2
+  else
+    echo "[ожидание] ✗ ${label} — ошибка rc=${rc} (${elapsed}с); последние строки ${log_file}:" >&2
+    tail -40 "$log_file" 2>/dev/null >&2 || true
+  fi
+  return "$rc"
+}
+
 olc_detect_panel_host() {
   local host=""
   if command -v curl >/dev/null 2>&1; then

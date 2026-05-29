@@ -250,11 +250,11 @@ setup_split_routing() {
     fi
   fi
   if [[ "$quick" -eq 1 ]]; then
-    olc_run_with_progress "обновление split-списков" env \
+    olc_run_quiet_with_progress "обновление split-списков" "/var/log/olcrtc-split-update.log" env \
       OLCRTC_RU_VPS=1 OLCRTC_SKIP_GEOSITE_FETCH=1 OLCRTC_SKIP_BLOCKED_TOR_FETCH=1 \
       bash "$SCRIPT_DIR/setup-split-ru.sh" --quick
   else
-    olc_run_with_progress "полное обновление split-списков" env \
+    olc_run_quiet_with_progress "полное обновление split-списков" "/var/log/olcrtc-split-update.log" env \
       OLCRTC_RU_VPS=1 bash "$SCRIPT_DIR/setup-split-ru.sh"
   fi
 }
@@ -402,7 +402,9 @@ setup_zapret() {
   [[ "$RU_VPS" -eq 1 ]] || return 0
   if [[ "${OLCRTC_ZAPRET_REINSTALL:-0}" != "1" ]] && [[ -x /opt/zapret/nfq/nfqws ]] && pidof nfqws >/dev/null 2>&1; then
     log "zapret: sync excludes from split lists + carriers (set OLCRTC_ZAPRET_REINSTALL=1 for full reinstall)"
-    bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret || true
+    olc_run_quiet_with_progress "zapret sync excludes" "/var/log/olcrtc-zapret-sync.log" \
+      bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret \
+      || log "WARN: zapret sync failed — см. /var/log/olcrtc-zapret-sync.log"
     return 0
   fi
   log "zapret (direct egress DPI — may take several minutes on first install)"

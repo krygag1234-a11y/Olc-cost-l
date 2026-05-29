@@ -332,7 +332,8 @@ build_binaries() {
     fi
   fi
   log "build olcrtc ($(go version))"
-  olc_run_with_progress "сборка olcrtc" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
+  olc_run_quiet_with_progress "сборка olcrtc" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
+    bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     log "ERROR: olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
     return "$rc"
@@ -340,7 +341,8 @@ build_binaries() {
   install -d /var/lib/olcrtc
   date -Is > /var/lib/olcrtc/.split-routing-reload
   log "build olcrtc-manager"
-  olc_run_with_progress "сборка olcrtc-manager" bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
+  olc_run_quiet_with_progress "сборка olcrtc-manager" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
+    bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     log "ERROR: olcrtc-manager build failed (rc=$rc)"
     return "$rc"
