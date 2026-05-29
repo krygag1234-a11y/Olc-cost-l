@@ -21,6 +21,6 @@ if old in t:
     t = t.replace(old, new, 1)
 
 p.write_text(t)
-print("[patch-panel-jitsi-preflight-v2] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-jitsi-preflight-v2] ok"); raise SystemExit(0)
 PY
 

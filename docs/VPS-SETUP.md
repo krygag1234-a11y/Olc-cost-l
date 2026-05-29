@@ -1,7 +1,7 @@
 # OlcRTC VPS — полная документация
 
 **Обновлено:** 2026-05-27  
-**Ветка olcrtc:** [`fix/all`](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) — pin в `data/upstream-pins.json`  
+**Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) — pin в `data/upstream-pins.json`  
 **Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + **патчи** `scripts/patch-olcrtc-manager-*.sh` → `apply-olcrtc-patches.sh`  
 **webtunnel:** бинарник [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry/releases/latest), не gitlab.torproject.org  
 **Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) — [CLIENT.md](CLIENT.md)
@@ -35,7 +35,7 @@ bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 
 | Компонент | Upstream | На этом VPS |
 |-----------|----------|-------------|
-| olcrtc | `fix/all` | + payload Jitsi 16K, split RU/Tor, carriers (Jitsi/WB/Telemost) |
+| olcrtc | `master` | + payload Jitsi 16K, split RU/Tor, carriers (Jitsi/WB/Telemost) |
 | manager | `main` без патчей | + логи API query, HOST_NETWORK, EXIT_PROXY если Tor жив, PUBLIC_URL, Jitsi liveness, Telemost URL |
 | Tor bridges | вручную | пул из [TOR_BRIDGES_ALL.txt](https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt), мониторинг, ротация |
 | Капча bridges.torproject.org | — | **не автоматизируем** ([gist s3rgeym](https://gist.github.com/s3rgeym/48405a282d61fd6bf74aed578f483111) — капча, с RU IP неудобно) |

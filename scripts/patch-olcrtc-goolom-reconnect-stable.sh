@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # goolom reconnect: add queueReconnect debounce for Telemost/WB ICE flap storms.
-# NOTE: fix/all already has backoff=2s and maxReconnects=10 which are fine.
+# NOTE: upstream master already has backoff=2s and maxReconnects=10 which are fine.
 # We only add the min-interval guard here; no longer override backoff/maxReconnects.
 set -euo pipefail
 GOOLOM_DIR="${1:-${OLCRTC_REPO:-/tmp/olcrtc-src}/internal/engine/goolom}"

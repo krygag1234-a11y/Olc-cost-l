@@ -14,7 +14,7 @@ t = p.read_text()
 
 if "func jitsiJoinInsecureTLS()" in t:
     print("[patch-jitsi-extras] already applied"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 # os import for getenv
 if '"os"' not in t.split("import (")[1].split(")")[0]:

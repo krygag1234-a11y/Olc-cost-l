@@ -1,4 +1,11 @@
-# VK / OK static assets and API hosts (often not *.ru — need zapret bypass for chats/media).
+# VK / OK / VK Video static assets and API (often not *.ru — need direct + zapret bypass).
+suffix:.vk.com
+exact:vk.com
+suffix:.vkvideo.ru
+exact:vkvideo.ru
+m.vkvideo.ru
+api.vkvideo.ru
+st.vkvideo.ru
 suffix:.userapi.com
 exact:userapi.com
 suffix:.vkuseraudio.net
@@ -8,9 +15,11 @@ exact:vkuservideo.net
 suffix:.vkuser.net
 exact:vkuser.net
 suffix:.vk-cdn.net
+suffix:.ms.vk.com
 st.vk.com
 im.vk.com
 i.vk.com
+eh.vk.com
 queuev4.vk.com
 suffix:.mycdn.me
 suffix:.mradx.net

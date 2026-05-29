@@ -159,5 +159,5 @@ if '/* olc-project-ui-v2 */' not in t:
     t = t.replace('/* olc-releases-ui */', '/* olc-releases-ui */\n/* olc-project-ui-v2 */', 1)
 
 p.write_text(t)
-print("[patch-panel-project-ui-v2] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-project-ui-v2] ok"); raise SystemExit(0)
 PY

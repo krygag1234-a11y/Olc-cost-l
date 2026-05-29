@@ -14,7 +14,7 @@
     },
     "olcrtc": {
       "repo": "https://github.com/openlibrecommunity/olcrtc.git",
-      "branch": "fix/all",
+      "branch": "master",
       "ref": "d7c813265b016892fc8da225125840961e14ecde"
     },
     "olcrtc-manager": {

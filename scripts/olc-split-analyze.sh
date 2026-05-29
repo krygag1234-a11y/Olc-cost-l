@@ -45,6 +45,43 @@ COMMON_SECOND_LEVEL = {
     "co.uk", "com.ua", "com.tr", "com.br", "com.cn",
 }
 
+# Related apex domains (vk.com ↔ vkvideo.ru ↔ userapi.com share CDN but not parent suffix).
+BRAND_FAMILIES = {
+    "vk": {
+        "vk.com", "vk.ru", "vk.cc", "vk.me", "vk.link", "vkvideo.ru",
+        "vk-portal.net", "vk-portal.ru", "userapi.com", "vkuseraudio.net",
+        "vkuservideo.net", "vkuser.net", "vk-cdn.net", "mycdn.me", "mradx.net",
+    },
+}
+
+
+def brand_family(host):
+    host = target_value(host)
+    if not host or is_ip(host) or is_cidr(host):
+        return ""
+    base = base_domain(host)
+    for name, bases in BRAND_FAMILIES.items():
+        if base in bases:
+            return name
+        for b in bases:
+            if host == b or host.endswith("." + b):
+                return name
+    return ""
+
+
+def brand_sibling_domains(anchors):
+    families = {brand_family(a) for a in anchors if brand_family(a)}
+    if not families:
+        return []
+    out = []
+    for seed in seeded_direct_domains():
+        if brand_family(seed) in families:
+            out.extend(domain_candidates(seed))
+    for line in read_text(RUNTIME_LOG_HOSTS).splitlines():
+        value = target_value(clean_line(line))
+        if brand_family(value) in families:
+            out.extend(domain_candidates(value))
+    return ordered_unique(out)
 
 def now():
     return dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -286,6 +323,7 @@ def analyze(raw, deep=True):
         if cname:
             domains.extend(domain_candidates(cname))
         domains.extend(related_runtime_log_hosts([value]))
+        domains.extend(brand_sibling_domains([value]))
         if deep:
             domains.extend(cert_names(value))
             domains.extend(crtsh_names(value))
@@ -401,14 +439,15 @@ def is_service_cdn_host(host):
     if not host or is_ip(host) or is_cidr(host):
         return False
     suffixes = (
-        ".vk.com", ".vk.ru", ".vk.cc", ".vk.me", ".vk.link", ".vk-portal.net", ".vk-portal.ru",
+        ".vk.com", ".vk.ru", ".vk.cc", ".vk.me", ".vk.link", ".vkvideo.ru",
+        ".vk-portal.net", ".vk-portal.ru",
         ".userapi.com", ".vkuseraudio.net", ".vkuservideo.net", ".vkuser.net", ".vk-cdn.net",
         ".mail.ru", ".mycdn.me", ".habr.com", ".yandex.ru", ".yandex.net",
     )
     for suffix in suffixes:
         if host == suffix.lstrip(".") or host.endswith(suffix):
             return True
-    return False
+    return bool(brand_family(host))
 
 
 def service_log_hosts():
@@ -574,6 +613,8 @@ def host_related(host, anchors):
             return True
         if host_base == anchor_base:
             return True
+        if brand_family(host) and brand_family(host) == brand_family(anchor):
+            return True
     return False
 
 
@@ -599,7 +640,7 @@ def sync_config(path):
     if not instance_targets:
         instance_targets = extract_targets(cfg)
     anchors = ordered_unique(instance_targets + read_rules(CUSTOM_DIRECT) + read_rules(PANEL_HOSTS) + seeded_direct_domains())
-    log_hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts())
+    log_hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts() + brand_sibling_domains(anchors))
     visible_hosts, visible_cidrs = list(log_hosts), []
     for target in instance_targets[:20]:
         res = analyze(target, deep=False)
@@ -636,7 +677,7 @@ def sync_logs():
     except Exception:
         pass
     anchors = ordered_unique([target_value(a) for a in anchors if target_value(a)])
-    hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts())
+    hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts() + brand_sibling_domains(anchors))
     cur = read_rules(CUSTOM_DIRECT)
     if not hosts:
         out = rebuild()

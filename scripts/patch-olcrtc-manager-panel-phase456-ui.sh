@@ -480,5 +480,5 @@ if 'caps' not in uc or 'return { visible' in uc and 'caps' not in uc.split('retu
     )
 
 p.write_text(t)
-print("[patch-phase456-ui] ok"); print(0); raise SystemExit(0)
+print("[patch-phase456-ui] ok"); raise SystemExit(0)
 PY

@@ -29,7 +29,7 @@ if cs_start >= 0:
 fp_name = "function FeaturesPanel()"
 fp_start = t.find(fp_name)
 if fp_start < 0:
-    print("[patch-panel-hotfix-v7] skip: no FeaturesPanel", file=sys.stderr); print(0); raise SystemExit(0)
+    print("[patch-panel-hotfix-v7] skip: no FeaturesPanel", file=sys.stderr); raise SystemExit(0)
     sys.exit(0)
 fp_end = t.find("\nfunction ", fp_start + 1)
 if fp_end < 0:
@@ -79,7 +79,7 @@ if net_idx >= 0 and '{collapsed ? "Развернуть" : "Свернуть"}' 
         fp = fp.replace(hdr_old, hdr_new, 1)
         t = t[:fp_start] + fp + t[fp_end:]
     else:
-        print("[patch-panel-hotfix-v7] warn: FeaturesPanel header pattern not found", file=sys.stderr); print(0); raise SystemExit(0)
+        print("[patch-panel-hotfix-v7] warn: FeaturesPanel header pattern not found", file=sys.stderr); raise SystemExit(0)
 
 if "olc-panel-hotfix-v7" not in t:
     if "/* olc-panel-hotfix-v6 */" in t:
@@ -88,5 +88,5 @@ if "olc-panel-hotfix-v7" not in t:
         t = "/* olc-panel-hotfix-v7 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v7] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-hotfix-v7] ok"); raise SystemExit(0)
 PY

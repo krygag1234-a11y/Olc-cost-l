@@ -11,7 +11,7 @@ safety_check_output_path OUT "$OUT"
 HOSTS=(
   vimeo.com player.vimeo.com
   rutube.ru static.rutube.ru
-  vk.com vkvideo.ru
+  vk.com vkvideo.ru m.vkvideo.ru api.vkvideo.ru
   dzen.ru
   twitch.tv static-cdn.jtvnw.net
   netflix.com nflxvideo.net

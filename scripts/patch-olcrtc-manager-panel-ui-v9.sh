@@ -77,5 +77,5 @@ if "const [err, setErr] = useState(\"\");" not in t.split("function ProfileStatC
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v9] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-ui-v9] ok"); raise SystemExit(0)
 PY

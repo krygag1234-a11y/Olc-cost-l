@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 t = Path(sys.argv[1]).read_text()
 err = t.split("function ErrorsSummaryButton", 1)[1].split("function UpdateAvailableToast", 1)[0]
-print(0 if "autodetectOpen &&" in err else 1); print(0); raise SystemExit(0)
+print(0 if "autodetectOpen &&" in err else 1); raise SystemExit(0)
 CHK
   then
     echo "[patch-panel-hotfix-v17] already applied"
@@ -123,5 +123,5 @@ if "olc-panel-hotfix-v17" not in t:
         t = "/* olc-panel-hotfix-v17 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v17] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-hotfix-v17] ok"); raise SystemExit(0)
 PY

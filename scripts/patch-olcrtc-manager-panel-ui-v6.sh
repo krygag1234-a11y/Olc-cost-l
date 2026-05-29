@@ -403,11 +403,11 @@ if 'force_tor_domains' not in t.split('feature === "split"')[1][:2000]:
 # Olcrtc settings show pinned sha
 if 'olcrtc_pinned_sha' not in t.split('feature === "olcrtc"')[1][:800]:
     t = t.replace(
-        '<p className="text-xs text-muted-foreground">Ветка olcrtc: fix/all (не master). После сохранения — olc-update или перезапуск инстансов.</p>',
-        '<p className="text-xs text-muted-foreground">Ветка: fix/all · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>',
+        '<p className="text-xs text-muted-foreground">Ветка olcrtc: master. После сохранения — olc-update или перезапуск инстансов.</p>',
+        '<p className="text-xs text-muted-foreground">Ветка: master · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>',
         1,
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v6] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-ui-v6] ok"); raise SystemExit(0)
 PY

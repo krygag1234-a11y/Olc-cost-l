@@ -1,12 +1,12 @@
 {
   "olcrtc": {
     "repo": "https://github.com/openlibrecommunity/olcrtc.git",
-    "branch": "fix/all",
-    "pinned_sha": "cfa1bd6083c5ee7b14f3b2c145f9c057678e6a24",
-    "upstream_head": "cfa1bd6083c5ee7b14f3b2c145f9c057678e6a24",
-    "last_sync": "2026-05-27T12:52:00+00:00",
+    "branch": "master",
+    "pinned_sha": "52aea2d79d2f4234fea9332afce779beb9a6ebfc",
+    "upstream_head": "52aea2d79d2f4234fea9332afce779beb9a6ebfc",
+    "last_sync": "2026-05-29T17:57:00+00:00",
     "last_apply_ok": null,
-    "notes": "fix/all aligned to latest upstream head (jitsi e2e matrix updates included)"
+    "notes": "track pinned upstream master head"
   },
   "olcrtc-manager": {
     "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",

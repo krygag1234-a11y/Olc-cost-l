@@ -13,7 +13,7 @@ t = p.read_text()
 
 if "managerRunDir()" in t:
     print("[patch-manager-runtime-dir] already patched"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 insert = '''
 func managerRunDir() string {

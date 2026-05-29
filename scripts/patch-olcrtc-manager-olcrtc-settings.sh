@@ -91,7 +91,7 @@ func olcrtcSettingsGet() map[string]any {
 		"direct_cidrs_file":   env["OLCRTC_DIRECT_CIDRS"],
 		"blocked_tor_file":    env["OLCRTC_BLOCKED_TOR_DOMAINS"],
 		"force_tor_file":      env["OLCRTC_FORCE_TOR_DOMAINS"],
-		"olcrtc_branch":        "fix/all",
+		"olcrtc_branch":        "master",
 		"olcrtc_pinned_sha":  sha,
 		"upstream_notes":     "",
 	}

@@ -197,5 +197,5 @@ if '{collapsed ? "Развернуть" : "Свернуть"}' not in t:
 t = t.replace("{data && (", "{!collapsed && data && (", 1)
 
 p.write_text(t)
-print("[patch-panel-ui-v8] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-ui-v8] ok"); raise SystemExit(0)
 PY

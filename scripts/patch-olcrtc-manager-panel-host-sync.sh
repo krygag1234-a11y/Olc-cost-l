@@ -46,9 +46,9 @@ func syncPanelCarrierHost(action, carrier, roomID string) {
 
 anchor = "func addLocationFromRequest"
 if anchor not in t:
-    print("[patch-panel-host-sync] addLocationFromRequest not found (skip)"); print(0); raise SystemExit(0)
+    print("[patch-panel-host-sync] addLocationFromRequest not found (skip)"); raise SystemExit(0)
     p.write_text(t)
-    print(0); print(0); raise SystemExit(0)
+    raise SystemExit(0)
 if "func syncPanelCarrierHost" not in t:
     t = t.replace(anchor, helper + anchor, 1)
 
@@ -73,9 +73,9 @@ new_add = """\t\t\tfor _, loc := range locs {
 func deleteLocation(configPath, clientID, roomID string) error {"""
 
 if old_add not in t:
-    print("[patch-panel-host-sync] addLocation block not found (skip)"); print(0); raise SystemExit(0)
+    print("[patch-panel-host-sync] addLocation block not found (skip)"); raise SystemExit(0)
     p.write_text(t)
-    print(0); print(0); raise SystemExit(0)
+    raise SystemExit(0)
 t = t.replace(old_add, new_add, 1)
 
 old_del = """\t\tif !deleted {
@@ -95,9 +95,9 @@ new_del = """\t\tif !deleted {
 \t\tcfg.Clients[i].Locations = next"""
 
 if old_del not in t:
-    print("[patch-panel-host-sync] deleteLocation block not found (skip)"); print(0); raise SystemExit(0)
+    print("[patch-panel-host-sync] deleteLocation block not found (skip)"); raise SystemExit(0)
     p.write_text(t)
-    print(0); print(0); raise SystemExit(0)
+    raise SystemExit(0)
 t = t.replace(old_del, new_del, 1)
 
 old_client = """\tcfg.Clients = append(cfg.Clients, Client{ClientID: req.ClientID, Refresh: req.Refresh, Quota: req.Quota, Locations: locations})
@@ -121,5 +121,5 @@ if old_client in t:
     t = t.replace(old_client, new_client, 1)
 
 p.write_text(t)
-print("[patch-panel-host-sync] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-host-sync] ok"); raise SystemExit(0)
 PY

@@ -120,7 +120,7 @@ new_block = """  const [poolBusy, setPoolBusy] = useState(false);
 if old_block in t:
     t = t.replace(old_block, new_block, 1)
 else:
-    print("[patch-panel-hotfix-v16] state block not found", file=sys.stderr); print(0); raise SystemExit(0)
+    print("[patch-panel-hotfix-v16] state block not found", file=sys.stderr); raise SystemExit(0)
     sys.exit(1)
 
 old_refresh = """  const refreshPool = async (types: string) => {
@@ -246,7 +246,7 @@ if old_ui not in t and "Лог обновления пула" in t:
 if old_ui in t:
     t = t.replace(old_ui, new_ui, 1)
 elif "poolUiActive" not in t:
-    print("[patch-panel-hotfix-v16] UI block not found", file=sys.stderr); print(0); raise SystemExit(0)
+    print("[patch-panel-hotfix-v16] UI block not found", file=sys.stderr); raise SystemExit(0)
     sys.exit(1)
 
 # Poll bridges settings whenever webtunnel modal open (ComponentSettingsModal)
@@ -265,5 +265,5 @@ if "olc-panel-hotfix-v16" not in t:
         t = "/* olc-panel-hotfix-v16 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v16] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-hotfix-v16] ok"); raise SystemExit(0)
 PY

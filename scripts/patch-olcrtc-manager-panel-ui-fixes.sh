@@ -97,7 +97,7 @@ t = t.replace(
 # Dedupe duplicate olcrtc hints (legacy patch stacking).
 t = re.sub(
     r'(?:^\s*olcrtc: \{[^}]+\},?\n)+',
-    '  olcrtc: {\n    title: "OlcRTC",\n    lines: ["panel.env, Jitsi TLS, публичный URL", "ветка fix/all"],\n  },\n',
+    '  olcrtc: {\n    title: "OlcRTC",\n    lines: ["panel.env, Jitsi TLS, публичный URL", "ветка master"],\n  },\n',
     t,
     count=1,
     flags=re.M,
@@ -124,7 +124,7 @@ t = re.sub(
 
 if t != orig:
     p.write_text(t)
-    print("[patch-panel-ui-fixes] applied"); print(0); raise SystemExit(0)
+    print("[patch-panel-ui-fixes] applied"); raise SystemExit(0)
 else:
-    print("[patch-panel-ui-fixes] no changes"); print(0); raise SystemExit(0)
+    print("[patch-panel-ui-fixes] no changes"); raise SystemExit(0)
 PY

@@ -101,5 +101,5 @@ t = t.replace(
 )
 
 p.write_text(t)
-print("[patch-panel-settings-forms-v2] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-settings-forms-v2] ok"); raise SystemExit(0)
 PY

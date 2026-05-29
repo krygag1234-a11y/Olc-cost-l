@@ -13,7 +13,7 @@ t = p.read_text()
 
 if "hostNetwork :=" in t or "hostNetwork:=" in t:
     print("[patch-manager-host-network] already patched"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 old = """\tns, err := setupNetns(ctx, loc)
 \tif err != nil {

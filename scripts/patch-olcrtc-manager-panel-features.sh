@@ -20,7 +20,7 @@ p = Path(sys.argv[1])
 src = p.read_text()
 
 if "FeaturesPanel" in src:
-    print("[patch-panel-features] already applied"); print(0); raise SystemExit(0)
+    print("[patch-panel-features] already applied"); raise SystemExit(0)
     sys.exit(0)
 
 # 1. Insert FeaturesPanel component definition before `function App()`
@@ -138,7 +138,7 @@ function FeaturesPanel() {
 anchor = "\nfunction App() {"
 idx = src.find(anchor)
 if idx < 0:
-    print("[patch-panel-features] App() not found"); print(0); raise SystemExit(0)
+    print("[patch-panel-features] App() not found"); raise SystemExit(0)
 src = src[:idx] + component + "\n" + src[idx:]
 
 # 2. Render <FeaturesPanel /> right after the StatCard section
@@ -151,9 +151,9 @@ else:
     apos = src.find("function App() {")
     sec_close = src.find("</section>", apos)
     if sec_close < 0:
-        print("[patch-panel-features] cannot locate insert position"); print(0); raise SystemExit(0)
+        print("[patch-panel-features] cannot locate insert position"); raise SystemExit(0)
     src = src[: sec_close + len("</section>")] + "\n\n        <FeaturesPanel />\n" + src[sec_close + len("</section>"):]
 
 p.write_text(src)
-print("[patch-panel-features] applied"); print(0); raise SystemExit(0)
+print("[patch-panel-features] applied"); raise SystemExit(0)
 PY

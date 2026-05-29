@@ -121,5 +121,5 @@ if "olc-features-changed" not in t:
     )
 
 p.write_text(t)
-print("[patch-panel-header-net] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-header-net] ok"); raise SystemExit(0)
 PY

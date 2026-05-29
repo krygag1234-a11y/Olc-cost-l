@@ -13,7 +13,7 @@ t = p.read_text()
 
 if "sessionFilePath" in t:
     print("[patch-manager-sessions] already patched"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 helper = '''
 const adminSessionTTL = 30 * 24 * time.Hour

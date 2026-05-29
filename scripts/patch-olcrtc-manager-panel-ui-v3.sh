@@ -356,7 +356,7 @@ new_header = '''function HeaderNetworkToggles() { // NetworkUIV3
 if old_header in t:
     t = t.replace(old_header, new_header, 1)
 else:
-    print("[patch-panel-ui-v3] WARN: HeaderNetworkToggles block not matched"); print(0); raise SystemExit(0)
+    print("[patch-panel-ui-v3] WARN: HeaderNetworkToggles block not matched"); raise SystemExit(0)
 
 # --- FeaturesPanel: sync + tor guard + log/settings buttons ---
 t = t.replace(
@@ -583,5 +583,5 @@ if old_copy_logs in t:
     t = t.replace(old_copy_logs, new_copy_logs, 1)
 
 p.write_text(t)
-print("[patch-panel-ui-v3] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-ui-v3] ok"); raise SystemExit(0)
 PY

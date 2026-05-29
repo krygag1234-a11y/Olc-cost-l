@@ -329,7 +329,7 @@ if 'func updatesCheckHandler' not in t:
     t = t.rstrip() + "\n" + helpers
 
 main_go.write_text(t)
-print("[patch-panel-backend-v4] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-backend-v4] ok"); raise SystemExit(0)
 PY
 
 chmod +x "$REPO_ROOT/scripts/olc-panel-update-run.sh" \

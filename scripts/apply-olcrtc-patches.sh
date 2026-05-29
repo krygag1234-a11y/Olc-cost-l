@@ -20,11 +20,32 @@ MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
 safety_validate_git_build_dir "$OLCRTC_REPO" OLCRTC_REPO
 safety_validate_git_build_dir "$MGR_REPO" OLCRTC_MGR_REPO
 if [[ -z "${OLCRTC_BRANCH:-}" ]] && [[ -f "$REPO_ROOT/data/upstream-pins.json" ]]; then
-  OLCRTC_BRANCH="$(jq -r '.olcrtc.branch // "fix/all"' "$REPO_ROOT/data/upstream-pins.json")"
+  OLCRTC_BRANCH="$(jq -r '.olcrtc.branch // "master"' "$REPO_ROOT/data/upstream-pins.json")"
 fi
-OLCRTC_BRANCH="${OLCRTC_BRANCH:-fix/all}"
+OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 
 log() { echo "[apply-patches] $*"; }
+
+run_quiet() {
+  local label="$1"
+  shift
+  local log_dir="${OLC_PATCH_LOG_DIR:-/var/log}"
+  local log_file="${OLC_PATCH_LOG:-$log_dir/olcrtc-apply-patches.log}"
+  if [[ "${OLC_VERBOSE_INSTALL:-0}" == "1" ]]; then
+    log "$label"
+    "$@"
+    return
+  fi
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  log "$label (лог: $log_file)"
+  if "$@" >>"$log_file" 2>&1; then
+    return 0
+  fi
+  local rc=$?
+  log "ERROR: $label failed (rc=$rc); последние строки $log_file:"
+  tail -40 "$log_file" 2>/dev/null || true
+  return "$rc"
+}
 
 pin_olcrtc_sha() {
   local pins="${UPSTREAM_PINS:-$REPO_ROOT/data/upstream-pins.json}"
@@ -110,17 +131,19 @@ apply_olcrtc() {
   bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-routing-reload-skip.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-routing-rwlock.sh" "$OLCRTC_REPO/internal/server/server.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-server-tor-limits.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-reconnect-debounce.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-jitsi-no-smux-reconnect.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-join-retry.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
   bash "$SCRIPT_DIR/patch-olcrtc-jitsi-extras.sh" "$OLCRTC_REPO/internal/engine/jitsi/jitsi.go"
-  # goolom: fix/all already has correct backoff (2s) and maxReconnects (10).
+  # goolom: upstream master has correct backoff (2s) and maxReconnects (10).
   # Our old patches that changed those values are now noops / skip automatically.
   bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-stable.sh" "$OLCRTC_REPO/internal/engine/goolom"
   bash "$SCRIPT_DIR/patch-olcrtc-goolom-reconnect-no-early-callback.sh" "$OLCRTC_REPO/internal/engine/goolom/lifecycle.go"
-  # datachannel payload: fix/all uses 12*1024 (conservative), keep it as-is
-  : # no override needed — fix/all already has 12*1024
-  (cd "$OLCRTC_REPO" && go mod download github.com/zarazaex69/j 2>/dev/null || go mod download)
+  # datachannel payload: upstream master uses 12*1024 (conservative), keep it as-is
+  : # no override needed — upstream master already has 12*1024
+  run_quiet "go mod download (olcrtc)" bash -c 'cd "$1" && go mod download github.com/zarazaex69/j 2>/dev/null || go mod download' _ "$OLCRTC_REPO"
   bash "$SCRIPT_DIR/patch-j-xmpp-bind-fastfail.sh" "$OLCRTC_REPO"
 }
 
@@ -280,8 +303,8 @@ apply_manager() {
     else
       log "build manager admin UI (web/dist)"
       rm -rf "$MGR_REPO/web/dist"
-      (cd "$MGR_REPO" && npm ci 2>/dev/null || npm install)
-      (cd "$MGR_REPO" && npm run build) || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
+      run_quiet "npm install (manager UI)" bash -c 'cd "$1" && npm ci 2>/dev/null || npm install' _ "$MGR_REPO"
+      run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
       if [[ -x "$SCRIPT_DIR/olc-panel-verify.sh" ]]; then
         bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
       else
@@ -325,8 +348,8 @@ build_binaries() {
 }
 
 clone_repos
-apply_olcrtc
-apply_manager
+run_quiet "apply olcrtc patches" apply_olcrtc
+run_quiet "apply manager patches + UI" apply_manager
 if [[ "${BUILD:-1}" == "1" ]]; then
   bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>/dev/null || true
   build_binaries || exit 1

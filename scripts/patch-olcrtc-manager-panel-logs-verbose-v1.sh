@@ -151,5 +151,5 @@ if "olc-panel-logs-verbose-v1" not in t:
     t = t.replace("/* olc-panel-ui-v10 */", "/* olc-panel-ui-v10 */\n/* olc-panel-logs-verbose-v1 */", 1)
 
 p.write_text(t)
-print("[patch-panel-logs-verbose-v1] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-logs-verbose-v1] ok"); raise SystemExit(0)
 PY

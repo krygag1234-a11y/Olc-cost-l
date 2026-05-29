@@ -13,7 +13,7 @@ t = p.read_text()
 
 if "carrierReconnectTimer" in t:
     print("[patch-server-reconnect-debounce] already patched"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 if "reinstallMu    sync.Mutex" not in t:
     print("Server struct anchor missing"); raise SystemExit(0)

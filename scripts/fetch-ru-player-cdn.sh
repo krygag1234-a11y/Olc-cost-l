@@ -16,7 +16,7 @@ HOSTS=(
   ivi.ru ivicdn.tv ivi.tv
   kinopoisk.ru widgets.kinopoisk.ru st.kp.yandex.net
   rutube.ru pic.rutube.ru static.rutube.ru
-  vk.com vk.ru vkuser.net vk-portal.net userapi.com
+  vk.com vk.ru vkvideo.ru vk-portal.net userapi.com
   dzen.ru strm.yandex.ru yastatic.net
   more.tv more-tv.ru
   premier.one

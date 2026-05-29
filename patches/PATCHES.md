@@ -1,7 +1,7 @@
 # Патчи относительно upstream (обязательны для Jitsi + панель + RU VPS)
 
 **Обновлено:** 2026-05-26  
-**Ветка olcrtc:** [`fix/all`](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) (default в `apply-olcrtc-patches.sh` из `data/upstream-pins.json`)  
+**Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) (default в `apply-olcrtc-patches.sh` из `data/upstream-pins.json`)  
 **Панель:** [`main`](https://github.com/BigDaddy3334/olcrtc-manager-panel)  
 **Применение:** `scripts/apply-olcrtc-patches.sh` или `upstream-sync.sh --apply`
 

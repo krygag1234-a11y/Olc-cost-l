@@ -14,7 +14,7 @@ t = p.read_text()
 
 if '"/api/actions/stop"' in t and "func (s *Supervisor) Stop(" in t:
     print("[patch-stop-action] already applied"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 restart_handler = """\thandler.Handle("/api/actions/restart", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 \t\tif r.Method != http.MethodPost {

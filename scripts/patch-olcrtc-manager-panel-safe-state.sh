@@ -140,5 +140,5 @@ t = t.replace(
 )
 
 p.write_text(t)
-print("[patch-panel-safe-state] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-safe-state] ok"); raise SystemExit(0)
 PY

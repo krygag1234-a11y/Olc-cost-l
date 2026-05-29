@@ -68,14 +68,14 @@ new2 = """\tuseTor := !strings.EqualFold(strings.TrimSpace(loc.Link), "direct")
 if "useTor := !strings.EqualFold" in t:
     print("[patch-manager-link-direct] already patched"); raise SystemExit(0)
     p.write_text(t)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 elif old in t:
     t = t.replace(old, new, 1)
 elif old2 in t:
     t = t.replace(old2, new2, 1)
 else:
     print("[patch-manager-link-direct] skip: SOCKS block handled by patch-manager-socks"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 p.write_text(t)
 print("[patch-manager-link-direct] ok"); raise SystemExit(0)

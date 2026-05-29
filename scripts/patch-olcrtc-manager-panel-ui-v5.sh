@@ -37,7 +37,7 @@ olcrtc_block = '''
           <div className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-border bg-background p-3">
             <div>
               <div className="font-medium">OlcRTC (ядро)</div>
-              <div className="text-xs text-muted-foreground">panel.env, Jitsi TLS, split lists — ветка fix/all</div>
+              <div className="text-xs text-muted-foreground">panel.env, Jitsi TLS, split lists — ветка master</div>
             </div>
             <div className="flex gap-1">
               <button type="button" title="Логи olcrtc" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted" onClick={() => setLogFeature("zapret")}>
@@ -382,7 +382,7 @@ function NotificationSettingsSection() {
 if 'olcrtc:' not in t.split('FEATURE_SETTINGS_HINTS')[1][:500]:
     t = t.replace(
         '  webtunnel: {',
-        '  olcrtc: {\n    title: "OlcRTC",\n    lines: ["panel.env, Jitsi TLS, публичный URL", "ветка fix/all"],\n  },\n  webtunnel: {',
+        '  olcrtc: {\n    title: "OlcRTC",\n    lines: ["panel.env, Jitsi TLS, публичный URL", "ветка master"],\n  },\n  webtunnel: {',
         1,
     )
 
@@ -401,7 +401,7 @@ if 'feature === "olcrtc"' not in t.split('ComponentSettingsModal')[1][:8000]:
                   Публичный URL панели (OLCRTC_PUBLIC_URL)
                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.public_url ?? "")} onChange={(e) => setStr("public_url", e.target.value)} placeholder="https://vps.example:8888" />
                 </label>
-                <p className="text-xs text-muted-foreground">Ветка olcrtc: fix/all (не master). После сохранения — olc-update или перезапуск инстансов.</p>
+                <p className="text-xs text-muted-foreground">Ветка olcrtc: master. После сохранения — olc-update или перезапуск инстансов.</p>
               </>
             )}
             {(feature === "webtunnel" || feature === "bridges") && (''',
@@ -461,5 +461,5 @@ if 'Пул: obfs4' not in t:
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v5] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-ui-v5] ok"); raise SystemExit(0)
 PY

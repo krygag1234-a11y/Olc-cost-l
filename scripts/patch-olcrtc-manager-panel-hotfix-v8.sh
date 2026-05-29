@@ -12,11 +12,11 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 if "function componentJobUiVisible" in t:
-    print("[patch-panel-hotfix-v8] componentJobUiVisible already defined"); print(0); raise SystemExit(0)
+    print("[patch-panel-hotfix-v8] componentJobUiVisible already defined"); raise SystemExit(0)
     sys.exit(0)
 
 if "componentJobUiVisible" not in t:
-    print("[patch-panel-hotfix-v8] skip: no usages"); print(0); raise SystemExit(0)
+    print("[patch-panel-hotfix-v8] skip: no usages"); raise SystemExit(0)
     sys.exit(0)
 
 const_block = '''
@@ -46,7 +46,7 @@ function componentJobUiVisible(j?: { status?: string; finished_at?: string }): b
 
 anchor = "const COMPONENT_DRAWER_ITEMS = ["
 if anchor not in t:
-    print("[patch-panel-hotfix-v8] failed: no COMPONENT_DRAWER_ITEMS anchor", file=sys.stderr); print(0); raise SystemExit(0)
+    print("[patch-panel-hotfix-v8] failed: no COMPONENT_DRAWER_ITEMS anchor", file=sys.stderr); raise SystemExit(0)
     sys.exit(1)
 
 t = t.replace(anchor, const_block + anchor, 1)
@@ -58,5 +58,5 @@ if "olc-panel-hotfix-v8" not in t:
         t = "/* olc-panel-hotfix-v8 */\n" + t
 
 p.write_text(t)
-print("[patch-panel-hotfix-v8] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-hotfix-v8] ok"); raise SystemExit(0)
 PY

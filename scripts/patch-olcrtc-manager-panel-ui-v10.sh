@@ -25,7 +25,7 @@ old_olcrtc = '''            {feature === "olcrtc" && (
                   Публичный URL панели (OLCRTC_PUBLIC_URL)
                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.public_url ?? "")} onChange={(e) => setStr("public_url", e.target.value)} placeholder="https://vps.example:8888" />
                 </label>
-                <p className="text-xs text-muted-foreground">Ветка: fix/all · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>
+                <p className="text-xs text-muted-foreground">Ветка: master · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>
               </>
             )}'''
 
@@ -85,7 +85,7 @@ new_olcrtc = '''            {feature === "olcrtc" && (
                   WebRTC signaling proxy (optional)
                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.webrtc_proxy ?? "")} onChange={(e) => setStr("webrtc_proxy", e.target.value)} placeholder="user:pass@host:port" />
                 </label>
-                <p className="text-xs text-muted-foreground">Ветка: fix/all · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>
+                <p className="text-xs text-muted-foreground">Ветка: master · pin: <code>{String(settings.olcrtc_pinned_sha ?? "").slice(0, 12) || "—"}</code></p><p className="text-xs text-muted-foreground">После сохранения — olc-update или перезапуск инстансов.</p>
               </>
             )}'''
 
@@ -131,5 +131,5 @@ if "className=\"mt-2 h-2 w-full overflow-hidden rounded bg-zinc-700/50\"" not in
     )
 
 p.write_text(t)
-print("[patch-panel-ui-v10] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-ui-v10] ok"); raise SystemExit(0)
 PY

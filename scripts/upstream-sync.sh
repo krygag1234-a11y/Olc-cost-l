@@ -69,7 +69,7 @@ check_status() {
   local osha msha orem mrem need=0 obranch mbranch
   obranch="$(pin_get olcrtc branch)"
   mbranch="$(pin_get olcrtc-manager branch)"
-  [[ -n "$obranch" ]] || obranch="fix/all"
+  [[ -n "$obranch" ]] || obranch="master"
   [[ -n "$mbranch" ]] || mbranch="main"
   osha="$(remote_sha openlibrecommunity/olcrtc "$obranch")"
   msha="$(remote_sha BigDaddy3334/olcrtc-manager-panel "$mbranch")"

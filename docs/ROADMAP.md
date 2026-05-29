@@ -52,7 +52,7 @@
 3. **Безопасность** — деструктивные действия: confirm + ввод имени функции; предупреждения о перезапуске инстансов; lock панели на время update.
 4. **Не грузить VPS** — polling с backoff; один фоновый job на update; логи — tail + limit; error-detector — батч раз в N сек, не на каждый байт.
 5. **Патчи manager** — как сейчас: `scripts/patch-olcrtc-manager-*.sh` → `apply-olcrtc-patches.sh` → `npm run build`.
-6. **Upstream olcrtc** — только [`fix/all`](https://github.com/openlibrecommunity/olcrtc/tree/fix/all); `master` не использовать.
+6. **Upstream olcrtc** — только [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master); `master` не использовать.
 
 ---
 
@@ -320,7 +320,7 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 
 | Репозиторий | Зачем |
 |-------------|-------|
-| [olcrtc fix/all](https://github.com/openlibrecommunity/olcrtc/tree/fix/all) | сервер, routing |
+| [olcrtc master](https://github.com/openlibrecommunity/olcrtc/tree/master) | сервер, routing |
 | [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) | базовая панель |
 | [zapret4rocket](https://github.com/IndeecFOX/zapret4rocket) | стратегии DPI |
 | [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry) | webtunnel-client binary |
@@ -333,6 +333,6 @@ UI: `FeatureSettingsModal` / формы в `panel-settings-forms*.sh`, `panel-ui
 | Дата | Изменение |
 |------|-----------|
 | 2026-05-26 | Создан документ; фазы 0–8 |
-| 2026-05-27 | Доки: fix/all, olc-update, PUBLIC-DEMO-VPS; TTL component jobs |
+| 2026-05-27 | Доки: master, olc-update, PUBLIC-DEMO-VPS; TTL component jobs |
 | 2026-05-27 | **Полная сверка** с репо + тест-VPS: статусы, таблица альтернатив, backlog |
 | 2026-05-27 | ROADMAP backlog: strategy, cidr, errors, update toast, lock 503, `olc-error-match` |

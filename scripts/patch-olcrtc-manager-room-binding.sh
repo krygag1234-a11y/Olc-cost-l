@@ -13,11 +13,11 @@ t = p.read_text()
 
 if "Room:   olcrtcRoomConfig{ID: loc.Endpoint.RoomID}," in t:
     print("[patch-room-binding] already bare room id"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 if "bindingRoomURL(loc.Carrier" not in t:
     print("[patch-room-binding] skip: bindingRoomURL not in serverConfig"); raise SystemExit(0)
-    print(0); raise SystemExit(0)
+    raise SystemExit(0)
 
 t = t.replace(
     "Room:   olcrtcRoomConfig{ID: bindingRoomURL(loc.Carrier, loc.Endpoint.RoomID)},",

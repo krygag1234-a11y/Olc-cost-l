@@ -38,7 +38,7 @@ old_patches = '''              <div className="rounded border border-border p-3"
 if old_patches in t:
     t = t.replace(old_patches, stack_block, 1)
 elif 'Стек сервисов' not in t:
-    print("[patch-panel-project-ui-fix] patches card not found", file=sys.stderr); print(0); raise SystemExit(0)
+    print("[patch-panel-project-ui-fix] patches card not found", file=sys.stderr); raise SystemExit(0)
     sys.exit(1)
 
 if 'const stack = (status?.stack' not in t:
@@ -65,5 +65,5 @@ if '/* olc-project-ui-fix */' not in t:
     t = t.replace('/* olc-panel-ui-v7 */', '/* olc-panel-ui-v7 */\n/* olc-project-ui-fix */', 1)
 
 p.write_text(t)
-print("[patch-panel-project-ui-fix] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-project-ui-fix] ok"); raise SystemExit(0)
 PY

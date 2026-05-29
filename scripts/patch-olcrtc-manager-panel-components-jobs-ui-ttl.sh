@@ -146,5 +146,5 @@ if "/* olc-components-jobs-ui-ttl */" not in t:
         t = t.replace("function ComponentsDrawerButton() {", "/* olc-components-jobs-ui-ttl */\nfunction ComponentsDrawerButton() {", 1)
 
 p.write_text(t)
-print("[patch-panel-components-jobs-ui-ttl] ok"); print(0); raise SystemExit(0)
+print("[patch-panel-components-jobs-ui-ttl] ok"); raise SystemExit(0)
 PY

@@ -31,7 +31,7 @@ for key in [
 if '"warp_proxy":' not in t:
     t = t.replace(
         '''		"force_tor_file":      env["OLCRTC_FORCE_TOR_DOMAINS"],
-		"olcrtc_branch":        "fix/all",''',
+		"olcrtc_branch":        "master",''',
         '''		"force_tor_file":      env["OLCRTC_FORCE_TOR_DOMAINS"],
 		"warp_proxy":          env["OLCRTC_WARP_PROXY"],
 		"socks_proxy":         env["OLCRTC_SOCKS_PROXY"],
@@ -40,7 +40,7 @@ if '"warp_proxy":' not in t:
 		"default_link":        env["OLCRTC_DEFAULT_LINK"],
 		"tor_proxy":           env["OLCRTC_TOR_PROXY"],
 		"webrtc_proxy":        env["OLCRTC_WEBRTC_PROXY"],
-		"olcrtc_branch":        "fix/all",''',
+		"olcrtc_branch":        "master",''',
         1,
     )
 
