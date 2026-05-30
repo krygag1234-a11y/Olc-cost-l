@@ -31,6 +31,8 @@ TOR_BRIDGES=/etc/tor/bridges.conf
 TOR_BRIDGES_BACKUP_DIR=/var/lib/olcrtc/feature-backups
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+# shellcheck source=lib-output.sh
+source "$SCRIPT_DIR/lib-output.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-vps-backup.sh
@@ -71,25 +73,46 @@ _save() {
 
 status() {
   _load
-  echo "=== olc-feature status ==="
-  printf '  %-10s %s\n' zapret "${OLCRTC_ENABLE_ZAPRET:-1}"
-  printf '  %-10s %s\n' tor    "${OLCRTC_ENABLE_TOR:-1}"
-  printf '  %-10s %s\n' split  "${OLCRTC_ENABLE_SPLIT:-1}"
-  printf '  %-10s %s\n' webtunnel "${OLCRTC_ENABLE_WEBTUNNEL:-1}"
-  printf '  %-10s %s\n' warp     "${OLCRTC_ENABLE_WARP:-0}"
-  echo
-  echo "Live state:"
-  printf '  %-10s ' tor;       systemctl is-active tor@default 2>/dev/null || echo inactive
-  printf '  %-10s ' zapret;    systemctl is-active zapret 2>/dev/null || echo inactive
-  printf '  %-10s ' nfqws;     pidof nfqws >/dev/null 2>&1 && echo running || echo stopped
-  printf '  %-10s ' manager;   systemctl is-active olcrtc-manager 2>/dev/null || echo inactive
-  printf '  %-10s ' webtunnel
-  if [[ -x /usr/bin/webtunnel-client ]]; then echo "/usr/bin/webtunnel-client present"
-  else echo "missing"; fi
-  printf '  %-10s ' warp
+  olc_print_header "Статус компонентов Olc-cost-l"
+
+  olc_print_section "Настройки (features.env)"
+  olc_print_key_value "Zapret" "${OLCRTC_ENABLE_ZAPRET:-1}"
+  olc_print_key_value "Tor" "${OLCRTC_ENABLE_TOR:-1}"
+  olc_print_key_value "Split routing" "${OLCRTC_ENABLE_SPLIT:-1}"
+  olc_print_key_value "Webtunnel" "${OLCRTC_ENABLE_WEBTUNNEL:-1}"
+  olc_print_key_value "WARP" "${OLCRTC_ENABLE_WARP:-0}"
+
+  olc_print_section "Состояние сервисов"
+  local tor_status zapret_status manager_status
+  tor_status="$(systemctl is-active tor@default 2>/dev/null || echo inactive)"
+  zapret_status="$(systemctl is-active zapret 2>/dev/null || echo inactive)"
+  manager_status="$(systemctl is-active olcrtc-manager 2>/dev/null || echo inactive)"
+
+  olc_print_component_status "tor" "$tor_status"
+  olc_print_component_status "zapret" "$zapret_status"
+
+  if pidof nfqws >/dev/null 2>&1; then
+    olc_print_component_status "nfqws" "running"
+  else
+    olc_print_component_status "nfqws" "stopped"
+  fi
+
+  olc_print_component_status "manager" "$manager_status"
+
+  if [[ -x /usr/bin/webtunnel-client ]]; then
+    olc_print_component_status "webtunnel" "installed"
+  else
+    olc_print_component_status "webtunnel" "missing"
+  fi
+
   if command -v warp-cli >/dev/null 2>&1; then
-    warp-cli status 2>/dev/null | head -1 || echo "warp-cli present"
-  else echo "missing"; fi
+    local warp_status
+    warp_status="$(warp-cli status 2>/dev/null | head -1 || echo "installed")"
+    olc_print_component_status "warp" "$warp_status"
+  else
+    olc_print_component_status "warp" "missing"
+  fi
+  echo
 }
 
 # ---------- ZAPRET ----------

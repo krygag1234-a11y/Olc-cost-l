@@ -3,21 +3,25 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-output.sh
+source "$SCRIPT_DIR/lib-output.sh"
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh"
 
 [[ "${OLCRTC_RU_VPS:-1}" == "1" ]] || {
-  echo "[setup-split-ru] skip: OLCRTC_RU_VPS!=1 (foreign VPS)" >&2
+  olc_print_info "Пропуск: OLCRTC_RU_VPS!=1 (зарубежный VPS)"
   exit 0
 }
 
-echo "[setup-split-ru] RU CIDR (geoip)…"
+olc_print_header "Настройка Split Routing для RU VPS"
+
+olc_print_section "Загрузка RU CIDR (geoip)"
 if [[ "${1:-}" == "--quick" ]] || [[ "${OLCRTC_SPLIT_QUICK:-0}" == "1" ]]; then
-  echo "[setup-split-ru] quick: skip heavy upstream fetches"
+  olc_print_info "Быстрый режим: пропуск тяжёлых upstream запросов"
   export OLCRTC_SKIP_GEOSITE_FETCH=1
   export OLCRTC_SKIP_BLOCKED_TOR_FETCH=1
   if [[ -s /var/lib/olcrtc/ru-cidrs.txt ]]; then
-    echo "[setup-split-ru] skip fetch-ru-cidrs (existing file)"
+    olc_print_info "Пропуск fetch-ru-cidrs (файл существует)"
   else
     bash "$SCRIPT_DIR/fetch-ru-cidrs.sh"
   fi
@@ -31,10 +35,11 @@ SEED="$REPO_ROOT/data/ru-domains-extra.txt"
 if [[ -f "$SEED" ]]; then
   install -d "$(dirname "$EXTRA_DST")"
   install -m 0644 "$SEED" "$EXTRA_DST"
-  echo "[setup-split-ru] seeded $EXTRA_DST from repo"
+  olc_print_ok "Seed файл скопирован: $EXTRA_DST"
 fi
 
-echo "[setup-split-ru] geosite RU domains (~10k from GrimbirdUsers) + builtins…"
+olc_print_section "Загрузка списков доменов"
+olc_print_step "Geosite RU domains (~10k от GrimbirdUsers)"
 bash "$SCRIPT_DIR/fetch-force-tor-domains.sh"
 bash "$SCRIPT_DIR/fetch-ru-direct-domains.sh"
 bash "$SCRIPT_DIR/fetch-ru-blocked-tor-domains.sh"
@@ -44,7 +49,7 @@ if [[ "${OLCRTC_SPLIT_CIDR_ONLY:-0}" == "1" ]]; then
   OLCRTC_INCLUDE_CDN_IPS=0
 fi
 if [[ "${OLCRTC_INCLUDE_CDN_IPS:-0}" == "1" ]]; then
-  echo "[setup-split-ru] WARN: including CDN /32 lists (may cause 404 nginx)…"
+  olc_print_warn "Включение CDN /32 списков (может вызвать 404 nginx)"
   bash "$SCRIPT_DIR/fetch-cdn-direct.sh" 2>/dev/null || true
   bash "$SCRIPT_DIR/fetch-ru-player-cdn.sh" 2>/dev/null || true
   OUT=/var/lib/olcrtc/direct-all.txt \
@@ -54,7 +59,7 @@ if [[ "${OLCRTC_INCLUDE_CDN_IPS:-0}" == "1" ]]; then
   DIRECT_CIDRS=/var/lib/olcrtc/direct-all.txt
 else
   DIRECT_CIDRS=/var/lib/olcrtc/ru-cidrs.txt
-  echo "[setup-split-ru] CIDR only: $DIRECT_CIDRS (no CDN /32)"
+  olc_print_info "Только CIDR: $DIRECT_CIDRS (без CDN /32)"
 fi
 
 ENV_FILE="${PANEL_ENV:-/etc/olcrtc-manager/panel.env}"
@@ -87,8 +92,14 @@ if [[ -x "$SCRIPT_DIR/olc-split-analyze.sh" ]]; then
   fi
   dom_n="$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
 fi
-echo "[setup-split-ru] done: CIDR=$(wc -l <"$DIRECT_CIDRS") domains=${dom_n} (+ builtin *.ru in olcrtc)"
+
+olc_print_section "Результат"
+olc_print_key_value "CIDR записей" "$(wc -l <"$DIRECT_CIDRS")"
+olc_print_key_value "Доменов" "${dom_n} (+ встроенные *.ru в olcrtc)"
 
 if [[ -x /opt/zapret/nfq/nfqws ]] && [[ "${OLCRTC_ENABLE_ZAPRET:-1}" == "1" ]]; then
+  olc_print_step "Синхронизация zapret excludes"
   bash "$SCRIPT_DIR/zapret-sync-excludes.sh" --reload-zapret 2>/dev/null || true
 fi
+
+olc_print_ok "Split routing настроен"

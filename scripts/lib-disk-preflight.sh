@@ -3,6 +3,13 @@
 [[ -n "${_OLC_DISK_PREFLIGHT_LOADED:-}" ]] && return 0
 _OLC_DISK_PREFLIGHT_LOADED=1
 
+# Load output library if available
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [[ -f "$_script_dir/lib-output.sh" ]]; then
+  # shellcheck source=lib-output.sh
+  source "$_script_dir/lib-output.sh"
+fi
+
 # Минимум свободного места (МиБ) на корне и в /tmp
 OLC_DISK_MIN_MB_ROOT="${OLC_DISK_MIN_MB_ROOT:-400}"
 OLC_DISK_MIN_MB_TMP="${OLC_DISK_MIN_MB_TMP:-200}"
@@ -42,6 +49,29 @@ olc_disk_has_tty() {
 # Печать отчёта на русском (в stderr).
 olc_disk_print_report_ru() {
   local reason="${1:-запуск скрипта}"
+
+  if declare -f olc_print_error_box >/dev/null 2>&1; then
+    local lines=()
+    lines+=("Этап: $reason")
+    lines+=("")
+    for mp in / /tmp; do
+      [[ -d "$mp" ]] || continue
+      local avail use ih
+      avail="$(olc_disk_available_mb "$mp")"
+      use="$(olc_disk_use_pct "$mp")"
+      ih="$(olc_disk_size_human "$mp")"
+      lines+=("Раздел: $mp")
+      lines+=("  Занято: ${use}% (свободно ~${avail} МБ)")
+    done
+    lines+=("")
+    lines+=("Что сделать:")
+    lines+=("  sudo olc-cleanup-caches")
+    lines+=("  df -h / /tmp")
+    lines+=("  sudo du -xh / --max-depth=1 | sort -hr | head -15")
+    olc_print_error_box "Мало места на диске" "${lines[@]}"
+    return
+  fi
+
   echo "" >&2
   echo "══════════════════════════════════════════════════════════" >&2
   echo "  Olc-cost-l: на VPS мало места на диске" >&2
@@ -81,6 +111,30 @@ olc_disk_print_report_ru() {
 
 olc_disk_print_build_block_ru() {
   local reason="${1:-сборка OlcRTC/панели}"
+
+  if declare -f olc_print_error_box >/dev/null 2>&1; then
+    local lines=()
+    lines+=("Этап: $reason")
+    lines+=("")
+    lines+=("Нужно до старта сборки:")
+    lines+=("  /    >= ${OLC_BUILD_MIN_MB_ROOT} МБ свободно")
+    lines+=("  /tmp >= ${OLC_BUILD_MIN_MB_TMP} МБ свободно")
+    lines+=("")
+    for mp in / /tmp; do
+      [[ -d "$mp" ]] || continue
+      lines+=("${mp}: $(olc_disk_size_human "$mp"), занято $(olc_disk_use_pct "$mp")%")
+    done
+    lines+=("")
+    lines+=("Панель и бинарники не пересобирались.")
+    lines+=("")
+    lines+=("Что сделать:")
+    lines+=("  sudo olc-cleanup-caches")
+    lines+=("  df -h / /tmp")
+    lines+=("  sudo olc-update")
+    olc_print_error_box "Сборка остановлена — мало места" "${lines[@]}"
+    return
+  fi
+
   echo "" >&2
   echo "══════════════════════════════════════════════════════════" >&2
   echo "  Olc-cost-l: сборка остановлена — мало свободного места" >&2

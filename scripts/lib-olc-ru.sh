@@ -5,33 +5,102 @@ _OLC_RU_LOADED=1
 
 OLC_LANG="${OLC_LANG:-ru}"
 
+# Load modern output library if available
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [[ -f "$_script_dir/lib-output.sh" ]]; then
+  # shellcheck source=lib-output.sh
+  source "$_script_dir/lib-output.sh"
+fi
+
 # Универсальный лог этапа: olc_log_step "текст" / olc_log_step en "text"
 olc_log_step() {
   if [[ "${OLC_LANG}" == en ]]; then
-    echo "==> $*"
+    if declare -f olc_print_step >/dev/null 2>&1; then
+      olc_print_step "$*"
+    else
+      echo "==> $*"
+    fi
     return
   fi
   local msg="$*"
   case "$msg" in
-    "UPDATE:"*) echo "==> ОБНОВЛЕНИЕ: списки, патчи, Tor, zapret, systemd (можно продолжить с --resume)" ;;
-    "install nodejs"*) echo "==> Установка nodejs/npm (нужны для сборки панели)" ;;
-    *) echo "==> $msg" ;;
+    "UPDATE:"*)
+      if declare -f olc_print_section >/dev/null 2>&1; then
+        olc_print_section "ОБНОВЛЕНИЕ: списки, патчи, Tor, zapret, systemd"
+      else
+        echo "==> ОБНОВЛЕНИЕ: списки, патчи, Tor, zapret, systemd (можно продолжить с --resume)"
+      fi
+      ;;
+    "install nodejs"*)
+      if declare -f olc_print_step >/dev/null 2>&1; then
+        olc_print_step "Установка nodejs/npm (нужны для сборки панели)"
+      else
+        echo "==> Установка nodejs/npm (нужны для сборки панели)"
+      fi
+      ;;
+    *)
+      if declare -f olc_print_step >/dev/null 2>&1; then
+        olc_print_step "$msg"
+      else
+        echo "==> $msg"
+      fi
+      ;;
   esac
 }
 
 olc_log_apply() {
   if [[ "${OLC_LANG}" == en ]]; then
-    echo "[apply-patches] $*"
+    if declare -f olc_print_info >/dev/null 2>&1; then
+      olc_print_info "[apply-patches] $*"
+    else
+      echo "[apply-patches] $*"
+    fi
     return
   fi
   local msg="$*"
   case "$msg" in
-    "olcrtc patches in "*) echo "[патчи] olcrtc: $msg" | sed 's/olcrtc patches in /каталог /' ;;
-    "manager patches in "*) echo "[патчи] панель manager: $msg" | sed 's/manager patches in /каталог /' ;;
-    "skip "*) echo "[патчи] пропуск: ${msg#skip }" ;;
-    "WARN:"*) echo "[патчи] внимание: ${msg#WARN: }" ;;
-    "ERROR:"*) echo "[патчи] ОШИБКА: ${msg#ERROR: }" ;;
-    *) echo "[патчи] $msg" ;;
+    "olcrtc patches in "*)
+      if declare -f olc_print_bullet >/dev/null 2>&1; then
+        olc_print_bullet "olcrtc: $(echo "$msg" | sed 's/olcrtc patches in /каталог /')"
+      else
+        echo "[патчи] olcrtc: $msg" | sed 's/olcrtc patches in /каталог /'
+      fi
+      ;;
+    "manager patches in "*)
+      if declare -f olc_print_bullet >/dev/null 2>&1; then
+        olc_print_bullet "панель manager: $(echo "$msg" | sed 's/manager patches in /каталог /')"
+      else
+        echo "[патчи] панель manager: $msg" | sed 's/manager patches in /каталог /'
+      fi
+      ;;
+    "skip "*)
+      if declare -f olc_print_info >/dev/null 2>&1; then
+        olc_print_info "пропуск: ${msg#skip }"
+      else
+        echo "[патчи] пропуск: ${msg#skip }"
+      fi
+      ;;
+    "WARN:"*)
+      if declare -f olc_print_warn >/dev/null 2>&1; then
+        olc_print_warn "${msg#WARN: }"
+      else
+        echo "[патчи] внимание: ${msg#WARN: }"
+      fi
+      ;;
+    "ERROR:"*)
+      if declare -f olc_print_fail >/dev/null 2>&1; then
+        olc_print_fail "${msg#ERROR: }"
+      else
+        echo "[патчи] ОШИБКА: ${msg#ERROR: }"
+      fi
+      ;;
+    *)
+      if declare -f olc_print_info >/dev/null 2>&1; then
+        olc_print_info "$msg"
+      else
+        echo "[патчи] $msg"
+      fi
+      ;;
   esac
 }
 
