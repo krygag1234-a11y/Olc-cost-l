@@ -62,6 +62,7 @@ var adminConfigPath string
 var (
 	splitReloadMu   sync.Mutex
 	splitReloadLast time.Time
+	panelSupervisor *Supervisor
 )
 
 type Config struct {
@@ -321,6 +322,7 @@ func run() error {
 	defer stop()
 
 	supervisor := NewSupervisor(olcrtcPath, startInstance)
+	panelSupervisor = supervisor
 	quotaEnforcer := NewQuotaEnforcer(configPath, supervisor)
 	supervisor.SetQuotaEnforcer(quotaEnforcer)
 	if err := supervisor.StartAll(ctx, cfg); err != nil {
