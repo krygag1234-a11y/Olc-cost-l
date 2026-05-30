@@ -234,9 +234,6 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitSyncRunning: "Пересобираю общий авто-список…",
     splitSyncDone: "Общий авто-список пересобран",
     splitSyncLogsDone: "CDN из логов добавлены в общий список",
-    splitApplyRouting: "Применить маршрутизацию",
-    splitApplyRoutingDone: "Маршрутизация применена к инстансам",
-    splitRestartHint: "Списки сначала пишутся на диск. «Применить маршрутизацию» — отдельно, когда VK/сайт не грузится. Не жми во время загрузки страницы.",
     splitAutoGroupsTitle: "Автоматически найдено",
     splitAutoGroupsHelp: "Глобальные группы, собранные из всех инстансов, ручных правил, анализа и разрешённых семейств из логов. Это общий список для всего olcrtc, а не только для последнего введённого домена.",
     splitNoGroups: "Пока нет автоматических групп. Нажмите «Обновить авто-список из инстансов и логов» или выполните точечный анализ домена.",
@@ -464,9 +461,6 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     splitSyncRunning: "Rebuilding shared auto-list…",
     splitSyncDone: "Shared auto-list rebuilt",
     splitSyncLogsDone: "CDN from logs added to the shared list",
-    splitApplyRouting: "Apply routing",
-    splitApplyRoutingDone: "Routing applied to instances",
-    splitRestartHint: "Lists are written to disk first. Apply routing separately when needed — not while a page is loading.",
     splitAutoGroupsTitle: "Automatically discovered",
     splitAutoGroupsHelp: "Global groups collected from all instances, manual rules, analysis and allowed service families from logs. This is shared by the whole olcrtc, not only the last entered domain.",
     splitNoGroups: "No automatic groups yet. Click Update auto-list from instances and logs or run targeted domain analysis.",
@@ -2976,22 +2970,6 @@ function ComponentSettingsModal({
     }
   };
 
-  const splitApplyRouting = async () => {
-    setSaving(true);
-    setSplitAnalyzeMsg("");
-    try {
-      const res = await fetch("/api/settings/split/apply-routing", { method: "POST" });
-      const body = await readJsonOrText(res);
-      if (!res.ok) throw new Error(String(body.error || `HTTP ${res.status}`));
-      setSplitAnalyzeMsg(t("splitApplyRoutingDone"));
-    } catch (e) {
-      setSplitAnalyzeMsg(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-      window.setTimeout(() => setSplitAnalyzeMsg((m) => (m === t("splitApplyRoutingDone") ? "" : m)), 8000);
-    }
-  };
-
   const splitDiscovery = (settings.discovery ?? {}) as { groups?: Array<Record<string, unknown>> };
   const splitGroups = Array.isArray(splitDiscovery.groups) ? splitDiscovery.groups : [];
   const splitAnalysisDomains = splitAnalysis && Array.isArray(splitAnalysis.domains) ? splitAnalysis.domains.map(String) : [];
@@ -3160,11 +3138,7 @@ function ComponentSettingsModal({
                     <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={saving} onClick={() => void splitSyncLogs()}>
                       {t("splitSyncLogs")}
                     </button>
-                    <button type="button" className="rounded border border-primary px-2 py-1 text-xs text-primary" disabled={saving} onClick={() => void splitApplyRouting()}>
-                      {t("splitApplyRouting")}
-                    </button>
                   </div>
-                  <p className="text-[10px] text-muted-foreground">{t("splitRestartHint")}</p>
                 </section>
 
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
@@ -3225,7 +3199,7 @@ function ComponentSettingsModal({
                       </div>
                     </div>
                   )}
-                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") || splitAnalyzeMsg === t("splitSyncLogsDone") || splitAnalyzeMsg === t("splitApplyRoutingDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
+                  {splitAnalyzeMsg && <p className={`text-xs ${splitAnalyzeMsg === t("splitAnalyzeDone") || splitAnalyzeMsg === t("splitApplyDone") || splitAnalyzeMsg === t("splitSyncDone") ? "text-emerald-400" : "text-muted-foreground"}`}>{splitAnalyzeMsg}</p>}
                 </section>
 
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">

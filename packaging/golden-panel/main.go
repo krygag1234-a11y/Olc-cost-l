@@ -59,11 +59,6 @@ var authLimiter = newAuthLimiter()
 var adminSessions *sessionStore
 var adminConfigPath string
 
-var (
-	splitReloadMu   sync.Mutex
-	splitReloadLast time.Time
-)
-
 type Config struct {
 	Version          int        `json:"version"`
 	LegacyVersion    int        `json:"vesion"`
@@ -5752,69 +5747,9 @@ func splitSettingsActionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		componentSettingsAfterSave("zapret", map[string]any{})
 		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
-	case "apply-routing":
-		applySplitRoutingToInstances("split apply-routing")
-		writeJSON(w, map[string]any{"status": "ok", "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
 	default:
 		http.NotFound(w, r)
 	}
-}
-
-func splitRoutingReloadSupported() bool {
-	_, err := os.Stat("/var/lib/olcrtc/.split-routing-reload")
-	return err == nil
-}
-
-func applySplitRoutingToInstances(reason string) {
-	if panelSupervisor == nil {
-		return
-	}
-	splitReloadMu.Lock()
-	if time.Since(splitReloadLast) < 10*time.Second {
-		splitReloadMu.Unlock()
-		log.Printf("split: routing reload debounced (%s)", reason)
-		return
-	}
-	splitReloadLast = time.Now()
-	splitReloadMu.Unlock()
-	useReload := splitRoutingReloadSupported()
-	go func() {
-		panelSupervisor.mu.RLock()
-		procs := make([]*process, 0, len(panelSupervisor.processes))
-		for _, p := range panelSupervisor.processes {
-			procs = append(procs, p)
-		}
-		panelSupervisor.mu.RUnlock()
-		if len(procs) == 0 {
-			return
-		}
-		if useReload {
-			n := 0
-			for _, p := range procs {
-				if p == nil || p.cmd == nil || p.cmd.Process == nil {
-					continue
-				}
-				if err := p.cmd.Process.Signal(syscall.SIGUSR1); err == nil {
-					n++
-				} else {
-					log.Printf("split reload signal %s/%s: %v", p.location.ClientID, p.location.Endpoint.RoomID, err)
-				}
-			}
-			log.Printf("split: routing reload (SIGUSR1) sent to %d instance(s) (%s)", n, reason)
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		for _, p := range procs {
-			if p == nil {
-				continue
-			}
-			if err := panelSupervisor.Restart(ctx, p.location.ClientID, p.location.Endpoint.RoomID, p.location.Transport.Type); err != nil {
-				log.Printf("split restart %s/%s: %v", p.location.ClientID, p.location.Endpoint.RoomID, err)
-			}
-		}
-		log.Printf("split: restarted %d running instance(s) (%s)", len(procs), reason)
-	}()
 }
 
 func mustComponentSettings(name string) map[string]any {
