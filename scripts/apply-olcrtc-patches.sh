@@ -371,13 +371,7 @@ build_binaries() {
   olc_run_quiet_with_progress "сборка olcrtc" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    local avail_mb
-    avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
-    if [[ -n "$avail_mb" && "$avail_mb" -lt 500 ]]; then
-      log "ERROR: olcrtc build failed (rc=$rc) — мало места на диске (свободно ${avail_mb} МБ, нужно >= 500 МБ)"
-    else
-      log "ERROR: olcrtc build failed (rc=$rc) — ошибка компиляции (не связана с местом на диске)"
-    fi
+    log "ERROR: olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
     show_failure_logs_hint
     return "$rc"
   fi
@@ -387,18 +381,7 @@ build_binaries() {
   olc_run_quiet_with_progress "сборка olcrtc-manager" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    local avail_mb
-    avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
-    if [[ -n "$avail_mb" && "$avail_mb" -lt 500 ]]; then
-      log "ERROR: olcrtc-manager build failed (rc=$rc) — мало места на диске (свободно ${avail_mb} МБ)"
-    else
-      log "ERROR: olcrtc-manager build failed (rc=$rc)"
-      if grep -q "undefined:" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" 2>/dev/null; then
-        log "ПРИЧИНА: несовместимость патчей с upstream (см. undefined errors в логе)"
-      else
-        log "ПРИЧИНА: ошибка компиляции (не связана с местом на диске)"
-      fi
-    fi
+    log "ERROR: olcrtc-manager build failed (rc=$rc)"
     show_failure_logs_hint
     return "$rc"
   fi

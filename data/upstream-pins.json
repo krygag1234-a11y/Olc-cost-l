@@ -11,11 +11,11 @@
   "olcrtc-manager": {
     "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
     "branch": "main",
-    "pinned_sha": "a7bc06a0f576355c70437aea645e72fc338d1349",
-    "upstream_head": "a7bc06a0f576355c70437aea645e72fc338d1349",
-    "last_sync": "2026-06-01T18:00:00+00:00",
-    "last_apply_ok": null,
-    "notes": "latest upstream with HTTPS/SOCKS5 auth support"
+    "pinned_sha": "ad8ec6f6f84c9869230dd06d85724c9808ebec6b",
+    "upstream_head": "a4cd467d1aec18ba36d1e33d131a658e43811d8d",
+    "last_sync": "2026-06-01T21:00:00+00:00",
+    "last_apply_ok": true,
+    "notes": "pin ad8ec6f (patches compatible); HEAD a4cd467 needs patch update"
   },
   "zapret4rocket": {
     "repo": "https://github.com/IndeecFOX/zapret4rocket.git",
