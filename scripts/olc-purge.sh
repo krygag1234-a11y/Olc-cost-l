@@ -112,6 +112,8 @@ run find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null 
 run rm -rf /tmp/olcrtc-src /tmp/olcrtc-manager-panel
 
 log "remove build caches"
+# Remove Go workspace and cloned repos from /root
+run rm -rf /root/go /root/olcrtc
 if [[ "$DRY_RUN" -eq 0 ]] && declare -f olc_cleanup_purge_caches >/dev/null 2>&1; then
   olc_cleanup_purge_caches
 fi
