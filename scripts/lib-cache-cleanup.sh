@@ -71,7 +71,12 @@ olc_cleanup_build_caches() {
 olc_cleanup_purge_caches() {
   olc_cleanup_log "Полная очистка (purge mode)"
   olc_cleanup_build_caches "purge"
-  rm -rf /var/backups/olc-vps/*.tar.gz /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
+
+  # Use find instead of glob to avoid argument list overflow
+  if [[ -d /var/backups/olc-vps ]]; then
+    find /var/backups/olc-vps -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tsv' -o -name '*.txt' -o -name '*.meta.txt' \) -delete 2>/dev/null || true
+  fi
+
   apt-get clean 2>/dev/null || true
   if declare -f olc_print_ok >/dev/null 2>&1; then
     olc_print_ok "Полная очистка завершена"

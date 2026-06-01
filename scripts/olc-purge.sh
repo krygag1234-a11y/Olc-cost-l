@@ -52,8 +52,8 @@ fi
 if [[ -f "$SCRIPT_DIR/lib-vps-backup.sh" ]]; then
   # shellcheck source=lib-vps-backup.sh
   source "$SCRIPT_DIR/lib-vps-backup.sh"
-  export OLC_VPS_BACKUP_FORCE=1
-  olc_preflight_vps_backup "purge" || true
+  # Skip backup creation during purge to avoid hanging on large backup dirs
+  export OLC_VPS_BACKUP_DISABLE=1
 fi
 
 stop_unit() {
