@@ -63,6 +63,12 @@ pin_olcrtc_sha() {
   jq -r '.olcrtc.pinned_sha // empty' "$pins" 2>/dev/null || true
 }
 
+pin_manager_sha() {
+  local pins="${UPSTREAM_PINS:-$REPO_ROOT/data/upstream-pins.json}"
+  [[ -f "$pins" ]] || return 0
+  jq -r '.["olcrtc-manager"].pinned_sha // empty' "$pins" 2>/dev/null || true
+}
+
 clone_repos() {
   if [[ -x /usr/local/go/bin/go ]]; then
     export PATH="/usr/local/go/bin:$PATH"
@@ -70,6 +76,8 @@ clone_repos() {
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   local pin_sha
   pin_sha="$(pin_olcrtc_sha)"
+  local mgr_pin_sha
+  mgr_pin_sha="$(pin_manager_sha)"
   olc_git_safe_register "$OLCRTC_REPO"
   olc_git_safe_register "$MGR_REPO"
   if [[ -d "$OLCRTC_REPO/.git" ]]; then
@@ -98,7 +106,12 @@ clone_repos() {
     log "reset manager to clean state"
     olc_git "$MGR_REPO" reset --hard HEAD 2>/dev/null || true
     olc_git "$MGR_REPO" clean -fd 2>/dev/null || true
-    if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
+    if [[ -n "$mgr_pin_sha" ]]; then
+      log "checkout pinned manager ${mgr_pin_sha:0:12}"
+      olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
+        olc_git "$MGR_REPO" fetch origin main --depth 50
+      olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
+    elif [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
       log "refresh manager main"
       olc_git "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
         olc_git "$MGR_REPO" fetch origin main
@@ -108,9 +121,21 @@ clone_repos() {
     rm -rf "$MGR_REPO"
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
     olc_git_safe_register "$MGR_REPO"
+    if [[ -n "$mgr_pin_sha" ]]; then
+      log "checkout pinned manager ${mgr_pin_sha:0:12}"
+      olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
+        olc_git "$MGR_REPO" fetch origin main --depth 50
+      olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
+    fi
   else
     git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
     olc_git_safe_register "$MGR_REPO"
+    if [[ -n "$mgr_pin_sha" ]]; then
+      log "checkout pinned manager ${mgr_pin_sha:0:12}"
+      olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
+        olc_git "$MGR_REPO" fetch origin main --depth 50
+      olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
+    fi
   fi
   if [[ ! -f "$MGR_REPO/cmd/olcrtc-manager/main.go" ]]; then
     log "WARN: manager clone incomplete (нет main.go) — переклонируем"
