@@ -378,7 +378,7 @@ ensure_panel_jitsi_tls() {
 run_patches() {
   ensure_ui_build_deps
   if ! BUILD=1 bash "$PATCH_SCRIPT"; then
-    log "ERROR: патчи/сборка не удались — проверьте место на диске (df -h /) и лог выше"
+    log "ERROR: патчи/сборка не удались — см. детали выше"
     return 1
   fi
   ensure_panel_jitsi_tls
