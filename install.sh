@@ -109,6 +109,18 @@ else
   tui_log_warning() { echo "[install] WARN: $*"; }
   tui_log_error() { echo "[install] ERROR: $*" >&2; }
   tui_confirm() { return 1; }  # Skip interactive prompts in curl | bash
+  tui_menu() {
+    # Simple fallback: show options and read choice
+    local prompt="$1"; shift
+    echo "$prompt" >&2
+    local i=1
+    for opt in "$@"; do
+      echo "$i) $opt" >&2
+      ((i++))
+    done
+    read -p "Выбор (1-$#): " choice >&2
+    echo "${!choice}"
+  }
 fi
 # shellcheck source=scripts/lib-swap-auto.sh
 if [[ -f "$SCRIPT_DIR/scripts/lib-swap-auto.sh" ]]; then
