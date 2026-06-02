@@ -11,7 +11,6 @@
       <img src="docs/assets/hero-panel.jpg" alt="Olc-cost-l панель управления" width="800">
     </picture>
     <br>
-    <em>🔍 Кликните для увеличения</em>
   </a>
 </p>
 
