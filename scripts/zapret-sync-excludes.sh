@@ -81,7 +81,12 @@ collect_sources() {
 }
 
 merge_netrogat() {
-  [[ -f "$NETROGAT" ]] || { log "skip: no $NETROGAT (zapret not installed)"; return 1; }
+  if [[ ! -f "$NETROGAT" ]]; then
+    log "skip: no $NETROGAT (zapret not installed)"
+    install -d "$(dirname "$REPORT")"
+    echo "ZAPRET_NOT_INSTALLED" >"$REPORT"
+    return 1  # Signal skip to main()
+  fi
 
   install -d "$(dirname "$STAGING")"
   local tmp
@@ -276,10 +281,19 @@ reload_zapret() {
 }
 
 write_report() {
+  install -d "$(dirname "$REPORT")"
   {
     echo "zapret-sync $(date -Iseconds)"
-    echo "netrogat_lines=$(wc -l <"$NETROGAT" 2>/dev/null || echo 0)"
-    echo "hosts_exclude_lines=$(wc -l <"$HOSTS_EXCLUDE" 2>/dev/null || echo 0)"
+    if [[ -f "$NETROGAT" ]]; then
+      echo "netrogat_lines=$(wc -l <"$NETROGAT" 2>/dev/null || echo 0)"
+    else
+      echo "netrogat_lines=0"
+    fi
+    if [[ -f "$HOSTS_EXCLUDE" ]]; then
+      echo "hosts_exclude_lines=$(wc -l <"$HOSTS_EXCLUDE" 2>/dev/null || echo 0)"
+    else
+      echo "hosts_exclude_lines=0"
+    fi
     echo "nozapret_entries=$(ipset list nozapret 2>/dev/null | grep -cE '^[0-9]' || echo 0)"
     echo "ru_direct=$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-direct-domains.txt 2>/dev/null || echo 0)"
     echo "ru_blocked=$(grep -cvE '^#|^$' /var/lib/olcrtc/ru-blocked-tor-domains.txt 2>/dev/null || echo 0)"
@@ -288,7 +302,11 @@ write_report() {
 }
 
 main() {
-  merge_netrogat || exit 0
+  if ! merge_netrogat; then
+    log "merge_netrogat skipped or failed"
+    write_report
+    return 0
+  fi
   if [[ "$DOMAINS_ONLY" -eq 0 ]]; then
     build_hosts_exclude
     if [[ "${OLCRTC_ZAPRET_RESOLVE_IPS:-1}" == "1" ]]; then
