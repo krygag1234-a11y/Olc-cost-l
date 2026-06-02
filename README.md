@@ -71,12 +71,9 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 </details>
 
+> 🎨 **Новое!** Установщик теперь с интерактивным TUI: анимированные спиннеры, прогресс-бары, цветные логи и интерактивные меню.
+
 **🔒 Установка на localhost** (доступ только через SSH-туннель):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable --ssh
-```
-
 > **Примечание:** Флаг `--ssh` можно добавить к любой команде. Панель будет доступна только через SSH-туннель, а не через открытый IP.
 
 ---
@@ -332,3 +329,21 @@ sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --check
 ---
 
 `OLCRTC_PUBLIC_URL=http://ваш-домен:8888` в `/etc/olcrtc-manager/panel.env`
+
+---
+
+## 🎨 Новое: Интерактивный TUI
+
+Установщик теперь с современным Terminal UI:
+
+- ⚡ Анимированные спиннеры при установке
+- 📊 Progress bar для патчинга и сборки
+- 🎯 Интерактивное меню выбора режима
+- 🎨 Цветные логи (info, success, warning, error)
+
+Подробнее: [docs/TUI.md](docs/TUI.md)
+
+**Demo:**
+```bash
+bash scripts/demo-tui.sh
+```
