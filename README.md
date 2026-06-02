@@ -4,7 +4,10 @@
 
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor, Tor-мосты, split-маршрутизация, zapret, Warp. Olcbox.
 
-![Olc-cost-l панель управления](docs/assets/hero-panel.jpg)
+<picture>
+  <source type="image/webp" srcset="docs/assets/hero-panel.webp">
+  <img src="docs/assets/hero-panel.jpg" alt="Olc-cost-l панель управления" width="100%">
+</picture>
 
 ## Upstream (2026-05)
 
