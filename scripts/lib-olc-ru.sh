@@ -173,18 +173,24 @@ olc_run_quiet_with_progress() {
   pid=$!
   spinner_idx=0
   spinner_chars='|/-\'
+  
+  # Single line updates with \r
   while kill -0 "$pid" 2>/dev/null; do
     sleep "$interval"
     if kill -0 "$pid" 2>/dev/null; then
       elapsed=$(( $(date +%s) - started ))
       spinner="${spinner_chars:spinner_idx % ${#spinner_chars}:1}"
       spinner_idx=$((spinner_idx + 1))
-      echo "[ожидание] ${spinner} ${label} · ${elapsed}с · детали: ${log_file}" >&2
+      printf "\r[ожидание] %s %s · %dс · детали: %s  " "$spinner" "$label" "$elapsed" "$log_file" >&2
     fi
   done
+  
   rc=0
   wait "$pid" || rc=$?
   elapsed=$(( $(date +%s) - started ))
+  
+  # Clear line and print result
+  printf "\r\033[K" >&2
   if [[ "$rc" -eq 0 ]]; then
     echo "[ожидание] ✓ ${label} — готово (${elapsed}с)" >&2
   else
