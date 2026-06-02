@@ -102,6 +102,13 @@ fi
 # shellcheck source=scripts/lib-tui.sh
 if [[ -f "$SCRIPT_DIR/scripts/lib-tui.sh" ]]; then
   source "$SCRIPT_DIR/scripts/lib-tui.sh"
+else
+  # Fallback: define stub functions if TUI not available yet (curl | bash scenario)
+  tui_log_step() { echo "[install] $*"; }
+  tui_log_info() { echo "[install] $*"; }
+  tui_log_warning() { echo "[install] WARN: $*"; }
+  tui_log_error() { echo "[install] ERROR: $*" >&2; }
+  tui_confirm() { return 1; }  # Skip interactive prompts in curl | bash
 fi
 # shellcheck source=scripts/lib-swap-auto.sh
 if [[ -f "$SCRIPT_DIR/scripts/lib-swap-auto.sh" ]]; then
