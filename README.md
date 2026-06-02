@@ -76,32 +76,52 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 ---
 
-## Примеры выборочных команд со флагами вида "ВСЕ, НО БЕЗ .."
+## Примеры выборочных команд со флагами
+
+> **💡 Рекомендация:** Добавляйте `--manager-stable` ко всем командам для установки проверенной версии панели.
+
+### "ВСЕ, НО БЕЗ .."
 
 ```bash
 # Иностранный VPS (без Tor и мостов):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-tor
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --full --no-tor --manager-stable
 
 # RU VPS (без разделения маршрутов, весь трафик через Tor):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-split
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --full --no-split --manager-stable
 
 # RU VPS (без Zapret DPI обхода):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --no-zapret
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --full --no-zapret --manager-stable
+
+# RU VPS (без мостов, только прямой Tor):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --full --no-bridges --manager-stable
 ```
 
----
-
-## Примеры выборочных команд со флагами вида "ТОЛЬКО С .."
+### "ТОЛЬКО С .."
 
 ```bash
 # Иностранный VPS + Cloudflare WARP (proxy, без Tor):
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --warp
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --warp --manager-stable
 
 # Установить только Tor + Панель:
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --tor
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --tor --manager-stable
 
 # Установить только Zapret + Панель:
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --zapret
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --zapret --manager-stable
+
+# Установить только мосты для Tor + Панель:
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --bridges --manager-stable
+
+# Установить только split-маршрутизацию + Панель (требует Tor):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --split --manager-stable
 ```
 
 ---
@@ -182,9 +202,16 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 Если не хотите открывать порт панели наружу, добавьте `--ssh` к любой команде установки или обновления:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update --ssh
-sudo olc-update --ssh
+# Установка с SSH-туннелем (рекомендуется добавлять --manager-stable):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --full --ssh --manager-stable
+
+# Обновление с SSH-туннелем:
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --update --ssh --manager-stable
+
+# Или через olc-update:
+sudo olc-update --ssh --manager-stable
 ```
 
 Этот выбор сохраняется в `/etc/olcrtc-manager/deploy-profile.json`: следующие `--update` и обычные доустановки будут помнить, что панель должна слушать только `127.0.0.1`. Чтобы вернуть обычный открытый режим:
