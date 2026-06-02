@@ -58,6 +58,8 @@ main() {
       --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
       --manager-stable) export OLC_MANAGER_STABLE=1 ;;
       --manager-latest) export OLC_MANAGER_LATEST=1 ;;
+      --incremental) update_mode="--incremental" ;;
+      --update) update_mode="--update" ;;
     esac
   done
   repo="$(detect_repo)" || {
@@ -104,6 +106,28 @@ main() {
   
   olc_git_safe_register "$repo"
   olc_git "$repo" pull --ff-only origin main
+
+  # TUI menu для выбора режима если не указан флагом
+  if [[ -z "$update_mode" ]] && olc_update_has_tty && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
+    source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
+    if declare -f tui_menu >/dev/null 2>&1; then
+      mode=$(tui_menu "Выберите режим обновления:" \
+        "Доустановка (быстро - skip работающих компонентов)" \
+        "Обновление (полная пересборка - patches, binaries)" \
+        "Отмена")
+      if [[ "$mode" == "2" ]]; then
+        echo "Отмена." >&2
+        exit 0
+      elif [[ "$mode" == "1" ]]; then
+        update_mode="--update"
+      else
+        update_mode="--incremental"
+      fi
+    fi
+  fi
+  
+  # Если режим не выбран, default = --incremental
+  : "${update_mode:=--incremental}"
   # Re-read profile id if passed as --profile <id>
   local boot_args=(--update)
   local i=1
