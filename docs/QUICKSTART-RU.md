@@ -10,17 +10,28 @@
 
 ## 1. Установка (одна команда)
 
+> **Для новичков:** Используйте команду со стабильной версией панели!
+
 На чистом Ubuntu/Debian VPS от root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
 ```
 
-Если панель должна быть доступна только через SSH-туннель, добавьте `--ssh`:
+Если панель должна быть доступна только через SSH-туннель:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable --ssh
 ```
+
+<details>
+<summary>📖 Что означает --manager-stable?</summary>
+
+- **`--manager-stable`** (рекомендуется) — проверенная стабильная версия панели из нашего форка
+- **`--manager-latest`** — самая новая версия из upstream (может сломаться)
+- **без флага** — pinned версия из репозитория (средний вариант)
+
+</details>
 
 Перед установкой (рекомендуется):
 
@@ -54,24 +65,39 @@ ssh -L 8888:127.0.0.1:8888 root@IP_ВАШЕГО_VPS
 
 ## 4. Обновление и доустановка
 
+> **Для новичков:** Обновляйте стабильной версией панели!
+
 Вы можете обновить скрипты, панель и патчи короткой командой (если репозиторий уже склонирован на сервер):
 
 ```bash
-sudo olc-update
+sudo olc-update --manager-stable
 ```
 
 Если установка была сделана с `--ssh`, `olc-update` сохранит localhost-режим автоматически. Явно переключить режим можно так:
 
 ```bash
-sudo olc-update --ssh  # панель только через SSH-туннель
-sudo olc-update --ip   # обычный открытый режим на IP
+sudo olc-update --manager-stable --ssh  # панель только через SSH-туннель
+sudo olc-update --manager-stable --ip   # обычный открытый режим на IP
 ```
 
 Или через curl (если сервер свежий или команда `olc-update` недоступна):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update --manager-stable
 ```
+
+<details>
+<summary>⚙️ Другие варианты обновления (для продвинутых)</summary>
+
+```bash
+# Обновиться на последнюю upstream версию (экспериментальная)
+sudo olc-update --manager-latest
+
+# Обновиться на pinned версию из репозитория
+sudo olc-update
+```
+
+</details>
 
 Только пересобрать панель из эталона (без полного update):
 
