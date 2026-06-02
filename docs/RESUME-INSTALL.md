@@ -7,7 +7,7 @@
 ```bash
 # Любой запуск пишет state. Если упало:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
-  | sudo bash -s -- --resume
+  | sudo bash -s -- --resume --manager-stable
 
 # Посмотреть, на каком шаге упало:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
@@ -15,8 +15,22 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 # Локально, если репо уже клонирован:
 sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --state
-sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
-sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --manager-stable
+sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --manager-stable
+```
+
+### Флаги версии панели при resume
+
+- `--manager-stable` — продолжить с стабильной версией
+- `--manager-latest` — продолжить с последней upstream
+- без флага — продолжить с pinned версией
+
+### Автообновление SHA256
+
+Если при обновлении `golden-panel` checksum не совпадает:
+
+```bash
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --manager-stable --force-sha-update
 ```
 
 ## Поведение по шагам
@@ -40,7 +54,7 @@ sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --updat
 ## Сброс state (полная переустановка)
 
 ```bash
-sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --fresh-state
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --fresh-state --manager-stable
 ```
 
 ## Где state

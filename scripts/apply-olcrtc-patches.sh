@@ -71,6 +71,33 @@ pin_manager_sha() {
   jq -r '.["olcrtc-manager"].pinned_sha // empty' "$pins" 2>/dev/null || true
 }
 
+get_manager_source() {
+  # Выбор источника manager: upstream или stable fork
+  # --manager-stable → fork, --manager-latest → upstream, по умолчанию → upstream с pin
+  if [[ "${OLC_MANAGER_STABLE:-0}" == "1" ]]; then
+    echo "stable"
+  elif [[ "${OLC_MANAGER_LATEST:-0}" == "1" ]]; then
+    echo "latest"
+  else
+    echo "pinned"
+  fi
+}
+
+clone_manager_from_fork() {
+  local fork_url="https://github.com/krygag1234-a11y/local-panel-version.git"
+  local fork_branch="stable-v1"
+  log "clone manager from STABLE FORK: $fork_url ($fork_branch)"
+  rm -rf "$MGR_REPO"
+  if git clone -b "$fork_branch" --depth 1 "$fork_url" "$MGR_REPO" 2>/dev/null; then
+    olc_git_safe_register "$MGR_REPO"
+    log "✓ stable fork cloned successfully"
+    return 0
+  else
+    log "ERROR: failed to clone stable fork"
+    return 1
+  fi
+}
+
 clone_repos() {
   if [[ -x /usr/local/go/bin/go ]]; then
     export PATH="/usr/local/go/bin:$PATH"
@@ -108,13 +135,39 @@ clone_repos() {
     log "reset manager to clean state"
     olc_git "$MGR_REPO" reset --hard HEAD 2>/dev/null || true
     olc_git "$MGR_REPO" clean -fd 2>/dev/null || true
-    if [[ -n "$mgr_pin_sha" ]]; then
+    
+    # Проверяем, это stable fork или upstream
+    local mgr_remote
+    mgr_remote="$(olc_git "$MGR_REPO" remote get-url origin 2>/dev/null || true)"
+    local mgr_source
+    mgr_source="$(get_manager_source)"
+    
+    if [[ "$mgr_remote" == *"local-panel-version"* ]]; then
+      # Сейчас используется stable fork
+      if [[ "$mgr_source" == "stable" ]]; then
+        log "detected stable fork, keeping as-is"
+      else
+        log "switching from stable fork to upstream"
+        rm -rf "$MGR_REPO"
+        git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
+        olc_git_safe_register "$MGR_REPO"
+        if [[ "$mgr_source" == "pinned" && -n "$mgr_pin_sha" ]]; then
+          log "checkout pinned manager ${mgr_pin_sha:0:12}"
+          olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
+            olc_git "$MGR_REPO" fetch origin main --depth 50
+          olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
+        fi
+      fi
+    elif [[ "$mgr_source" == "stable" ]]; then
+      log "switching to stable fork"
+      clone_manager_from_fork || exit 1
+    elif [[ -n "$mgr_pin_sha" && "$mgr_source" == "pinned" ]]; then
       log "checkout pinned manager ${mgr_pin_sha:0:12}"
       olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
         olc_git "$MGR_REPO" fetch origin main --depth 50
       olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
-    elif [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
-      log "refresh manager main"
+    elif [[ "${UPSTREAM_FRESH:-0}" == "1" || "$mgr_source" == "latest" ]]; then
+      log "refresh manager main (latest)"
       olc_git "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
         olc_git "$MGR_REPO" fetch origin main
       olc_git "$MGR_REPO" reset --hard origin/main
@@ -130,20 +183,32 @@ clone_repos() {
       olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
     fi
   else
-    git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
-    olc_git_safe_register "$MGR_REPO"
-    if [[ -n "$mgr_pin_sha" ]]; then
-      log "checkout pinned manager ${mgr_pin_sha:0:12}"
-      olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
-        olc_git "$MGR_REPO" fetch origin main --depth 50
-      olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
+    local mgr_source
+    mgr_source="$(get_manager_source)"
+    if [[ "$mgr_source" == "stable" ]]; then
+      clone_manager_from_fork || {
+        log "ERROR: stable fork failed, exiting"
+        exit 1
+      }
+    else
+      git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
+      olc_git_safe_register "$MGR_REPO"
+      if [[ -n "$mgr_pin_sha" && "$mgr_source" != "latest" ]]; then
+        log "checkout pinned manager ${mgr_pin_sha:0:12}"
+        olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
+          olc_git "$MGR_REPO" fetch origin main --depth 50
+        olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
+      fi
     fi
   fi
   if [[ ! -f "$MGR_REPO/cmd/olcrtc-manager/main.go" ]]; then
-    log "WARN: manager clone incomplete (нет main.go) — переклонируем"
-    rm -rf "$MGR_REPO"
-    git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
-    olc_git_safe_register "$MGR_REPO"
+    log "WARN: manager clone incomplete (нет main.go) — trying stable fork fallback"
+    if clone_manager_from_fork; then
+      log "✓ fallback to stable fork successful"
+    else
+      log "ERROR: both upstream and fork failed"
+      exit 1
+    fi
   fi
 }
 

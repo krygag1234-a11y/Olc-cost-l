@@ -1,8 +1,8 @@
 # OlcRTC VPS — полная документация
 
-**Обновлено:** 2026-05-27  
+**Обновлено:** 2026-06-02  
 **Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) — pin в `data/upstream-pins.json`  
-**Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) + **патчи** `scripts/patch-olcrtc-manager-*.sh` → `apply-olcrtc-patches.sh`  
+**Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) — stable fork в [local-panel-version](https://github.com/krygag1234-a11y/local-panel-version)  
 **webtunnel:** бинарник [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry/releases/latest), не gitlab.torproject.org  
 **Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) — [CLIENT.md](CLIENT.md)
 
@@ -12,22 +12,36 @@
 
 ## Быстрый старт
 
+> **Для новичков:** Используйте команду со стабильной версией панели!
+
 ```bash
-# Установка или обновление (одна команда, RU VPS)
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+# 🎯 РЕКОМЕНДУЕМАЯ установка (стабильная панель)
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
 
 # Иностранный VPS — без Tor, split, мостов
-curl -fsSL .../install.sh | sudo bash -s -- --no-tor
+curl -fsSL .../install.sh | sudo bash -s -- --no-tor --manager-stable
 
 # Полное удаление нашего стека
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uninstall.sh | sudo bash -s -- --purge-repo
-
-# Из уже клонированного репо
-chmod +x /opt/Olc-cost-l/scripts/*.sh
-bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full      # чистый деплой
-bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update    # только refresh
-bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 ```
+
+<details>
+<summary>📖 Варианты версий панели</summary>
+
+```bash
+# Стабильная версия (рекомендуется, из нашего форка)
+--manager-stable
+
+# Последняя из upstream (может сломаться)
+--manager-latest
+
+# Pinned версия из репозитория (без флага)
+# по умолчанию
+```
+
+**Stable fork:** https://github.com/krygag1234-a11y/local-panel-version (ветка stable-v1)
+
+</details>
 
 ---
 
@@ -37,11 +51,20 @@ bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 |-----------|----------|-------------|
 | olcrtc | `master` | + payload Jitsi 16K, split RU/Tor, carriers (Jitsi/WB/Telemost) |
 | manager | `main` без патчей | + логи API query, HOST_NETWORK, EXIT_PROXY если Tor жив, PUBLIC_URL, Jitsi liveness, Telemost URL |
+| manager версия | HEAD | **Stable fork** (рекомендуется) или pinned/latest по выбору |
 | Tor bridges | вручную | пул из [TOR_BRIDGES_ALL.txt](https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt), мониторинг, ротация |
 | Капча bridges.torproject.org | — | **не автоматизируем** ([gist s3rgeym](https://gist.github.com/s3rgeym/48405a282d61fd6bf74aed578f483111) — капча, с RU IP неудобно) |
 
 Список патчей: `/opt/Olc-cost-l/patches/PATCHES.md`  
 Применение: `/opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh`
+
+### Версии панели manager
+
+- **`--manager-stable`** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
+- **`--manager-latest`**: HEAD из upstream (может сломаться при обновлении BigDaddy3334)
+- **без флага**: Pinned версия из `upstream-pins.json` (средний вариант)
+
+**Обновление stable fork:** Ручное через GitHub Actions или вручную применяя патчи к новому upstream
 
 ---
 

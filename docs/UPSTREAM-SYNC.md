@@ -6,9 +6,18 @@ Olc-cost-l — **не форк**, а набор патчей поверх:
 |----------|-------|-------------|
 | olcrtc | `master` | [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc) |
 | manager | `main` | [BigDaddy3334/olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) |
+| manager stable | `stable-v1` | [krygag1234-a11y/local-panel-version](https://github.com/krygag1234-a11y/local-panel-version) |
 | zapret4rocket | `master` | [IndeecFOX/zapret4rocket](https://github.com/IndeecFOX/zapret4rocket) |
 
 Полностью автоматически «адаптировать любой коммит» без человека **нельзя** — upstream меняет структуру Go/TS, патчи ломаются. Скрипт делает **базовую** автоматизацию и складывает остальное в очередь на ручной разбор.
+
+## Версии панели
+
+- **Stable fork** (`--manager-stable`): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
+- **Latest** (`--manager-latest`): HEAD из upstream BigDaddy3334
+- **Pinned** (по умолчанию): SHA из `upstream-pins.json`
+
+При использовании `--manager-stable` скрипты автоматически клонируют из stable fork вместо upstream.
 
 ## Команды
 

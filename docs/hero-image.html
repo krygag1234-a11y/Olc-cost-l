@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Olc-cost-l — Панель управления</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 {
+      margin-bottom: 10px;
+      color: #58a6ff;
+    }
+    p {
+      margin-bottom: 30px;
+      color: #8b949e;
+    }
+    .image-container {
+      position: relative;
+      max-width: 90%;
+      cursor: zoom-in;
+    }
+    .image-container img {
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      transition: transform 0.3s ease;
+    }
+    .image-container:hover img {
+      transform: scale(1.02);
+    }
+    .lightbox {
+      display: none;
+      position: fixed;
+      z-index: 9999;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.95);
+      cursor: zoom-out;
+    }
+    .lightbox.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.3s ease;
+    }
+    .lightbox img {
+      max-width: 95%;
+      max-height: 95%;
+      object-fit: contain;
+      box-shadow: 0 0 50px rgba(88, 166, 255, 0.3);
+    }
+    .close-btn {
+      position: absolute;
+      top: 30px;
+      right: 40px;
+      font-size: 50px;
+      color: white;
+      cursor: pointer;
+      transition: color 0.2s;
+      line-height: 1;
+    }
+    .close-btn:hover {
+      color: #58a6ff;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .back-link {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #21262d;
+      color: #58a6ff;
+      text-decoration: none;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .back-link:hover {
+      background: #30363d;
+    }
+  </style>
+</head>
+<body>
+  <h1>Olc-cost-l — Панель управления</h1>
+  <p>Кликните на изображение для увеличения</p>
+  
+  <div class="image-container" onclick="openLightbox()">
+    <img src="assets/hero-panel.jpg" alt="Olc-cost-l панель управления" id="preview">
+  </div>
+
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <span class="close-btn">&times;</span>
+    <img src="assets/hero-panel.jpg" alt="Olc-cost-l панель управления">
+  </div>
+
+  <a href="https://github.com/krygag1234-a11y/Olc-cost-l" class="back-link">← Назад</a>
+
+  <script>
+    function openLightbox() {
+      document.getElementById('lightbox').classList.add('active');
+    }
+    
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.remove('active');
+    }
+    
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeLightbox();
+      }
+    });
+  </script>
+</body>
+</html>

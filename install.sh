@@ -10,6 +10,9 @@
 #   curl -fsSL ... | sudo bash -s -- --resume          # продолжить с последнего успешного шага
 #   curl -fsSL ... | sudo bash -s -- --state           # показать состояние
 #   curl -fsSL ... | sudo bash -s -- --no-zapret       # пропустить zapret (для тестов)
+#   curl -fsSL ... | sudo bash -s -- --force-sha-update # автообновление SHA256SUMS при несовпадении
+#   curl -fsSL ... | sudo bash -s -- --manager-stable  # использовать стабильный fork панели
+#   curl -fsSL ... | sudo bash -s -- --manager-latest  # использовать последнюю версию upstream (без pin)
 set -euo pipefail
 
 INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
@@ -124,6 +127,9 @@ while [[ $# -gt 0 ]]; do
     --tor|--warp|--zapret|--split|--bridges) BOOT_ARGS+=("$1") ;;
     --no-tor|--no-warp|--no-zapret|--no-split|--no-bridges) BOOT_ARGS+=("$1") ;;
     --foreign|--with-warp|--with-tor|--ru) BOOT_ARGS+=("$1") ;;
+    --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; BOOT_ARGS+=("$1") ;;
+    --manager-stable) export OLC_MANAGER_STABLE=1; BOOT_ARGS+=("$1") ;;
+    --manager-latest) export OLC_MANAGER_LATEST=1; BOOT_ARGS+=("$1") ;;
     --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1") ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;
@@ -249,6 +255,8 @@ olc_preflight_vps_backup "install" || true
 # shellcheck source=scripts/lib-git-safe.sh
 source "$INSTALL_DIR/scripts/lib-git-safe.sh"
 olc_git_safe_register "$INSTALL_DIR"
+# shellcheck source=scripts/lib-olc-core.sh
+source "$INSTALL_DIR/scripts/lib-olc-core.sh"
 ln -sfn "$INSTALL_DIR" /opt/olcrtc 2>/dev/null || true
 chmod +x "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/install.sh 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-update.sh" /usr/local/bin/olc-update 2>/dev/null || true

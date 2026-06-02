@@ -53,6 +53,8 @@ source "$SCRIPT_DIR/lib-webtunnel-build.sh"
 source "$SCRIPT_DIR/lib-install-state.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-olc-core.sh
+source "$SCRIPT_DIR/lib-olc-core.sh"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-disk-preflight.sh
@@ -119,6 +121,9 @@ while [[ $# -gt 0 ]]; do
     --update) UPDATE=1 ;;
     --resume) export OLCRTC_RESUME=1 ;;
     --fresh-state) export OLCRTC_FRESH=1 ;;
+    --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
+    --manager-stable) export OLC_MANAGER_STABLE=1 ;;
+    --manager-latest) export OLC_MANAGER_LATEST=1 ;;
     --state) source "$SCRIPT_DIR/lib-install-state.sh"; state_show; exit 0 ;;
     --profile)
       PROFILE_ID="${2:-}"
@@ -287,6 +292,11 @@ EOF
 
 install_systemd_units() {
   local scripts="${REPO_ROOT}/scripts"
+  
+  # Note: olcrtc.service is NOT needed - olcrtc-manager spawns olcrtc processes per-client
+  # Upstream BigDaddy3334/olcrtc-manager-panel doesn't provide olcrtc.service
+  
+  # Install olcrtc-manager service
   cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
   sed -i "s/^Environment=OLCRTC_MANAGER_ADDR=.*/Environment=OLCRTC_MANAGER_ADDR=${PANEL_LISTEN_ADDR:-0.0.0.0}/" \
     /etc/systemd/system/olcrtc-manager.service
@@ -322,6 +332,7 @@ setup_systemd() {
 EOF
   install_systemd_units
   systemctl daemon-reload
+  # Note: only olcrtc-manager.service is needed (it spawns olcrtc processes)
   systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
 }
 
@@ -461,7 +472,7 @@ state_step_profile zapret                setup_zapret
 state_step systemd               setup_systemd
 state_step cron                  setup_cron
 state_step cleanup-tmp           run_cleanup_tmp
-state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager'
+state_step start-manager         bash -c 'systemctl enable --now olcrtc.service olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc.service olcrtc-manager.service'
 state_finish
 
 log "Done. Read $DOC"

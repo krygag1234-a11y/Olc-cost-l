@@ -2,25 +2,33 @@
 
 ## Одна команда (с GitHub)
 
+> **Рекомендуется:** Используйте стабильную версию панели!
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
 ```
 
 | Состояние VPS | Действие |
 |---------------|----------|
-| `fresh` | `agent-bootstrap.sh --full` |
-| `installed` / `partial` | `agent-bootstrap.sh --update` |
+| `fresh` | `agent-bootstrap.sh --full --manager-stable` |
+| `installed` / `partial` | `agent-bootstrap.sh --update --manager-stable` |
 
 Симлинк: `/opt/olcrtc` → `/opt/Olc-cost-l`
+
+### Версии панели
+
+- **`--manager-stable`** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
+- **`--manager-latest`**: HEAD из upstream BigDaddy3334 (может сломаться при обновлении)
+- **без флага**: Pinned версия из `upstream-pins.json` (средний вариант)
 
 ## После клонирования репозитория
 
 ```bash
-sudo olc-update                    # git pull + bootstrap по deploy-profile
+sudo olc-update --manager-stable       # git pull + bootstrap по deploy-profile
 sudo olc-update --show-profile
-sudo olc-update --profile ru-full
+sudo olc-update --profile ru-full --manager-stable
 
-sudo olc-feature status            # toggle без переустановки пакетов
+sudo olc-feature status                # toggle без переустановки пакетов
 sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 ```
 
@@ -29,22 +37,54 @@ sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
 ## Ручные режимы install.sh
 
 ```bash
-sudo bash install.sh --full
-sudo bash install.sh --update
-sudo bash install.sh --resume          # продолжить install-state.json
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --no-tor
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --with-warp   # foreign + WARP
+# Рекомендуемая полная установка
+sudo bash install.sh --full --manager-stable
+
+# Обновление стабильной версии
+sudo bash install.sh --update --manager-stable
+
+# Продолжить прерванную установку
+sudo bash install.sh --resume --manager-stable
+
+# Ручные варианты из репозитория
+sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --manager-stable --no-tor
+sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --with-warp --manager-stable   # foreign + WARP
 ```
+
+<details>
+<summary>⚙️ Другие варианты версий панели</summary>
+
+```bash
+# Последняя upstream версия (экспериментальная)
+sudo bash install.sh --full --manager-latest
+
+# Pinned версия из репозитория
+sudo bash install.sh --full
+```
+
+</details>
 
 ## Что делает `--update`
 
 1. `git pull` (или `reset --hard origin/main` при грязном дереве — см. install.sh)
 2. `apply-olcrtc-patches.sh` — olcrtc ветка **`master`** (pin в `data/upstream-pins.json`)
-3. Шаги по **deploy-profile**: split-списки, Tor pool, zapret, timers
-4. `features.env` — после update **не** включает выключенные компоненты
-5. `systemctl restart olcrtc-manager`
+3. Клонирование/обновление панели согласно флагу (`--manager-stable` / `--manager-latest` / pinned)
+4. Шаги по **deploy-profile**: split-списки, Tor pool, zapret, timers
+5. `features.env` — после update **не** включает выключенные компоненты
+6. `systemctl restart olcrtc-manager`
 
 `torrc` и существующий `bridges.conf` не сносятся; пул дополняется.
+
+### Автообновление SHA256 checksums
+
+Если при обновлении `golden-panel` checksum не совпадает:
+
+```bash
+# Автоматически обновить checksum без запроса
+sudo olc-update --manager-stable --force-sha-update
+```
+
+Флаг `--force-sha-update` работает во всех скриптах установки/обновления.
 
 ## Обновление из панели
 
