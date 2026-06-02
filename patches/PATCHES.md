@@ -1,9 +1,20 @@
 # Патчи относительно upstream (обязательны для Jitsi + панель + RU VPS)
 
-**Обновлено:** 2026-05-26  
+**Обновлено:** 2026-06-02  
 **Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) (default в `apply-olcrtc-patches.sh` из `data/upstream-pins.json`)  
-**Панель:** [`main`](https://github.com/BigDaddy3334/olcrtc-manager-panel)  
+**Панель upstream:** [`main`](https://github.com/BigDaddy3334/olcrtc-manager-panel)  
+**Панель stable fork:** [`stable-v1`](https://github.com/krygag1234-a11y/local-panel-version) (рекомендуется для установки)  
 **Применение:** `scripts/apply-olcrtc-patches.sh` или `upstream-sync.sh --apply`
+
+---
+
+## Версии панели при установке
+
+- **`--manager-stable`** (рекомендуется): Клонирует из stable fork https://github.com/krygag1234-a11y/local-panel-version с уже применёнными патчами
+- **`--manager-latest`**: Клонирует HEAD из upstream BigDaddy3334 и применяет патчи
+- **без флага**: Клонирует pinned SHA из `upstream-pins.json` и применяет патчи
+
+При использовании `--manager-stable` патчи для панели уже применены в форке, но патчи для `olcrtc` применяются как обычно.
 
 ---
 
