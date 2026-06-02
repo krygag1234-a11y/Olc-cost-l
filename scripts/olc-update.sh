@@ -48,6 +48,7 @@ olc_update_has_tty() {
 
 main() {
   need_root "$@"
+  local update_mode=""
   local repo profile_arg=()
   local arg
   for arg in "$@"; do

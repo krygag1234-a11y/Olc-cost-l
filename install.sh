@@ -215,19 +215,22 @@ else
         fi
       fi
       
-      # Используем TUI меню вместо текстовых опций
+      # Используем TUI меню с 3 опциями
       selected=$(tui_menu "Olc-cost-l уже установлен ($STATE). Выберите действие:" \
-        "Обновить / Доустановить компоненты (рекомендуется)" \
-        "Переустановить полностью" \
+        "Доустановка (умное обновление - skip работающих компонентов)" \
+        "Обновление (полная пересборка - patches, binaries, lists)" \
+        "Переустановить полностью с нуля" \
         "Отмена")
       
-      if [[ "$selected" == "2" ]]; then
+      if [[ "$selected" == "3" ]]; then
         echo "Установка отменена." >&2
         exit 0
-      elif [[ "$selected" == "1" ]]; then
+      elif [[ "$selected" == "2" ]]; then
         MODE=full
-      else
+      elif [[ "$selected" == "1" ]]; then
         MODE=update
+      else
+        MODE=incremental
       fi
     else
       MODE=update
@@ -294,8 +297,13 @@ ln -sfn "$INSTALL_DIR/scripts/olc-vps-snapshot.sh" /usr/local/bin/olc-vps-snapsh
 ln -sfn "$INSTALL_DIR/scripts/olc-cleanup-caches.sh" /usr/local/bin/olc-cleanup-caches 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-purge.sh" /usr/local/bin/olc-purge 2>/dev/null || true
 
-if [[ "$MODE" == "update" ]]; then
+# Передаём режим в agent-bootstrap.sh
+if [[ "$MODE" == "full" ]]; then
+  exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --full "${BOOT_ARGS[@]}"
+elif [[ "$MODE" == "update" ]]; then
   exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --update "${BOOT_ARGS[@]}"
+elif [[ "$MODE" == "incremental" ]]; then
+  exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --incremental "${BOOT_ARGS[@]}"
 else
   exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --full "${BOOT_ARGS[@]}"
 fi

@@ -27,6 +27,7 @@ PATCH_SCRIPT="$SCRIPT_DIR/apply-olcrtc-patches.sh"
 export OLC_REPO_ROOT="$REPO_ROOT"
 
 FULL=0
+INCREMENTAL=0  # Доустановка - skip того что работает
 ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
 ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
 ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
@@ -119,6 +120,7 @@ while [[ $# -gt 0 ]]; do
     --ip|--public-panel) PANEL_ACCESS=ip; PANEL_ACCESS_EXPLICIT=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
     --update) UPDATE=1 ;;
+    --incremental) INCREMENTAL=1 ;;
     --resume) export OLCRTC_RESUME=1 ;;
     --fresh-state) export OLCRTC_FRESH=1 ;;
     --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
@@ -442,6 +444,11 @@ setup_zapret() {
   olc_run_with_progress "установка/обновление zapret" bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
 }
 
+# shellcheck source=lib-component-check.sh
+if [[ -f "$SCRIPT_DIR/lib-component-check.sh" ]]; then
+  source "$SCRIPT_DIR/lib-component-check.sh"
+fi
+
 if [[ "$UPDATE" -eq 1 ]]; then
   log "UPDATE: refresh lists, patches, tor exit, zapret, units (resumable)"
   profile_apply_env
@@ -459,6 +466,38 @@ if [[ "$UPDATE" -eq 1 ]]; then
   profile_apply_runtime_toggles 2>/dev/null || true
   state_finish
   log "Update done."
+  olc_print_finish_help 8888
+  exit 0
+fi
+
+if [[ "$INCREMENTAL" -eq 1 ]]; then
+  log "INCREMENTAL: skip working components, install/fix missing (smart update)"
+  profile_apply_env
+  
+  # Проверка и установка packages только если нужно
+  if ! check_packages_installed 2>/dev/null || ! check_binaries_built 2>/dev/null; then
+    tui_log_info "Packages/binaries missing - installing"
+    state_step packages       install_deps
+    state_step patches        run_patches
+    state_step webtunnel      build_webtunnel
+  else
+    tui_log_success "Packages/binaries OK - skip"
+  fi
+  
+  # Остальное через profile (умный skip)
+  state_step_profile sysctl               setup_sysctl
+  state_step_profile warp                 setup_warp
+  state_step_profile tor                  setup_tor
+  state_step_profile split                setup_split_routing
+  state_step_profile fetch-community-lists run_community_lists
+  state_step_profile zapret               setup_zapret
+  state_step_profile systemd              setup_systemd
+  state_step_profile cron                 setup_cron
+  state_step_profile cleanup-tmp          run_cleanup_tmp
+  state_step_profile restart-manager      run_restart_manager
+  profile_apply_runtime_toggles 2>/dev/null || true
+  state_finish
+  log "Incremental update done."
   olc_print_finish_help 8888
   exit 0
 fi
