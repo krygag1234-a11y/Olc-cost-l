@@ -133,7 +133,20 @@ clone_repos() {
     log "reset manager to clean state"
     olc_git "$MGR_REPO" reset --hard HEAD 2>/dev/null || true
     olc_git "$MGR_REPO" clean -fd 2>/dev/null || true
-    if [[ -n "$mgr_pin_sha" ]]; then
+    
+    # Проверяем, это stable fork или upstream
+    local mgr_remote
+    mgr_remote="$(olc_git "$MGR_REPO" remote get-url origin 2>/dev/null || true)"
+    local mgr_source
+    mgr_source="$(get_manager_source)"
+    
+    if [[ "$mgr_remote" == *"local-panel-version"* ]]; then
+      log "detected stable fork, keeping as-is"
+      # Stable fork уже на нужной версии, ничего не делаем
+    elif [[ "$mgr_source" == "stable" ]]; then
+      log "switching to stable fork"
+      clone_manager_from_fork || exit 1
+    elif [[ -n "$mgr_pin_sha" ]]; then
       log "checkout pinned manager ${mgr_pin_sha:0:12}"
       olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
         olc_git "$MGR_REPO" fetch origin main --depth 50

@@ -95,9 +95,14 @@ olc_log_debug() {
 
 # === Инициализация (вызывается при source) ===
 olc_core_init() {
-  validate_flags || exit 1
+  validate_flags || return 1
   export_flags
   olc_log_debug "lib-olc-core.sh загружен (режим: $(get_manager_install_mode))"
+  return 0
 }
 
-olc_core_init
+# Автоинициализация при source (с безопасным возвратом)
+olc_core_init || {
+  echo "[olc-core] ОШИБКА: конфликтующие флаги (--manager-stable и --manager-latest одновременно)" >&2
+  return 1 2>/dev/null || exit 1
+}
