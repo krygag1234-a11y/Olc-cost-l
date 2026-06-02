@@ -5,6 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches}"
+# shellcheck source=lib-tui.sh
+source "$SCRIPT_DIR/lib-tui.sh"
 # shellcheck source=safety-lib.sh
 source "$SCRIPT_DIR/safety-lib.sh"
 # shellcheck source=lib-git-safe.sh
@@ -26,7 +28,7 @@ if [[ -z "${OLCRTC_BRANCH:-}" ]] && [[ -f "$REPO_ROOT/data/upstream-pins.json" ]
 fi
 OLCRTC_BRANCH="${OLCRTC_BRANCH:-master}"
 
-log() { echo "[apply-patches] $*"; }
+log() { tui_log_step "$*"; }
 
 run_quiet() {
   local label="$1"
@@ -146,7 +148,7 @@ clone_repos() {
 }
 
 apply_olcrtc() {
-  log "olcrtc patches in $OLCRTC_REPO"
+  tui_spinner_start "Применение патчей для olcrtc-server (11 патчей)"
   (cd "$OLCRTC_REPO" && git checkout -f "$OLCRTC_BRANCH" 2>/dev/null || true)
   find "$OLCRTC_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
   install -d "$OLCRTC_REPO/internal/routing"
@@ -180,10 +182,11 @@ apply_olcrtc() {
   : # no override needed — upstream master already has 12*1024
   run_quiet "go mod download (olcrtc)" bash -c 'cd "$1" && go mod download github.com/zarazaex69/j 2>/dev/null || go mod download' _ "$OLCRTC_REPO"
   bash "$SCRIPT_DIR/patch-j-xmpp-bind-fastfail.sh" "$OLCRTC_REPO"
+  tui_spinner_ok
 }
 
 apply_manager() {
-  log "manager patches in $MGR_REPO"
+  tui_spinner_start "Применение патчей для olcrtc-manager (132 патча)"
   find "$MGR_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
   # Always run idempotent core patch (upstream main may already have logs API partial)
   bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
@@ -193,7 +196,9 @@ apply_manager() {
         if declare -f olc_patch_skip_msg >/dev/null 2>&1; then
           olc_patch_skip_msg
         else
-          log "skip olcrtc-manager-main.go.patch (already applied or upstream mismatch)"
+          tui_spinner_stop
+          tui_log_warning "skip olcrtc-manager-main.go.patch (already applied or upstream mismatch)"
+          tui_spinner_start "Продолжение патчинга"
         fi
       fi
     fi
@@ -348,6 +353,7 @@ apply_manager() {
     fi
   fi
   # /api/logs without trailing slash — upstream main often has logsHandler already
+  tui_spinner_ok
 }
 
 build_binaries() {
@@ -367,24 +373,30 @@ build_binaries() {
       OLC_KEEP_BUILD_CLONES=1 olc_cleanup_build_caches "apply-patches-pre-build" || true
     fi
   fi
-  log "build olcrtc ($(go version))"
+  tui_spinner_start "Сборка olcrtc ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
   olc_run_quiet_with_progress "сборка olcrtc" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    log "ERROR: olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
+    tui_spinner_fail
+    tui_log_error "olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
     show_failure_logs_hint
     return "$rc"
   fi
+  tui_spinner_ok
+  
   install -d /var/lib/olcrtc
   date -Is > /var/lib/olcrtc/.split-routing-reload
-  log "build olcrtc-manager"
+  
+  tui_spinner_start "Сборка olcrtc-manager"
   olc_run_quiet_with_progress "сборка olcrtc-manager" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    log "ERROR: olcrtc-manager build failed (rc=$rc)"
+    tui_spinner_fail
+    tui_log_error "olcrtc-manager build failed (rc=$rc)"
     show_failure_logs_hint
     return "$rc"
   fi
+  tui_spinner_ok
 }
 
 clone_repos

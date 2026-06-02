@@ -37,14 +37,12 @@ REBUILD_ONLY=0
 UPDATE=0
 PROFILE_ID=""
 
+# shellcheck source=lib-tui.sh
+source "$SCRIPT_DIR/lib-tui.sh"
 # shellcheck source=lib-olc-ru.sh
 source "$SCRIPT_DIR/lib-olc-ru.sh"
 log() {
-  if declare -f olc_log_step >/dev/null 2>&1; then
-    olc_log_step "$*"
-  else
-    echo "==> $*"
-  fi
+  tui_log_step "$*"
 }
 
 # shellcheck source=safety-lib.sh
@@ -78,9 +76,10 @@ ensure_ui_build_deps() {
   if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
     return 0
   fi
-  log "install nodejs/npm (needed to rebuild manager UI)"
-  apt-get update -qq
-  apt-get install -y -qq nodejs npm
+  tui_spinner_start "Установка nodejs/npm"
+  apt-get update -qq 2>&1 >/dev/null
+  apt-get install -y -qq nodejs npm 2>&1 >/dev/null
+  tui_spinner_ok
 }
 
 usage() {
@@ -136,15 +135,15 @@ done
 
 # Проверка конфликтов флагов
 if [[ "${ENABLE_TOR:-0}" -eq 1 && "${ENABLE_WARP:-0}" -eq 1 ]]; then
-  echo "[install] ОШИБКА: Нельзя комбинировать Tor (--tor) и WARP (--warp). Выберите что-то одно." >&2
+  tui_log_error "Нельзя комбинировать Tor (--tor) и WARP (--warp). Выберите что-то одно."
   exit 1
 fi
 if [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
-  echo "[install] ОШИБКА: --split требует установки Tor. Маршрутизация без Tor не имеет смысла." >&2
+  tui_log_error "--split требует установки Tor. Маршрутизация без Tor не имеет смысла."
   exit 1
 fi
 if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
-  echo "[install] ОШИБКА: --bridges требует установки Tor. Маршрутизация без Tor не имеет смысла." >&2
+  tui_log_error "--bridges требует установки Tor. Маршрутизация без Tor не имеет смысла."
   exit 1
 fi
 
@@ -167,16 +166,21 @@ require_root() {
 }
 
 install_deps() {
-  log "packages"
-  apt-get update -qq
+  tui_spinner_start "Установка зависимостей (git, build-essential, golang${ENABLE_TOR:+, tor, obfs4})"
+  apt-get update -qq 2>&1 >/dev/null
   apt-get install -y -qq git curl build-essential golang-go jq ca-certificates \
     patch nodejs npm \
-    ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils ffmpeg}
-  bash "$SCRIPT_DIR/install-go-toolchain.sh"
+    ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils ffmpeg} 2>&1 >/dev/null
+  tui_spinner_ok
+  
+  tui_spinner_start "Установка Go toolchain"
+  bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>&1 >/dev/null
+  tui_spinner_ok
+  
   export PATH="/usr/local/go/bin:${PATH:-}"
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   if [[ "$ENABLE_TOR" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
-    command -v go >/dev/null || apt-get install -y -qq golang-go
+    command -v go >/dev/null || apt-get install -y -qq golang-go 2>&1 >/dev/null
   fi
 }
 

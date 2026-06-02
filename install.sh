@@ -96,6 +96,23 @@ else
     esac
   }
 fi
+# shellcheck source=scripts/lib-tui.sh
+if [[ -f "$SCRIPT_DIR/scripts/lib-tui.sh" ]]; then
+  source "$SCRIPT_DIR/scripts/lib-tui.sh"
+fi
+# shellcheck source=scripts/lib-swap-auto.sh
+if [[ -f "$SCRIPT_DIR/scripts/lib-swap-auto.sh" ]]; then
+  source "$SCRIPT_DIR/scripts/lib-swap-auto.sh"
+  if olc_swap_check 2>/dev/null; then
+    ram_mb=$(free -m | awk '/^Mem:/ {print $2}')
+    swap_rec=$(olc_swap_recommend)
+    tui_log_warning "Обнаружено мало RAM (${ram_mb}MB) и нет swap. Рекомендуется: ${swap_rec}MB"
+    if tui_confirm "Создать swap автоматически?" 2>/dev/null || true; then
+      olc_swap_create "$swap_rec" 2>&1 | tee -a /var/log/olc-swap.log
+    fi
+  fi
+fi
+
 safety_check_install_dir "$INSTALL_DIR"
 
 FORCE_MODE=""
@@ -172,16 +189,17 @@ else
           echo "Доступны обновления репозитория!" >&2
         fi
       fi
-      echo "Olc-cost-l уже установлен ($STATE). Выберите действие:" >&2
-      echo "1 - Обновить / Доустановить компоненты (рекомендуется)" >&2
-      echo "2 - Переустановить полностью (может занять больше времени)" >&2
-      echo "3 - Отмена" >&2
-      _ans2=""
-      read -r -p "Введите 1, 2 или 3 (по умолчанию 1): " _ans2 </dev/tty || _ans2="1"
-      if [[ "$_ans2" == "3" ]]; then
+      
+      # Используем TUI меню вместо текстовых опций
+      selected=$(tui_menu "Olc-cost-l уже установлен ($STATE). Выберите действие:" \
+        "Обновить / Доустановить компоненты (рекомендуется)" \
+        "Переустановить полностью" \
+        "Отмена")
+      
+      if [[ "$selected" == "2" ]]; then
         echo "Установка отменена." >&2
         exit 0
-      elif [[ "$_ans2" == "2" ]]; then
+      elif [[ "$selected" == "1" ]]; then
         MODE=full
       else
         MODE=update
@@ -194,10 +212,10 @@ else
   fi
 fi
 
-echo "[install] обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
+tui_log_step "Обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
 
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
-  echo "[install] клонирование $REPO_URL → $INSTALL_DIR"
+  tui_log_step "Клонирование $REPO_URL → $INSTALL_DIR"
   rm -rf "$INSTALL_DIR.partial"
   resilient_git clone clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR.partial" || {
     echo "[install] СТОП: не удалось клонировать репозиторий. Повторите: curl … | sudo bash (сеть? DNS?)" >&2
@@ -206,7 +224,7 @@ if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   }
   mv "$INSTALL_DIR.partial" "$INSTALL_DIR"
 else
-  echo "[install] git fetch+обновление $INSTALL_DIR (с повторами при обрыве)"
+  tui_log_step "Git fetch+обновление $INSTALL_DIR (с повторами при обрыве)"
   if ! resilient_git fetch -C "$INSTALL_DIR" fetch --depth 50 origin "$BRANCH"; then
     echo "[install] внимание: fetch не удался — продолжаем с локальной копией на VPS" >&2
   fi
@@ -215,7 +233,7 @@ else
       || git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null \
       || true
   else
-    echo "[install] на VPS были локальные правки — сброс к origin/$BRANCH"
+    tui_log_warning "На VPS были локальные правки — сброс к origin/$BRANCH"
     git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null || \
       git -C "$INSTALL_DIR" reset --hard "$BRANCH" 2>/dev/null || true
   fi
@@ -234,7 +252,7 @@ olc_git_safe_register "$INSTALL_DIR"
 ln -sfn "$INSTALL_DIR" /opt/olcrtc 2>/dev/null || true
 chmod +x "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/install.sh 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-update.sh" /usr/local/bin/olc-update 2>/dev/null || true
-echo "[install] Доступна короткая команда обновления/доустановки: olc-update" >&2
+tui_log_info "Доступна короткая команда обновления/доустановки: olc-update" >&2
 ln -sfn "$INSTALL_DIR/scripts/olc-feature.sh" /usr/local/bin/olc-feature 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-sync-panel-host.sh" /usr/local/bin/olc-sync-panel-host 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-split-analyze.sh" /usr/local/bin/olc-split-analyze 2>/dev/null || true

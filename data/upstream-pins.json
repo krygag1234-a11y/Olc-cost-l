@@ -20,9 +20,9 @@
   "zapret4rocket": {
     "repo": "https://github.com/IndeecFOX/zapret4rocket.git",
     "branch": "master",
-    "pinned_sha": "7854524877158076888dc3c397041f2340f977ff",
+    "pinned_sha": "be49a41ee23740c600a715061e471187e555b152",
     "upstream_head": "bf8eafefa4273fa4017da086346a55beb5def05a",
-    "last_sync": "2026-05-28T19:55:06+00:00",
+    "last_sync": "2026-06-02T14:50:45+00:00",
     "last_apply_ok": true,
     "notes": "sync via sync-zapret4rocket.sh only"
   }
