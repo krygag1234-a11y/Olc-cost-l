@@ -185,7 +185,7 @@ install_deps() {
   
   if [[ "${ENABLE_TOR:-0}" -eq 1 ]]; then
     tui_log_info "Установка Tor и плагинов обхода (tor, obfs4proxy, snowflake, ffmpeg)..."
-    apt-get install -y tor obfs4proxy snowflake-client apparmor-utils ffmpeg 2>&1 | \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y tor obfs4proxy snowflake-client apparmor-utils ffmpeg 2>&1 | \
       grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
   fi
   

@@ -141,25 +141,42 @@ olc_progress_bar() {
   printf "]${_C_RESET} ${_C_BOLD}%3d%%${_C_RESET} ${_C_DIM}(%d/%d)${_C_RESET}\n" "$percent" "$current" "$total"
 }
 
-# Timed execution with progress
+# Timed execution with progress - single line update
 olc_run_with_progress() {
   local label="$1"
   shift
   local interval="${OLC_PROGRESS_INTERVAL:-10}"
   local started elapsed
+  local spinner_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local spinner_idx=0
 
-  olc_spinner_start "$label"
   started="$(date +%s)"
-
-  if "$@"; then
+  
+  # Run command in background
+  "$@" &
+  local pid=$!
+  
+  # Show single-line progress with \r
+  while kill -0 $pid 2>/dev/null; do
     elapsed=$(( $(date +%s) - started ))
-    olc_spinner_stop
+    printf "\r${_C_CYAN}%s${_C_RESET} %s ${_C_DIM}· %dс${_C_RESET}  " \
+      "${spinner_chars:spinner_idx%${#spinner_chars}:1}" \
+      "$label" \
+      "$elapsed"
+    ((spinner_idx++))
+    sleep 0.1
+  done
+  
+  wait $pid
+  local rc=$?
+  elapsed=$(( $(date +%s) - started ))
+  
+  # Clear line and show result
+  printf "\r\033[K"
+  if [[ "$rc" -eq 0 ]]; then
     olc_print_ok "$label ${_C_DIM}(${elapsed}с)${_C_RESET}"
     return 0
   else
-    local rc=$?
-    elapsed=$(( $(date +%s) - started ))
-    olc_spinner_stop
     olc_print_fail "$label ${_C_DIM}(${elapsed}с, код ${rc})${_C_RESET}"
     return "$rc"
   fi
