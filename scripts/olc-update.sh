@@ -53,6 +53,8 @@ main() {
       --show-profile) profile_show; exit 0 ;;
       --profile) profile_arg=(--profile) ;;
       --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
+      --manager-stable) export OLC_MANAGER_STABLE=1 ;;
+      --manager-latest) export OLC_MANAGER_LATEST=1 ;;
     esac
   done
   repo="$(detect_repo)" || {
