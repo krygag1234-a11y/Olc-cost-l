@@ -237,6 +237,8 @@ olc_preflight_vps_backup "install" || true
 # shellcheck source=scripts/lib-git-safe.sh
 source "$INSTALL_DIR/scripts/lib-git-safe.sh"
 olc_git_safe_register "$INSTALL_DIR"
+# shellcheck source=scripts/lib-olc-core.sh
+source "$INSTALL_DIR/scripts/lib-olc-core.sh"
 ln -sfn "$INSTALL_DIR" /opt/olcrtc 2>/dev/null || true
 chmod +x "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/install.sh 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-update.sh" /usr/local/bin/olc-update 2>/dev/null || true

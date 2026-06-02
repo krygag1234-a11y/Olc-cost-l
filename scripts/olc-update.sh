@@ -33,6 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "$_script")" && pwd)"
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-olc-core.sh
+source "$SCRIPT_DIR/lib-olc-core.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-cache-cleanup.sh

@@ -55,6 +55,8 @@ source "$SCRIPT_DIR/lib-webtunnel-build.sh"
 source "$SCRIPT_DIR/lib-install-state.sh"
 # shellcheck source=lib-git-safe.sh
 source "$SCRIPT_DIR/lib-git-safe.sh"
+# shellcheck source=lib-olc-core.sh
+source "$SCRIPT_DIR/lib-olc-core.sh"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-disk-preflight.sh
