@@ -171,23 +171,36 @@ require_root() {
 }
 
 install_deps() {
-  tui_spinner_start "Установка зависимостей (git, build-essential, golang${ENABLE_TOR:+, tor, obfs4})"
-  apt-get update -qq 2>&1 >/dev/null
-  apt-get install -y -qq git curl build-essential golang-go jq ca-certificates \
-    patch nodejs npm \
-    ${ENABLE_TOR:+tor obfs4proxy snowflake-client apparmor-utils ffmpeg} 2>&1 >/dev/null
-  tui_spinner_ok
+  log "Установка зависимостей (git, build-essential, golang${ENABLE_TOR:+, tor, obfs4})"
+  tui_log_info "Обновление списка пакетов..."
+  apt-get update -qq 2>&1 | tee -a /var/log/olcrtc-apt-update.log >/dev/null
   
-  tui_spinner_start "Установка Go toolchain"
-  bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>&1 >/dev/null
-  tui_spinner_ok
+  tui_log_info "Установка базовых пакетов (git, curl, build-essential, golang, jq, ca-certificates)..."
+  apt-get install -y git curl build-essential golang-go jq ca-certificates 2>&1 | \
+    grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
+  
+  tui_log_info "Установка Node.js и npm..."
+  apt-get install -y patch nodejs npm 2>&1 | \
+    grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
+  
+  if [[ "${ENABLE_TOR:-0}" -eq 1 ]]; then
+    tui_log_info "Установка Tor и плагинов обхода (tor, obfs4proxy, snowflake, ffmpeg)..."
+    apt-get install -y tor obfs4proxy snowflake-client apparmor-utils ffmpeg 2>&1 | \
+      grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
+  fi
+  
+  tui_log_info "Установка Go toolchain..."
+  bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>&1 | grep -v "^$" | head -10 | sed 's/^/  /' || true
   
   export PATH="/usr/local/go/bin:${PATH:-}"
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
+  tui_log_success "Зависимости установлены ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
+  
   if [[ "$ENABLE_TOR" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
     command -v go >/dev/null || apt-get install -y -qq golang-go 2>&1 >/dev/null
   fi
 }
+
 
 build_webtunnel() {
   [[ "$ENABLE_TOR" -eq 1 ]] || return 0
