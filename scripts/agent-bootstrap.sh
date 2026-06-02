@@ -288,6 +288,21 @@ EOF
 
 install_systemd_units() {
   local scripts="${REPO_ROOT}/scripts"
+  
+  # Install olcrtc main service
+  if [[ -f "$REPO_ROOT/packaging/systemd/olcrtc.service" ]]; then
+    cp "$REPO_ROOT/packaging/systemd/olcrtc.service" /etc/systemd/system/olcrtc.service
+    # Configure listen address and proxy settings
+    sed -i "s|OLCRTC_LISTEN=.*|OLCRTC_LISTEN=0.0.0.0:8080|" /etc/systemd/system/olcrtc.service
+    if [[ "$ENABLE_TOR" -eq 1 ]]; then
+      sed -i "s|OLCRTC_EXIT_PROXY=.*|OLCRTC_EXIT_PROXY=socks5://127.0.0.1:9050|" /etc/systemd/system/olcrtc.service
+    else
+      # Foreign VPS: remove Tor proxy and After=tor dependency
+      sed -i '/OLCRTC_EXIT_PROXY=/d; /After=.*tor@default/s/tor@default.service //' /etc/systemd/system/olcrtc.service
+    fi
+  fi
+  
+  # Install olcrtc-manager service
   cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
   sed -i "s/^Environment=OLCRTC_MANAGER_ADDR=.*/Environment=OLCRTC_MANAGER_ADDR=${PANEL_LISTEN_ADDR:-0.0.0.0}/" \
     /etc/systemd/system/olcrtc-manager.service
@@ -323,7 +338,7 @@ setup_systemd() {
 EOF
   install_systemd_units
   systemctl daemon-reload
-  systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
+  systemctl enable olcrtc.service olcrtc-manager.service olcrtc-network-recovery.service
 }
 
 install_cli_symlinks() {
@@ -462,7 +477,7 @@ state_step_profile zapret                setup_zapret
 state_step systemd               setup_systemd
 state_step cron                  setup_cron
 state_step cleanup-tmp           run_cleanup_tmp
-state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager 2>/dev/null || systemctl restart olcrtc-manager'
+state_step start-manager         bash -c 'systemctl enable --now olcrtc.service olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc.service olcrtc-manager.service'
 state_finish
 
 log "Done. Read $DOC"
