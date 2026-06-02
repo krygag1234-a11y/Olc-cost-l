@@ -1,0 +1,31 @@
+[Unit]
+Description=OlcRTC WebRTC Proxy Server
+Documentation=https://github.com/openlibrecommunity/olcrtc
+After=network-online.target tor@default.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/olcrtc
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=OLCRTC_LISTEN=0.0.0.0:8080
+Environment=OLCRTC_EXIT_PROXY=socks5://127.0.0.1:9050
+Environment=OLCRTC_DIRECT_DOMAINS=/var/lib/olcrtc/ru-direct-domains.txt
+Environment=OLCRTC_FORCE_TOR_DOMAINS=/var/lib/olcrtc/force-tor-domains.txt
+Environment=OLCRTC_BLOCKED_DOMAINS=/var/lib/olcrtc/ru-blocked-tor-domains.txt
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/olcrtc /var/log
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
