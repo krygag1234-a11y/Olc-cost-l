@@ -289,18 +289,8 @@ EOF
 install_systemd_units() {
   local scripts="${REPO_ROOT}/scripts"
   
-  # Install olcrtc main service
-  if [[ -f "$REPO_ROOT/packaging/systemd/olcrtc.service" ]]; then
-    cp "$REPO_ROOT/packaging/systemd/olcrtc.service" /etc/systemd/system/olcrtc.service
-    # Configure listen address and proxy settings
-    sed -i "s|OLCRTC_LISTEN=.*|OLCRTC_LISTEN=0.0.0.0:8080|" /etc/systemd/system/olcrtc.service
-    if [[ "$ENABLE_TOR" -eq 1 ]]; then
-      sed -i "s|OLCRTC_EXIT_PROXY=.*|OLCRTC_EXIT_PROXY=socks5://127.0.0.1:9050|" /etc/systemd/system/olcrtc.service
-    else
-      # Foreign VPS: remove Tor proxy and After=tor dependency
-      sed -i '/OLCRTC_EXIT_PROXY=/d; /After=.*tor@default/s/tor@default.service //' /etc/systemd/system/olcrtc.service
-    fi
-  fi
+  # Note: olcrtc.service is NOT needed - olcrtc-manager spawns olcrtc processes per-client
+  # Upstream BigDaddy3334/olcrtc-manager-panel doesn't provide olcrtc.service
   
   # Install olcrtc-manager service
   cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
@@ -338,7 +328,8 @@ setup_systemd() {
 EOF
   install_systemd_units
   systemctl daemon-reload
-  systemctl enable olcrtc.service olcrtc-manager.service olcrtc-network-recovery.service
+  # Note: only olcrtc-manager.service is needed (it spawns olcrtc processes)
+  systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
 }
 
 install_cli_symlinks() {
