@@ -10,6 +10,7 @@
 #   curl -fsSL ... | sudo bash -s -- --resume          # продолжить с последнего успешного шага
 #   curl -fsSL ... | sudo bash -s -- --state           # показать состояние
 #   curl -fsSL ... | sudo bash -s -- --no-zapret       # пропустить zapret (для тестов)
+#   curl -fsSL ... | sudo bash -s -- --force-sha-update # автообновление SHA256SUMS при несовпадении
 set -euo pipefail
 
 INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
@@ -107,6 +108,7 @@ while [[ $# -gt 0 ]]; do
     --tor|--warp|--zapret|--split|--bridges) BOOT_ARGS+=("$1") ;;
     --no-tor|--no-warp|--no-zapret|--no-split|--no-bridges) BOOT_ARGS+=("$1") ;;
     --foreign|--with-warp|--with-tor|--ru) BOOT_ARGS+=("$1") ;;
+    --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; BOOT_ARGS+=("$1") ;;
     --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1") ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;

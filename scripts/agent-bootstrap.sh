@@ -120,6 +120,7 @@ while [[ $# -gt 0 ]]; do
     --update) UPDATE=1 ;;
     --resume) export OLCRTC_RESUME=1 ;;
     --fresh-state) export OLCRTC_FRESH=1 ;;
+    --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
     --state) source "$SCRIPT_DIR/lib-install-state.sh"; state_show; exit 0 ;;
     --profile)
       PROFILE_ID="${2:-}"

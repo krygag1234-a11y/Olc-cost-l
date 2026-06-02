@@ -52,6 +52,7 @@ main() {
     case "$arg" in
       --show-profile) profile_show; exit 0 ;;
       --profile) profile_arg=(--profile) ;;
+      --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
     esac
   done
   repo="$(detect_repo)" || {
