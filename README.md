@@ -4,60 +4,16 @@
 
 Скрипты и патчи для **olcrtc-manager-panel** + **olcrtc** на RU/foreign VPS: Tor, Tor-мосты, split-маршрутизация, zapret, Warp. Olcbox.
 
-<style>
-  .lightbox {
-    display: none;
-    position: fixed;
-    z-index: 999;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 1em;
-    background: rgba(0, 0, 0, 0.95);
-  }
-  .lightbox:target {
-    display: block;
-  }
-  .lightbox img {
-    max-width: 100%;
-    max-height: 100%;
-    margin: auto;
-    display: block;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 50px rgba(255, 255, 255, 0.1);
-  }
-  .lightbox-close {
-    position: absolute;
-    top: 20px;
-    right: 30px;
-    font-size: 40px;
-    font-weight: bold;
-    color: white;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .lightbox-close:hover {
-    color: #999;
-  }
-</style>
-
-<a href="#hero-lightbox">
-  <picture>
-    <source type="image/webp" srcset="docs/assets/hero-panel.webp">
-    <img src="docs/assets/hero-panel.jpg" alt="Olc-cost-l панель управления" width="100%" style="cursor: zoom-in;">
-  </picture>
-</a>
-
-<div id="hero-lightbox" class="lightbox">
-  <a href="#" class="lightbox-close">&times;</a>
-  <img src="docs/assets/hero-panel.jpg" alt="Olc-cost-l панель управления">
-</div>
-
-> 💡 *Кликните на изображение для увеличения*
+<p align="center">
+  <a href="https://krygag1234-a11y.github.io/Olc-cost-l/docs/hero-image.html" target="_blank">
+    <picture>
+      <source type="image/webp" srcset="docs/assets/hero-panel.webp">
+      <img src="docs/assets/hero-panel.jpg" alt="Olc-cost-l панель управления" width="800">
+    </picture>
+    <br>
+    <em>🔍 Кликните для увеличения</em>
+  </a>
+</p>
 
 ## Upstream (2026-05)
 
