@@ -126,6 +126,41 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
   | sudo bash -s -- --split --manager-stable
 ```
 
+### Таблица режимов установки
+
+| Команда | Tor | Bridges | Split | Zapret | Панель | Назначение |
+|---------|-----|---------|-------|--------|--------|------------|
+| `--full` | ✅ | ✅ | ✅ | ✅ | ✅ | **RU VPS:** полный стек обхода блокировок |
+| `--full --no-tor` | ❌ | ❌ | ❌ | ✅ | ✅ | **Foreign VPS:** только zapret + панель |
+| `--full --no-bridges` | ✅ | ❌ | ✅ | ✅ | ✅ | RU VPS без мостов (прямой Tor) |
+| `--full --no-split` | ✅ | ✅ | ❌ | ✅ | ✅ | Весь трафик через Tor |
+| `--full --no-zapret` | ✅ | ✅ | ✅ | ❌ | ✅ | RU VPS без DPI-обхода |
+| `--tor` | ✅ | ❌ | ❌ | ❌ | ✅ | Только Tor (без мостов/split/zapret) |
+| `--tor --bridges` | ✅ | ✅ | ❌ | ❌ | ✅ | Tor + мосты (без split/zapret) |
+| `--tor --split` | ✅ | ❌ | ✅ | ❌ | ✅ | Tor + умная маршрутизация |
+| `--bridges` | ❌ | ✅ | ❌ | ❌ | ✅ | Только мосты (требует уже установленный Tor) |
+| `--split` | ❌ | ❌ | ✅ | ❌ | ✅ | Только split (требует уже установленный Tor) |
+| `--zapret` | ❌ | ❌ | ❌ | ✅ | ✅ | Только zapret DPI-обход |
+| `--warp` | ❌ | ❌ | ❌ | ❌ | ✅ | Cloudflare WARP proxy |
+| `--tor --bridges --split --zapret` | ✅ | ✅ | ✅ | ✅ | ✅ | Эквивалент `--full` (покомпонентная сборка) |
+
+> 💡 Флаги можно комбинировать! Добавляйте `--manager-stable` для стабильной версии панели.
+
+**Примеры комбинаций:**
+```bash
+# RU VPS: Tor + мосты + zapret (без split):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --tor --bridges --zapret --manager-stable
+
+# Foreign VPS: только панель + zapret (без Tor):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --zapret --manager-stable
+
+# Минимальная установка: только панель (без компонентов):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --manager-stable
+```
+
 ---
 
 ## 🔄 Обновление
@@ -161,7 +196,22 @@ sudo olc-update
 ```bash
 sudo olc-update --incremental
 ```
-> `--incremental` добавляет только то, чего не хватает (например, если запустили `--tor`, а теперь хотите добавить `--zapret`). Быстрее, чем `--update`.
+
+**Сравнение режимов обновления:**
+
+| Режим | Что делает | Когда использовать |
+|-------|------------|-------------------|
+| `--update` | Git pull + пересборка olcrtc/manager + обновление списков доменов/CIDR | Обновление кода после upstream изменений |
+| `--incremental` | Проверяет установленные компоненты, доустанавливает недостающие | Добавление компонентов (был `--tor`, хочу `+zapret`) |
+
+**Пример:**
+```bash
+# Была установка: --tor
+# Теперь хочу добавить zapret + bridges:
+sudo olc-update --incremental --zapret --bridges
+```
+
+> `--incremental` **не пересобирает** уже установленное, только добавляет новое. Быстрее, чем `--update`.
 
 **Принудительная переустановка:**
 ```bash
