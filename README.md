@@ -157,6 +157,12 @@ sudo olc-update --manager-latest
 sudo olc-update
 ```
 
+**Доустановка недостающих компонентов** (без полной пересборки):
+```bash
+sudo olc-update --incremental
+```
+> `--incremental` добавляет только то, чего не хватает (например, если запустили `--tor`, а теперь хотите добавить `--zapret`). Быстрее, чем `--update`.
+
 **Принудительная переустановка:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
@@ -191,6 +197,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | `--bridges`| Устанавливается только мосты для Tor + панель |
 | **ДРУГОЕ** | |
 | `--update` | Обновление: git pull, пересборка, обновление списков |
+| `--incremental` | Доустановка: добавить недостающие компоненты без полной пересборки |
 | `--ssh` | Панель доступна только через SSH-туннель |
 | `--ip` | Вернуть открытый режим панели на IP |
 | `--force-sha-update` | Автообновление SHA256 checksums при несовпадении |
