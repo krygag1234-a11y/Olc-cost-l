@@ -21,6 +21,18 @@ BRANCH="${OLC_REPO_BRANCH:-main}"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "[install] ОШИБКА: запустите от root (sudo bash …)" >&2; exit 1; }
 
+# Load TUI early if available
+if [[ -f "$INSTALL_DIR/scripts/lib-tui.sh" ]]; then
+  source "$INSTALL_DIR/scripts/lib-tui.sh"
+  TUI_AVAILABLE=1
+  tui_clear
+  tui_banner "Olc-cost-l Installer"
+  tui_log_info "Установка/обновление комплекса обхода блокировок для RU VPS"
+  tui_divider
+else
+  TUI_AVAILABLE=0
+fi
+
 olc_has_tty() {
   [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null
 }
@@ -243,6 +255,7 @@ fi
 tui_log_step "Обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
 
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
+  [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_step "Клонирование репозитория..."
   tui_log_step "Клонирование $REPO_URL → $INSTALL_DIR"
   rm -rf "$INSTALL_DIR.partial"
   resilient_git clone clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR.partial" || {
@@ -250,6 +263,7 @@ if [[ ! -d "$INSTALL_DIR/.git" ]]; then
     rm -rf "$INSTALL_DIR.partial"
     exit 1
   }
+  [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_success "Репозиторий склонирован успешно"
   mv "$INSTALL_DIR.partial" "$INSTALL_DIR"
 else
   tui_log_step "Git fetch+обновление $INSTALL_DIR (с повторами при обрыве)"
