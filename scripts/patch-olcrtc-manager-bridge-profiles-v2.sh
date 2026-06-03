@@ -72,12 +72,12 @@ func fetchProfileBridgeLines(profile map[string]any) []string {
 func applyActiveBridgeProfile(profiles map[string]any) error {
 	active, _ := profiles["active_profile"].(string)
 	if active == "" || active == "system" {
-		sys, _ := profiles["system"].(map[string]any)
-		types, _ := sys["types"].(string)
-		if strings.TrimSpace(types) == "" {
-			types = "obfs4,webtunnel"
-		}
-		runBridgePoolRefresh(types)
+	sys, _ := profiles["system"].(map[string]any)
+	types, _ := sys["types"].(string)
+	if strings.TrimSpace(types) == "" {
+		types = "obfs4"
+	}
+	runBridgePoolRefresh(types)
 		return nil
 	}
 	profs, _ := profiles["profiles"].([]any)
@@ -103,7 +103,7 @@ func applyActiveBridgeProfile(profiles map[string]any) error {
 	}
 	types, _ := selected["types"].(string)
 	if strings.TrimSpace(types) == "" {
-		types = "obfs4,webtunnel"
+		types = "obfs4"
 	}
 	runBridgePoolRefresh(types)
 	return nil

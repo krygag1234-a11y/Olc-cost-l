@@ -64,7 +64,15 @@ old_run = '''func runBridgePoolRefresh(types string) {
 new_run = '''func runBridgePoolRefresh(types string) {
 	types = strings.TrimSpace(types)
 	if types == "" {
-		types = "obfs4,webtunnel"
+		prof := readBridgeProfiles()
+		if sys, ok := prof["system"].(map[string]any); ok {
+			if t, ok := sys["types"].(string); ok && strings.TrimSpace(t) != "" {
+				types = strings.TrimSpace(t)
+			}
+		}
+		if types == "" {
+			types = "obfs4"
+		}
 	}
 	writeBridgePoolStatus(map[string]any{
 		"status":     "running",
@@ -143,7 +151,13 @@ new_handler = '''		case http.MethodPut:
 			}
 			if name == "bridges" {
 				if action, ok := body["action"].(string); ok && action == "refresh_pool" {
-					types := "obfs4,webtunnel"
+					types := "obfs4"
+					prof := readBridgeProfiles()
+					if sys, ok := prof["system"].(map[string]any); ok {
+						if t, ok := sys["types"].(string); ok && strings.TrimSpace(t) != "" {
+							types = strings.TrimSpace(t)
+						}
+					}
 					if v, ok := body["types"].(string); ok && strings.TrimSpace(v) != "" {
 						types = strings.TrimSpace(v)
 					}
@@ -165,7 +179,7 @@ if old_handler in t:
 # Avoid double-handling refresh in componentSettingsPut
 t = t.replace(
     '''		if action, ok := body["action"].(string); ok && action == "refresh_pool" {
-			types := "obfs4,webtunnel"
+			types := "obfs4"
 			if v, ok := body["types"].(string); ok && strings.TrimSpace(v) != "" {
 				types = strings.TrimSpace(v)
 			}
