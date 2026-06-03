@@ -380,6 +380,23 @@ EOF
 
 # --- main ---
 require_root
+
+# Show TUI banner
+tui_clear
+tui_banner "Olc-cost-l Bootstrap"
+if [[ $FULL -eq 1 ]]; then
+  tui_log_info "Режим: Полная установка (зависимости + сборка + сервисы)"
+elif [[ $UPDATE -eq 1 ]]; then
+  tui_log_info "Режим: Обновление (git pull + пересборка)"
+elif [[ $INCREMENTAL -eq 1 ]]; then
+  tui_log_info "Режим: Доустановка недостающих компонентов"
+elif [[ $REBUILD_ONLY -eq 1 ]]; then
+  tui_log_info "Режим: Только пересборка бинарей"
+else
+  tui_log_info "Режим: Конфигурация сервисов"
+fi
+tui_divider
+
 olc_preflight_disk_space "agent-bootstrap" || exit 1
 olc_preflight_vps_backup "agent-bootstrap" || true
 olc_git_safe_register "${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
