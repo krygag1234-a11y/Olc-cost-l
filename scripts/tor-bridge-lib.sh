@@ -24,8 +24,20 @@ BRIDGE_BLACKLIST_FP=(
   EDF46C5F723F323521075F7F8D7E534700D1019E
 )
 
-# RU VPS: webtunnel + obfs4; optional snowflake (fallback line), vanilla
-BRIDGE_TYPES="${BRIDGE_TYPES:-webtunnel,obfs4}"
+# RU VPS: obfs4 default (webtunnel has TEST-NET addresses issue)
+# Read from bridge-profiles.json if available
+get_bridge_types_from_profile() {
+  local profiles_json="/var/lib/olcrtc/bridge-profiles.json"
+  if [[ -f "$profiles_json" ]] && command -v jq &>/dev/null; then
+    local active_profile types
+    active_profile="$(jq -r '.active_profile // "system"' "$profiles_json" 2>/dev/null)"
+    types="$(jq -r --arg prof "$active_profile" '.[$prof].types // "obfs4"' "$profiles_json" 2>/dev/null)"
+    [[ -n "$types" ]] && echo "$types" && return 0
+  fi
+  echo "obfs4"
+}
+
+BRIDGE_TYPES="${BRIDGE_TYPES:-$(get_bridge_types_from_profile)}"
 USER_BRIDGES_FILE="${USER_BRIDGES_FILE:-/var/lib/olcrtc/tor-user-bridges.txt}"
 OLCRTC_BRIDGE_IPV4_ONLY="${OLCRTC_BRIDGE_IPV4_ONLY:-1}"
 
@@ -156,13 +168,33 @@ load_bridges_extra_urls() {
       [[ -n "$u" ]] && urls+=("$u")
     done <"$BRIDGES_EXTRA_URLS_FILE"
   fi
-  if ((${#urls[@]} == 0)); then
-    urls=(
-      "https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/webtunnel_tested.txt"
-      "https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/obfs4_tested.txt"
-    )
+  
+  # Filter URLs by BRIDGE_TYPES (skip webtunnel URLs if only obfs4 selected)
+  local -a filtered_urls=()
+  local want_wt=0 want_obfs4=0
+  [[ ",${BRIDGE_TYPES}," == *",webtunnel,"* ]] && want_wt=1
+  [[ ",${BRIDGE_TYPES}," == *",obfs4,"* ]] && want_obfs4=1
+  
+  for u in "${urls[@]}"; do
+    if [[ "$u" == *"webtunnel"* ]]; then
+      [[ "$want_wt" -eq 1 ]] && filtered_urls+=("$u")
+    elif [[ "$u" == *"obfs4"* ]]; then
+      [[ "$want_obfs4" -eq 1 ]] && filtered_urls+=("$u")
+    else
+      # vanilla, snowflake etc — always include
+      filtered_urls+=("$u")
+    fi
+  done
+  
+  if ((${#filtered_urls[@]} == 0)); then
+    if [[ "$want_wt" -eq 1 ]]; then
+      filtered_urls+=("https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/webtunnel_tested.txt")
+    fi
+    if [[ "$want_obfs4" -eq 1 ]]; then
+      filtered_urls+=("https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/obfs4_tested.txt")
+    fi
   fi
-  BRIDGES_EXTRA_URLS="$(printf '%s,' "${urls[@]}" | sed 's/,$//')"
+  BRIDGES_EXTRA_URLS="$(printf '%s,' "${filtered_urls[@]}" | sed 's/,$//')"
 }
 
 merge_user_bridge_lines() {

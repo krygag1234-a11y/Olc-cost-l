@@ -229,7 +229,7 @@ setup_tor() {
   bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
   bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
   local btypes
-  btypes="$(effective_bridge_types "${BRIDGE_TYPES:-webtunnel,obfs4}")"
+  btypes="$(effective_bridge_types "${BRIDGE_TYPES:-obfs4}")"
   if ! webtunnel_client_ready; then
     log "Tor bridges: obfs4-only (webtunnel-client not built — gitlab often times out from RU)"
   else

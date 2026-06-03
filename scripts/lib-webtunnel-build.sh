@@ -61,7 +61,7 @@ _webtunnel_install_from_mirror() {
 
 # BRIDGE_TYPES without webtunnel when binary is missing.
 effective_bridge_types() {
-  local want="${1:-${BRIDGE_TYPES:-webtunnel,obfs4}}"
+  local want="${1:-${BRIDGE_TYPES:-obfs4}}"
   if webtunnel_client_ready; then
     echo "$want"
     return 0
