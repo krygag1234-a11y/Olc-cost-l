@@ -544,6 +544,11 @@ state_step cleanup-tmp           run_cleanup_tmp
 state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc-manager.service'
 state_finish
 
+tui_divider
+tui_box 70 "Установка завершена!"
+tui_gradient "Olc-cost-l готов к работе"
+echo ""
+
 log "Done. Read $DOC"
 log "Patches: $REPO_ROOT/patches/PATCHES.md"
 if [[ "$ENABLE_TOR" -eq 0 ]]; then
