@@ -271,3 +271,75 @@ sudo /opt/Olc-cost-l/scripts/upstream-sync.sh --apply --zapret
 |--------|-----|
 | Nightly | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 | Releases | https://github.com/alananisimov/olcbox/releases |
+
+---
+
+## Новые патчи мостов и UI (2026-06-03)
+
+### 1. Автосохранение типа моста при обновлении
+**Патч:** `patch-olcrtc-manager-panel-bridge-types-persist.sh`  
+**Коммит:** `8ccf698`, `ef20ad6`
+
+**Проблема:** Пользователь выбирает `obfs4` или `webtunnel` в селекте, но нажимает "Обновить сейчас" без кнопки "Сохранить" → тип НЕ применялся, обновлялся старый тип из JSON.
+
+**Решение:** Функция `refreshPool()` теперь делает **два PUT запроса**:
+1. Сохраняет `profiles.system.types` в `/var/lib/olcrtc/bridge-profiles.json`
+2. Запускает `action: "refresh_pool"` с новым типом
+
+**Эффект:** Клик "Обновить сейчас" работает как "Сохранить + Обновить".
+
+---
+
+### 2. Статус webtunnel при выключении мостов
+**Патч:** `patch-olcrtc-manager-webtunnel-status-fix.sh`  
+**Коммит:** `50d3fb7`, `afbe183`
+
+**Проблема:** При отключении Tor через UI, `/api/features` возвращал `webtunnel: "missing"` → UI показывал "webtunnel-client отсутствует" → при включении заново скачивался бинарь с зеркала.
+
+**Решение:** В `featureLiveStatus()` (Go backend) добавлена проверка флагов. Если мосты выключены → `webtunnel: "disabled (bridges off)"`.
+
+**Эффект:** Не пытается качать бинарь при выключенных мостах.
+
+---
+
+### 3. UI мостов: карточки вместо лога
+**Патч:** `patch-olcrtc-manager-bridge-list-cards-ui.sh`  
+**Коммит:** `ac1ba30`
+
+**Проблема:** Мосты отображались как `<pre>` лог из `bridges.conf` — нет визуального контроля health, нельзя удалить конкретный мост.
+
+**Решение:** Новый компонент `BridgeListCards` с карточками (как в split domains UI).
+
+**Фичи:**
+- ✅ Каждый мост = отдельная карточка
+- ✅ Health индикатор: ✓ зелёный (OK) / ⚠ жёлтый (1-2 fail) / ✗ красный (>2 fail)
+- ✅ Иконка мусорки 🗑️ для удаления моста (API: `PUT /api/settings/bridges { action: "delete_bridge", fingerprint }`)
+- ✅ Компактный scrollable дизайн (max-height 240px)
+- ✅ Реал-тайм polling `/api/bridges/status` каждые 20 секунд
+
+**Эффект:** Визуальный контроль здоровья мостов, возможность удалять сломанные мосты кликом.
+
+---
+
+## TUI интеграция (2026-06-03)
+
+**Коммиты:** `2c64ee0`, `6ed7ad6`, `c670042`
+
+**Добавлено:**
+- Banner с ASCII-артом проекта в начале установки
+- Progress indicators для этапов (git clone, сборка)
+- Gradient текст и box для финального сообщения
+
+**Библиотека:** `scripts/lib-tui.sh` — banner, progress bar, spinners, gradient, colored logs
+
+---
+
+## Итого новых патчей (2026-06-03):
+
+| Патч | Проблема | Решение |
+|------|----------|---------|
+| `patch-olcrtc-manager-panel-bridge-types-persist.sh` | Тип моста не сохранялся при клике "Обновить сейчас" | Auto-save перед refresh_pool |
+| `patch-olcrtc-manager-webtunnel-status-fix.sh` | webtunnel показывал "missing" при выключении мостов | Проверка flags["bridges"] перед stat() |
+| `patch-olcrtc-manager-bridge-list-cards-ui.sh` | Мосты как лог — нет контроля health, нельзя удалить | Карточки с ✓/⚠/✗ + кнопка удаления |
+
+**Всего патчей olcrtc-manager:** 132 (было 129)
