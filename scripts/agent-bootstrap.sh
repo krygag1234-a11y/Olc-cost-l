@@ -524,7 +524,7 @@ state_step_profile zapret                setup_zapret
 state_step systemd               setup_systemd
 state_step cron                  setup_cron
 state_step cleanup-tmp           run_cleanup_tmp
-state_step start-manager         bash -c 'systemctl enable --now olcrtc.service olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc.service olcrtc-manager.service'
+state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc-manager.service'
 state_finish
 
 log "Done. Read $DOC"
