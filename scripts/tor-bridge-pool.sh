@@ -75,9 +75,19 @@ fetch_and_merge_pool() {
   rm -f "$raw"
   bridge_log "parsed $(wc -l <"$tmp") bridges (types=$BRIDGE_TYPES)"
 
-  # merge with existing pool (keep history)
+  # merge with existing pool (keep history), but filter by type
   {
-    [[ -f "$POOL_FILE" ]] && grep -E '^Bridge ' "$POOL_FILE" 2>/dev/null || true
+    if [[ -f "$POOL_FILE" ]]; then
+      if [[ "$BRIDGE_TYPES" == *"obfs4"* ]] && [[ "$BRIDGE_TYPES" == *"webtunnel"* ]]; then
+        grep -E '^Bridge ' "$POOL_FILE" 2>/dev/null || true
+      elif [[ "$BRIDGE_TYPES" == *"obfs4"* ]]; then
+        grep -E '^Bridge (obfs4|vanilla) ' "$POOL_FILE" 2>/dev/null || true
+      elif [[ "$BRIDGE_TYPES" == *"webtunnel"* ]]; then
+        grep -E '^Bridge webtunnel ' "$POOL_FILE" 2>/dev/null || true
+      else
+        grep -E '^Bridge ' "$POOL_FILE" 2>/dev/null || true
+      fi
+    fi
     cat "$tmp"
   } | awk '!seen[$0]++' >"$merged"
   rm -f "$tmp"
@@ -159,6 +169,12 @@ select_active_bridges() {
   local -a scored=()
   local line fp score drop
   for line in "${candidates[@]}"; do
+    # Filter by BRIDGE_TYPES
+    if [[ "$BRIDGE_TYPES" == *"obfs4"* ]] && [[ "$BRIDGE_TYPES" != *"webtunnel"* ]]; then
+      [[ "$line" == *" webtunnel "* ]] && continue
+    elif [[ "$BRIDGE_TYPES" == *"webtunnel"* ]] && [[ "$BRIDGE_TYPES" != *"obfs4"* ]]; then
+      [[ "$line" == *" obfs4 "* ]] && continue
+    fi
     if [[ "$line" == *" webtunnel "* ]] && declare -f webtunnel_client_ready >/dev/null 2>&1 && ! webtunnel_client_ready; then
       continue
     fi
