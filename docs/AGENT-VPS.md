@@ -12,6 +12,30 @@
 
 ---
 
+## 0. УСТАНОВЛЕННЫЕ ВЕРСИИ И ВЕРСИОНИРОВАНИЕ
+
+### 0.1 Установленные бинарники
+
+| Бинарник | Версия/SHA | Источник |
+|----------|-----------|----------|
+| `/usr/local/bin/olcrtc` | pinned `52aea2d` | [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc) master + патчи |
+| `/usr/local/bin/olcrtc-manager` | `d862ad6cc52b` (+dirty) | [local-panel-version stable-v1](https://github.com/krygag1234-a11y/local-panel-version) + патчи |
+
+### 0.2 Подход к версионированию
+
+**BigDaddy3334 (upstream панели):**
+- Всегда клонирует **HEAD master** из `openlibrecommunity/olcrtc` без пиннинга
+- Риск: новый коммит может сломать сборку
+
+**Этот VPS (через Olc-cost-l):**
+- **olcrtc:** Pinned SHA `52aea2d` из `data/upstream-pins.json`
+- **olcrtc-manager:** Установлен с флагом `--manager-stable` → форк `local-panel-version` stable-v1
+- **Преимущество:** Контролируемое обновление, стабильность production
+
+**Важно:** olcrtc-manager **НЕ хардкодит** версию olcrtc — панель запускает бинарник по пути `OLCRTC_PATH=/usr/local/bin/olcrtc`. Сборка olcrtc и manager — независимые процессы.
+
+---
+
 ## 1. ПРОЦЕССЫ И ИХ ВЗАИМОДЕЙСТВИЕ
 
 ### 1.1 Активные процессы (реальные данные с VPS)

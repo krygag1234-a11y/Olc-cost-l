@@ -12,6 +12,33 @@
 
 ---
 
+## 0. КЛЮЧЕВЫЕ КОМПОНЕНТЫ И ВЕРСИОНИРОВАНИЕ
+
+| Компонент | Upstream | Версионирование |
+|-----------|----------|-----------------|
+| **olcrtc** | [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc) `master` | **Pinned SHA** в `data/upstream-pins.json` — контролируемое обновление для стабильности |
+| **olcrtc-manager** | [BigDaddy3334/olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) `main` | Зависит от флага установки (см. ниже) |
+| **local-panel-version** | Стабильный форк manager | [krygag1234-a11y/local-panel-version](https://github.com/krygag1234-a11y/local-panel-version) `stable-v1` | Используется при `--manager-stable` |
+
+### Подход к версионированию
+
+**BigDaddy3334 (upstream панели):**
+- Всегда клонирует **HEAD master** из `openlibrecommunity/olcrtc` (без пиннинга)
+- Переменная `OLCRTC_REF=master` в его `install.sh`
+- Риск: новый коммит может сломать сборку без предупреждения
+
+**Наш подход (Olc-cost-l):**
+- **olcrtc:** Pinned SHA в `data/upstream-pins.json` (например `52aea2d`)
+- **olcrtc-manager:** Зависит от флага:
+  - `--manager-stable` → fork `local-panel-version` stable-v1 (рекомендуется)
+  - `--manager-latest` → upstream BigDaddy3334 HEAD
+  - Без флага → pinned SHA из `upstream-pins.json`
+- **Преимущество:** Контролируемое обновление после тестирования, стабильность production
+
+**Важно:** olcrtc-manager **НЕ хардкодит** версию olcrtc внутри себя — панель запускает бинарник по пути `OLCRTC_PATH=/usr/local/bin/olcrtc`. Сборка olcrtc и manager — независимые процессы в `apply-olcrtc-patches.sh`.
+
+---
+
 ## 1. ПОЛНАЯ СТРУКТУРА РЕПОЗИТОРИЯ
 
 ```
