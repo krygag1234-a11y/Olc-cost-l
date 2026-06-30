@@ -5,19 +5,19 @@
 ## Установка
 
 ```bash
-# RU VPS (по умолчанию)
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+# RU VPS (рекомендуемая, стабильная панель)
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
 
 # Явно RU
-sudo ./scripts/agent-bootstrap.sh --full --ru
+sudo ./scripts/agent-bootstrap.sh --full --ru --manager-stable
 ```
 
 ## Иностранный VPS (без split, без мостов)
 
 ```bash
-curl -fsSL .../install.sh | sudo bash -s -- --no-tor
+curl -fsSL .../install.sh | sudo bash -s -- --full --no-tor --manager-stable
 # или
-sudo ./scripts/agent-bootstrap.sh --full --foreign
+sudo ./scripts/agent-bootstrap.sh --full --foreign --manager-stable
 ```
 
 Не запускаются: `fetch-ru-cidrs.sh`, `fetch-cdn-direct.sh`, `fetch-ru-player-cdn.sh`, `setup-split-ru.sh`, timers мостов (если отключён Tor).

@@ -1,4 +1,6 @@
-# Integration gap: Olc-cost-l vs upstream
+# [DEV] Integration gap: Olc-cost-l vs upstream
+
+> **Этот документ для разработчиков.** Пользователям он не нужен для установки и работы.
 
 How our repo extends upstream projects (public overview).
 

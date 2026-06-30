@@ -146,4 +146,4 @@ jq . /opt/Olc-cost-l/version.json
 bash /opt/Olc-cost-l/scripts/generate-version-stack.sh   # обновить block "stack" перед релизом
 ```
 
-См. [FEATURES.md](./FEATURES.md), [RESUME-INSTALL.md](./RESUME-INSTALL.md), [PUBLIC-DEMO-VPS.md](./PUBLIC-DEMO-VPS.md).
+См. [FEATURES.md](./FEATURES.md), [RESUME-INSTALL.md](./RESUME-INSTALL.md).

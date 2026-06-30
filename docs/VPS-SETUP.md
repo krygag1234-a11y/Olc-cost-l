@@ -6,8 +6,6 @@
 **webtunnel:** бинарник [mirror-cry](https://github.com/krygag1234-a11y/mirror-cry/releases/latest), не gitlab.torproject.org  
 **Клиент:** [Olcbox nightly](https://github.com/alananisimov/olcbox/releases/tag/nightly) — [CLIENT.md](CLIENT.md)
 
-Общедоступный демо-VPS (без секретов на хосте): [PUBLIC-DEMO-VPS.md](PUBLIC-DEMO-VPS.md).
-
 ---
 
 ## Быстрый старт
@@ -231,13 +229,46 @@ systemctl enable --now olcrtc-manager
 
 ## Режимы деплоя (гибкость)
 
+> **💡 Рекомендация:** Добавляйте `--manager-stable` ко всем командам.
+
 | Сценарий | Команда |
 |----------|---------|
-| RU VPS, Tor + split | `install.sh` или `agent-bootstrap.sh --full` |
-| Иностранный VPS, без Tor | `install.sh --no-tor` |
-| Tor без split (всё через exit) | `agent-bootstrap.sh --full --no-split` |
-| Обновление на живой VPS | `install.sh` (detect → `--update`) |
+| RU VPS, полный стек | `install.sh --full --manager-stable` |
+| RU VPS без split (всё через Tor exit) | `install.sh --full --no-split --manager-stable` |
+| RU VPS без zapret | `install.sh --full --no-zapret --manager-stable` |
+| RU VPS без мостов (прямой Tor) | `install.sh --full --no-bridges --manager-stable` |
+| Иностранный VPS, без Tor | `install.sh --full --no-tor --manager-stable` |
+| Иностранный VPS + WARP | `install.sh --warp --manager-stable` |
+| Только Tor + панель | `install.sh --tor --manager-stable` |
+| Только zapret + панель | `install.sh --zapret --manager-stable` |
+| Только мосты + панель | `install.sh --bridges --manager-stable` |
+| Обновление на живой VPS | `olc-update --manager-stable` |
+| Доустановка компонентов | `olc-update --incremental --manager-stable` |
 | Только пересборка | `agent-bootstrap.sh --rebuild-only` |
+| Панель через SSH-туннель | добавить `--ssh` к любой команде |
+
+### Доступ к панели через SSH-туннель
+
+Добавьте `--ssh` к любой команде установки или обновления:
+
+```bash
+# Установка с SSH-туннелем:
+curl -fsSL .../install.sh | sudo bash -s -- --full --ssh --manager-stable
+
+# Обновление с SSH-туннелем:
+sudo olc-update --ssh --manager-stable
+
+# Вернуть открытый режим:
+sudo olc-update --ip
+```
+
+Выбор сохраняется в `deploy-profile.json`. Для доступа откройте SSH-туннель **со своего компьютера**:
+
+```bash
+ssh -L 8888:127.0.0.1:8888 root@ВАШ_IP_ИЛИ_DDNS
+```
+
+Затем в браузере: `http://127.0.0.1:8888/admin`
 
 ---
 

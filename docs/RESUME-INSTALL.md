@@ -1,4 +1,6 @@
-# Resumable install / update
+# [DEV] Resumable install / update
+
+> **Этот документ для разработчиков.** Пользователям он не нужен для установки и работы.
 
 Шаги `install.sh` / `agent-bootstrap.sh` идемпотентны и записываются в `/var/lib/olcrtc/install-state.json`. Если что-то порвалось посередине (упал ssh, timeout на gitlab, прервался zapret) — повторный запуск **продолжит с последнего успешного шага**.
 

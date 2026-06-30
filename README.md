@@ -14,7 +14,7 @@
   </a>
 </p>
 
-## Upstream (2026-05)
+## Upstream (2026-06)
 
 | Компонент | Ветка / источник | Ссылка |
 |-----------|------------------|--------|
@@ -319,9 +319,6 @@ sudo olc-cleanup-caches
 
 ---
 
-## Roadmap
-
-Мастер-план задач (настройки Zp/Tor/Split/Мосты, update из UI, уведомления, баги): **[docs/ROADMAP.md](docs/ROADMAP.md)**.
 
 ## Документация
 
@@ -334,15 +331,17 @@ sudo olc-cleanup-caches
 | [RU-BLOCKED-TOR.md](docs/RU-BLOCKED-TOR.md) | Заблокированные `.ru` + zapret |
 | [ZAPRET-OPTIONAL.md](docs/ZAPRET-OPTIONAL.md) | Zapret на VPS |
 | [SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS, авторизация |
-| [SAFETY.md](docs/SAFETY.md) | Allowlist путей, откат |
+| [SAFETY.md](docs/SAFETY.md) | [DEV] Allowlist путей, откат |
 | [CLIENT.md](docs/CLIENT.md) | Olcbox |
 | [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
-| [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | Отличия Olc-cost-l от upstream |
-| [PUBLIC-DEMO-VPS.md](docs/PUBLIC-DEMO-VPS.md) | Общедоступный VPS: что не хранить на хосте |
-| [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | Обновление upstream + zapret4rocket |
+| [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | [DEV] Отличия Olc-cost-l от upstream |
+| [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | [DEV] Обновление upstream + zapret4rocket |
 | [FEATURES.md](docs/FEATURES.md) | `olc-feature` — toggle zapret/tor/split/webtunnel/warp |
 | [WARP-OPTIONAL.md](docs/WARP-OPTIONAL.md) | Cloudflare WARP (proxy mode, foreign VPS) |
-| [RESUME-INSTALL.md](docs/RESUME-INSTALL.md) | Resumable install/update + webtunnel mirror |
+| [RESUME-INSTALL.md](docs/RESUME-INSTALL.md) | [DEV] Resumable install/update + webtunnel mirror |
+| [AGENT-REPO.md](docs/AGENT-REPO.md) | Карта кода репозитория (для ИИ-агентов) |
+| [AGENT-VPS.md](docs/AGENT-VPS.md) | Карта runtime VPS окружения (для ИИ-агентов) |
+| [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) | API эндпоинты панели (golden panel) |
 
 ---
 
