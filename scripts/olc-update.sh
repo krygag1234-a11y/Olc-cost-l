@@ -79,59 +79,34 @@ main() {
   echo "Проверка актуальности репозитория (ветка main)..." >&2
   local_sha="$(git rev-parse HEAD 2>/dev/null || true)"
   remote_sha="$(git ls-remote origin main 2>/dev/null | awk '{print $1}' || true)"
-  
+
+  local repo_uptodate=0
   if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
+    repo_uptodate=1
     echo "Репозиторий уже актуален." >&2
     git log -1 --format="Текущая версия: %h - %s (%cd)" --date=format:"%Y-%m-%d %H:%M" >&2
-    if olc_update_has_tty; then
-      read -r -p "Всё равно запустить доустановку/обновление скриптов? (1 - Да, 2 - Нет): " _ans </dev/tty || _ans="1"
-      if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then
-        echo "Отмена." >&2
-        exit 0
-      fi
-    fi
   else
     if [[ -n "$remote_sha" ]]; then
       echo "Доступны обновления репозитория." >&2
     fi
-    if olc_update_has_tty; then
-      read -r -p "Скачать обновления и установить? (1 - Да, 2 - Нет): " _ans </dev/tty || _ans="1"
-      if [[ "${_ans,,}" != "1" && "${_ans,,}" != "да" && "${_ans,,}" != "-да" && "${_ans,,}" != "- да" && "${_ans,,}" != "y" && "${_ans,,}" != "yes" ]]; then
-        echo "Отмена." >&2
-        exit 0
-      fi
-    fi
   fi
 
-  olc_preflight_disk_space "olc-update" || exit 1
-  if [[ "$(df -Pm / 2>/dev/null | awk 'NR==2 {print $5+0}')" -ge 95 ]]; then
-    olc_cleanup_build_caches "olc-update-pre-git" || true
-  fi
-  export _OLC_DISK_PROMPTED=1 # Чтобы не спрашивать дважды в agent-bootstrap.sh
-  olc_preflight_vps_backup "olc-update" || true
-  export OLC_VPS_BACKUP_DISABLE=1 # Чтобы не делать бэкап дважды
-  
-  olc_git_safe_register "$repo"
-
-  # Git pull с русским языком
-  echo ""
-  tui_log_info "Обновление репозитория из GitHub..."
-  tui_divider
-  LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 olc_git "$repo" pull --ff-only origin main || {
-    tui_log_error "Ошибка git pull. Проверьте подключение к GitHub."
-    exit 1
-  }
-  tui_divider
-  echo ""
-
-  # TUI menu для выбора режима (только если не указан флагом)
+  # TUI menu для выбора режима (ПЕРЕД git pull)
   if [[ -z "$update_mode" ]] && olc_update_has_tty && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
     source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
     if declare -f tui_menu >/dev/null 2>&1; then
-      mode=$(tui_menu "Выберите режим обновления:" \
-        "Доустановка (быстро - skip работающих компонентов)" \
-        "Обновление (полная пересборка - patches, binaries)" \
-        "Отмена")
+      echo ""
+      if [[ "$repo_uptodate" -eq 1 ]]; then
+        mode=$(tui_menu "Репозиторий актуален. Выберите действие:" \
+          "Доустановка (быстро - skip работающих компонентов)" \
+          "Обновление (полная пересборка - patches, binaries)" \
+          "Отмена")
+      else
+        mode=$(tui_menu "Выберите режим обновления:" \
+          "Доустановка (быстро - skip работающих компонентов)" \
+          "Обновление (полная пересборка - patches, binaries)" \
+          "Отмена")
+      fi
       if [[ "$mode" == "2" ]]; then
         echo "Отмена." >&2
         exit 0
@@ -143,8 +118,32 @@ main() {
     fi
   fi
 
-  # Если режим не выбран, default = --incremental
-  : "${update_mode:=--incremental}"
+  # Если режим не выбран (нет TTY или нет tui_menu), default = --update
+  : "${update_mode:=--update}"
+
+  olc_preflight_disk_space "olc-update" || exit 1
+  if [[ "$(df -Pm / 2>/dev/null | awk 'NR==2 {print $5+0}')" -ge 95 ]]; then
+    olc_cleanup_build_caches "olc-update-pre-git" || true
+  fi
+  export _OLC_DISK_PROMPTED=1 # Чтобы не спрашивать дважды в agent-bootstrap.sh
+  olc_preflight_vps_backup "olc-update" || true
+  export OLC_VPS_BACKUP_DISABLE=1 # Чтобы не делать бэкап дважды
+
+  olc_git_safe_register "$repo"
+
+  # Git pull с русским языком (только если есть обновления)
+  if [[ "$repo_uptodate" -eq 0 ]]; then
+    echo ""
+    tui_log_info "Обновление репозитория из GitHub..."
+    tui_divider
+    LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 olc_git "$repo" pull --quiet --ff-only origin main || {
+      tui_log_error "Ошибка git pull. Проверьте подключение к GitHub."
+      exit 1
+    }
+    tui_log_success "Репозиторий обновлён до последней версии."
+    tui_divider
+    echo ""
+  fi
 
   # Загружаем TUI библиотеку для использования в agent-bootstrap.sh
   if [[ -f "$repo/scripts/lib-tui.sh" ]]; then
