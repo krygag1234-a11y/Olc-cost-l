@@ -13,6 +13,36 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 helper = r'''
+const panelNotifFile = "/var/lib/olcrtc/notifications.json"
+
+func pushNotification(data map[string]any) {
+	var list []map[string]any
+	readJSONFile(panelNotifFile, &list)
+
+	// Deduplicate by ID
+	if id, ok := data["id"].(string); ok && id != "" {
+		for i := range list {
+			if existingID, ok := list[i]["id"].(string); ok && existingID == id {
+				return // already exists
+			}
+		}
+	}
+
+	data["timestamp"] = time.Now().Unix()
+	if _, ok := data["read"]; !ok {
+		data["read"] = false
+	}
+	list = append([]map[string]any{data}, list...)
+
+	// Keep last 100
+	if len(list) > 100 {
+		list = list[:100]
+	}
+
+	b, _ := json.MarshalIndent(list, "", "  ")
+	_ = os.WriteFile(panelNotifFile, b, 0644)
+}
+
 func checkBridgeHealth() {
 	monitorStatePath := "/var/lib/olcrtc/tor-monitor-state.txt"
 	b, err := os.ReadFile(monitorStatePath)
