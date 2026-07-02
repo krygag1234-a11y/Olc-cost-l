@@ -168,7 +168,17 @@ main() {
     fi
     i=$((i + 1))
   done
-  bash scripts/agent-bootstrap.sh "${boot_args[@]}"
+
+  echo "" >&2
+  tui_log_info "Запуск agent-bootstrap.sh с параметрами: ${boot_args[*]}"
+  tui_divider
+
+  bash scripts/agent-bootstrap.sh "${boot_args[@]}" || {
+    local exit_code=$?
+    echo "" >&2
+    tui_log_error "agent-bootstrap.sh завершился с ошибкой (код: $exit_code)"
+    exit $exit_code
+  }
 }
 
 main "$@"
