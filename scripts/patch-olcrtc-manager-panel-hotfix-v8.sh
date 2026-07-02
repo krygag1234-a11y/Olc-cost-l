@@ -19,6 +19,9 @@ if "componentJobUiVisible" not in t:
     print("[patch-panel-hotfix-v8] skip: no usages"); raise SystemExit(0)
     sys.exit(0)
 
+if "const COMPONENT_JOB_UI_TTL_MS" in t:
+    print("[patch-panel-hotfix-v8] COMPONENT_JOB_UI_TTL_MS already defined, skip"); raise SystemExit(0)
+
 const_block = '''
 const COMPONENT_JOB_UI_TTL_MS = 120_000;
 
