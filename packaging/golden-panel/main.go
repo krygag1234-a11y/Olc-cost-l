@@ -104,19 +104,27 @@ type Quota struct {
 }
 
 type Location struct {
-	Name      string    `json:"name"`
-	ClientID  string    `json:"client-id"`
-	Endpoint  Endpoint  `json:"endpoint"`
-	Carrier   string    `json:"carrier"`
-	Transport Transport `json:"transport"`
-	Link      string    `json:"link"`
-	Data      string    `json:"data"`
-	DNS       string    `json:"dns"`
+	Name      string      `json:"name"`
+	ClientID  string      `json:"client-id"`
+	Endpoint  Endpoint    `json:"endpoint"`
+	Carrier   string      `json:"carrier"`
+	Transport Transport   `json:"transport"`
+	Link      string      `json:"link"`
+	Data      string      `json:"data"`
+	DNS       string      `json:"dns"`
+	Proxy     Socks5Proxy `json:"proxy,omitempty"`
 }
 
 type Endpoint struct {
 	RoomID string `json:"room_id"`
 	Key    string `json:"key"`
+}
+
+type Socks5Proxy struct {
+	Addr string `json:"addr,omitempty"`
+	Port int    `json:"port,omitempty"`
+	User string `json:"user,omitempty"`
+	Pass string `json:"pass,omitempty"`
 }
 
 type Transport struct {
@@ -167,6 +175,8 @@ type olcrtcNetConfig struct {
 type olcrtcSocksConfig struct {
 	ProxyAddr             string `yaml:"proxy_addr,omitempty"`
 	ProxyPort             int    `yaml:"proxy_port,omitempty"`
+	ProxyUser             string `yaml:"proxy_user,omitempty"`
+	ProxyPass             string `yaml:"proxy_pass,omitempty"`
 	DirectCIDRsFile       string `yaml:"direct_cidrs_file,omitempty"`
 	DirectDomainsFile     string `yaml:"direct_domains_file,omitempty"`
 	BlockedTorDomainsFile string `yaml:"blocked_tor_domains_file,omitempty"`
@@ -835,6 +845,7 @@ func (s *Supervisor) State() State {
 			Payload:   loc.Transport.Payload,
 			Link:      loc.Link,
 			DNS:       loc.DNS,
+			Proxy:     loc.Proxy,
 			Running:   runtime.Running,
 			Runtime:   runtime,
 		})
@@ -1083,6 +1094,7 @@ type LocationState struct {
 	Payload   map[string]string `json:"payload"`
 	Link      string            `json:"link"`
 	DNS       string            `json:"dns"`
+	Proxy     Socks5Proxy       `json:"proxy,omitempty"`
 	Running   bool              `json:"running"`
 	Runtime   RuntimeState      `json:"runtime"`
 }
@@ -1117,6 +1129,7 @@ type addClientRequest struct {
 	Transport  string            `json:"transport"`
 	Payload    map[string]string `json:"payload"`
 	DNS        string            `json:"dns"`
+	Proxy      Socks5Proxy       `json:"proxy"`
 	Name       string            `json:"name"`
 }
 
@@ -1131,6 +1144,7 @@ type updateClientRequest struct {
 	Transport string            `json:"transport"`
 	Payload   map[string]string `json:"payload"`
 	DNS       string            `json:"dns"`
+	Proxy     Socks5Proxy       `json:"proxy"`
 	Name      string            `json:"name"`
 }
 
@@ -1142,6 +1156,7 @@ type locationRequest struct {
 	Transport string            `json:"transport"`
 	Payload   map[string]string `json:"payload"`
 	DNS       string            `json:"dns"`
+	Proxy     Socks5Proxy       `json:"proxy"`
 	Link      string            `json:"link"`
 }
 
@@ -1554,6 +1569,7 @@ func updateRequestHasLocations(req updateClientRequest) bool {
 		req.Transport != "" ||
 		req.DNS != "" ||
 		req.Name != "" ||
+		req.Proxy != (Socks5Proxy{}) ||
 		len(req.Payload) > 0
 }
 
@@ -1561,7 +1577,7 @@ func createLocationsFromRequest(cfg Config, req addClientRequest) ([]Location, e
 	if len(req.Locations) > 0 {
 		return buildLocations(req.ClientID, req.Locations)
 	}
-	if req.RoomID != "" || req.Key != "" || req.Carrier != "" || req.Transport != "" || req.DNS != "" || req.Name != "" {
+	if req.RoomID != "" || req.Key != "" || req.Carrier != "" || req.Transport != "" || req.DNS != "" || req.Name != "" || req.Proxy != (Socks5Proxy{}) {
 		return buildLocations(req.ClientID, []locationRequest{{
 			Name:      req.Name,
 			RoomID:    req.RoomID,
@@ -1570,6 +1586,7 @@ func createLocationsFromRequest(cfg Config, req addClientRequest) ([]Location, e
 			Transport: req.Transport,
 			Payload:   req.Payload,
 			DNS:       req.DNS,
+			Proxy:     req.Proxy,
 		}})
 	}
 	return templateLocations(cfg, req.FromClient)
@@ -1613,6 +1630,7 @@ func buildLocations(clientID string, requests []locationRequest) ([]Location, er
 		req.Transport = strings.TrimSpace(req.Transport)
 		req.Payload = cleanPayload(req.Payload)
 		req.DNS = strings.TrimSpace(req.DNS)
+		req.Proxy = normalizeProxy(req.Proxy)
 
 		prefix := fmt.Sprintf("locations[%d]", i)
 		if err := validateRoomIDStrict(req.RoomID, req.Carrier); err != nil {
@@ -1634,6 +1652,9 @@ func buildLocations(clientID string, requests []locationRequest) ([]Location, er
 		if err := validatePayload(transportConfig); err != nil {
 			return nil, fmt.Errorf("%s.transport: %w", prefix, err)
 		}
+		if err := validateProxy(req.Proxy); err != nil {
+			return nil, fmt.Errorf("%s.proxy: %w", prefix, err)
+		}
 		name := req.Name
 		if name == "" {
 			name = "Default location"
@@ -1647,6 +1668,7 @@ func buildLocations(clientID string, requests []locationRequest) ([]Location, er
 			Link:      defaultString(strings.TrimSpace(req.Link), defaultLocationLink()),
 			Data:      "data",
 			DNS:       dns,
+			Proxy:     req.Proxy,
 		}
 		key := locationKey(loc)
 		if _, ok := seen[key]; ok {
@@ -1667,6 +1689,34 @@ func validateRequestKey(key string) error {
 	}
 	if _, err := hex.DecodeString(key); err != nil {
 		return errors.New("must be 64 hex characters")
+	}
+	return nil
+}
+
+func normalizeProxy(proxy Socks5Proxy) Socks5Proxy {
+	proxy.Addr = strings.TrimSpace(proxy.Addr)
+	proxy.User = strings.TrimSpace(proxy.User)
+	return proxy
+}
+
+func validateProxy(proxy Socks5Proxy) error {
+	if proxy.Addr == "" {
+		if proxy.Port != 0 {
+			return errors.New("addr is required when port is set")
+		}
+		if proxy.User != "" || proxy.Pass != "" {
+			return errors.New("addr is required when credentials are set")
+		}
+		return nil
+	}
+	if proxy.Port <= 0 || proxy.Port > 65535 {
+		return errors.New("port must be between 1 and 65535")
+	}
+	if len(proxy.User) > 255 {
+		return errors.New("user must be at most 255 bytes")
+	}
+	if len(proxy.Pass) > 255 {
+		return errors.New("pass must be at most 255 bytes")
 	}
 	return nil
 }
@@ -2124,9 +2174,18 @@ func serverConfig(loc Location) (olcrtcRuntimeConfig, error) {
 	if err := applyTransportPayload(&cfg, loc.Transport); err != nil {
 		return olcrtcRuntimeConfig{}, err
 	}
+	// Если в Location задан явный Proxy — используем его
+	if loc.Proxy.Addr != "" {
+		cfg.SOCKS = olcrtcSocksConfig{
+			ProxyAddr: loc.Proxy.Addr,
+			ProxyPort: loc.Proxy.Port,
+			ProxyUser: loc.Proxy.User,
+			ProxyPass: loc.Proxy.Pass,
+		}
+	}
 	// link=direct → без Tor/SOCKS; иначе Tor exit + split (RU direct, остальное через SOCKS).
 	useTor := !strings.EqualFold(strings.TrimSpace(loc.Link), "direct")
-	if useTor {
+	if useTor && loc.Proxy.Addr == "" {
 		if proxyAddr, proxyPort := exitProxyFromEnv(); proxyAddr != "" {
 			cfg.SOCKS = olcrtcSocksConfig{
 				ProxyAddr: proxyAddr,
@@ -3482,6 +3541,7 @@ func (c *Config) Normalize() {
 			if loc.ClientID == "" {
 				loc.ClientID = client.ClientID
 			}
+			loc.Proxy = normalizeProxy(loc.Proxy)
 			locations = append(locations, loc)
 		}
 	}
@@ -3524,6 +3584,9 @@ func (c Config) Validate() error {
 		}
 		if loc.Transport.Type == "" {
 			return fmt.Errorf("%s.transport.type is required", prefix)
+		}
+		if err := validateProxy(loc.Proxy); err != nil {
+			return fmt.Errorf("%s.proxy: %w", prefix, err)
 		}
 		key := locationKey(loc)
 		if _, exists := ids[key]; exists {
