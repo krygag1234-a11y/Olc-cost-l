@@ -13,8 +13,6 @@ p = Path(sys.argv[1])
 t = p.read_text()
 
 helper = r'''
-const panelNotifFile = "/var/lib/olcrtc/notifications.json"
-
 func pushNotification(data map[string]any) {
 	var list []map[string]any
 	readJSONFile(panelNotifFile, &list)
