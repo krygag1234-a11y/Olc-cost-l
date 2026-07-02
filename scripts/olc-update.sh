@@ -31,11 +31,14 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$_script")" && pwd)"
 
 # shellcheck source=lib-tui.sh
-source "$SCRIPT_DIR/lib-tui.sh" 2>/dev/null || {
+if [[ -f "$SCRIPT_DIR/lib-tui.sh" ]]; then
+  source "$SCRIPT_DIR/lib-tui.sh"
+else
   tui_log_info() { echo "[olc-update] $*"; }
   tui_log_error() { echo "[ERROR] $*" >&2; }
+  tui_log_success() { echo "[OK] $*"; }
   tui_divider() { echo "────────────────────────────────────────"; }
-}
+fi
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-git-safe.sh
@@ -57,18 +60,24 @@ main() {
   need_root "$@"
   local update_mode=""
   local repo profile_arg=()
+  local has_explicit_flags=0
   local arg
   for arg in "$@"; do
     case "$arg" in
       --show-profile) profile_show; exit 0 ;;
       --profile) profile_arg=(--profile) ;;
       --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
-      --manager-stable) export OLC_MANAGER_STABLE=1 ;;
-      --manager-latest) export OLC_MANAGER_LATEST=1 ;;
+      --manager-stable) export OLC_MANAGER_STABLE=1; has_explicit_flags=1 ;;
+      --manager-latest) export OLC_MANAGER_LATEST=1; has_explicit_flags=1 ;;
       --incremental) update_mode="--incremental" ;;
       --update) update_mode="--update" ;;
     esac
   done
+
+  # If user specified component flags but no mode, default to --update (not interactive menu)
+  if [[ -z "$update_mode" && "$has_explicit_flags" -eq 1 ]]; then
+    update_mode="--update"
+  fi
   repo="$(detect_repo)" || {
     echo "Olc-cost-l repo not found. Install first, then run: olc-update" >&2
     exit 1
@@ -91,7 +100,7 @@ main() {
     fi
   fi
 
-  # TUI menu для выбора режима (ПЕРЕД git pull)
+  # TUI menu для выбора режима (ПЕРЕД git pull) — только если режим не задан флагами
   if [[ -z "$update_mode" ]] && [[ -t 0 ]] && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
     source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
     if declare -f tui_menu >/dev/null 2>&1; then
@@ -107,14 +116,13 @@ main() {
           "Обновление (полная пересборка - patches, binaries)" \
           "Отмена")
       fi
-      if [[ "$mode" == "2" ]]; then
-        echo "Отмена." >&2
-        exit 0
-      elif [[ "$mode" == "1" ]]; then
-        update_mode="--update"
-      else
-        update_mode="--incremental"
-      fi
+      # tui_menu returns 0-based index
+      case "$mode" in
+        2) echo "Отмена." >&2; exit 0 ;;
+        1) update_mode="--update" ;;
+        0) update_mode="--incremental" ;;
+        *) update_mode="--incremental" ;;
+      esac
     fi
   fi
 

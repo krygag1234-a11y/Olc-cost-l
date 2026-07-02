@@ -59,21 +59,21 @@ fi
 # CURSOR CONTROL
 # ============================================================================
 
-tui_cursor_hide() { [[ -t 1 ]] && echo -ne '\033[?25l'; }
-tui_cursor_show() { [[ -t 1 ]] && echo -ne '\033[?25h'; }
-tui_cursor_save() { [[ -t 1 ]] && echo -ne '\033[s'; }
-tui_cursor_restore() { [[ -t 1 ]] && echo -ne '\033[u'; }
-tui_cursor_up() { [[ -t 1 ]] && echo -ne "\033[${1:-1}A"; }
-tui_cursor_down() { [[ -t 1 ]] && echo -ne "\033[${1:-1}B"; }
-tui_cursor_right() { [[ -t 1 ]] && echo -ne "\033[${1:-1}C"; }
-tui_cursor_left() { [[ -t 1 ]] && echo -ne "\033[${1:-1}D"; }
-tui_cursor_to() { [[ -t 1 ]] && echo -ne "\033[${1:-1};${2:-1}H"; }
-tui_cursor_col() { [[ -t 1 ]] && echo -ne "\033[${1:-1}G"; }
+tui_cursor_hide() { [[ -t 1 ]] && echo -ne '\033[?25l'; return 0; }
+tui_cursor_show() { [[ -t 1 ]] && echo -ne '\033[?25h'; return 0; }
+tui_cursor_save() { [[ -t 1 ]] && echo -ne '\033[s'; return 0; }
+tui_cursor_restore() { [[ -t 1 ]] && echo -ne '\033[u'; return 0; }
+tui_cursor_up() { [[ -t 1 ]] && echo -ne "\033[${1:-1}A"; return 0; }
+tui_cursor_down() { [[ -t 1 ]] && echo -ne "\033[${1:-1}B"; return 0; }
+tui_cursor_right() { [[ -t 1 ]] && echo -ne "\033[${1:-1}C"; return 0; }
+tui_cursor_left() { [[ -t 1 ]] && echo -ne "\033[${1:-1}D"; return 0; }
+tui_cursor_to() { [[ -t 1 ]] && echo -ne "\033[${1:-1};${2:-1}H"; return 0; }
+tui_cursor_col() { [[ -t 1 ]] && echo -ne "\033[${1:-1}G"; return 0; }
 
 # Clear screen functions
-tui_clear() { [[ -t 1 ]] && echo -ne '\033[2J\033[H'; }
-tui_clear_line() { [[ -t 1 ]] && echo -ne '\033[2K\r'; }
-tui_clear_to_end() { [[ -t 1 ]] && echo -ne '\033[K'; }
+tui_clear() { [[ -t 1 ]] && echo -ne '\033[2J\033[H'; return 0; }
+tui_clear_line() { [[ -t 1 ]] && echo -ne '\033[2K\r'; return 0; }
+tui_clear_to_end() { [[ -t 1 ]] && echo -ne '\033[K'; return 0; }
 
 # Get terminal size
 tui_term_width() { tput cols 2>/dev/null || echo 80; }
@@ -87,7 +87,7 @@ _TUI_SPINNER_MSG=""
 tui_spinner_start() {
   local msg="${1:-Loading}"
   _TUI_SPINNER_MSG="$msg"
-  [[ ! -t 1 ]] && { echo "$msg..."; return; }
+  [[ ! -t 1 ]] && { echo "→ $msg..."; return; }
   tui_cursor_hide
   (
     local i=0
@@ -103,7 +103,8 @@ tui_spinner_start() {
 tui_spinner_stop() {
   [[ -n "$_TUI_SPINNER_PID" ]] && kill "$_TUI_SPINNER_PID" 2>/dev/null && wait "$_TUI_SPINNER_PID" 2>/dev/null
   _TUI_SPINNER_PID=""
-  [[ -t 1 ]] && { tui_clear_line; tui_cursor_show; }
+  if [[ -t 1 ]]; then tui_clear_line; tui_cursor_show; fi
+  return 0
 }
 
 tui_spinner_ok() {
@@ -141,27 +142,37 @@ tui_menu() {
   local selected=0
   local key=""
   
-  [[ ! -t 0 ]] && { echo "${options[0]}"; return 0; }
-  
+  [[ ! -t 0 ]] && { echo "0"; return 0; }
+
   tui_cursor_hide
+  local _tui_old_trap
+  _tui_old_trap="$(trap -p EXIT 2>/dev/null || true)"
   trap 'tui_cursor_show' EXIT
-  
+
+  # Save cursor position, draw menu below current output (no screen clear)
+  echo ""
+  local _menu_start_line
+  _menu_start_line=$(( ${#options[@]} + 3 ))
+
   while true; do
-    tui_clear
-    echo -e "${TUI_BOLD}${TUI_CYAN}${title}${TUI_RESET}\n"
+    # Move cursor to menu start and redraw (don't clear entire screen)
+    tui_cursor_up "$_menu_start_line" 2>/dev/null || true
+    echo -e "\033[K${TUI_BOLD}${TUI_CYAN}${title}${TUI_RESET}"
+    echo -e "\033[K"
     
     for i in "${!options[@]}"; do
       if [[ "$i" -eq "$selected" ]]; then
-        echo -e "  ${TUI_BG_CYAN}${TUI_BLACK} ${options[$i]} ${TUI_RESET}"
+        echo -e "\033[K  ${TUI_BG_CYAN}${TUI_BLACK} $((i+1)). ${options[$i]} ${TUI_RESET}"
       else
-        echo -e "  ${TUI_DIM}${options[$i]}${TUI_RESET}"
+        echo -e "\033[K  ${TUI_DIM} $((i+1)). ${options[$i]}${TUI_RESET}"
       fi
     done
-    
-    IFS= read -rsn1 key
+    echo -e "\033[K"
+
+    IFS= read -rsn1 key </dev/tty 2>/dev/null || break
     case "$key" in
       $'\x1b')
-        read -rsn2 -t 0.1 key
+        read -rsn2 -t 0.1 key </dev/tty 2>/dev/null || true
         case "$key" in
           '[A') selected=$(( selected > 0 ? selected - 1 : ${#options[@]} - 1 )) ;;
           '[B') selected=$(( (selected + 1) % ${#options[@]} )) ;;
@@ -170,8 +181,14 @@ tui_menu() {
       '') break ;;
     esac
   done
-  
+
   tui_cursor_show
+  # Restore previous EXIT trap
+  if [[ -n "$_tui_old_trap" ]]; then
+    eval "$_tui_old_trap"
+  else
+    trap - EXIT
+  fi
   echo "$selected"
 }
 
@@ -282,7 +299,10 @@ tui_confirm() {
   local prompt="${1:-Continue?}"
   local default="${2:-y}"
   
-  [[ ! -t 0 ]] && return 0
+  if [[ ! -t 0 ]]; then
+    [[ "$default" == "n" ]] && return 1
+    return 0
+  fi
   
   local yn_prompt="[Y/n]"
   [[ "$default" == "n" ]] && yn_prompt="[y/N]"

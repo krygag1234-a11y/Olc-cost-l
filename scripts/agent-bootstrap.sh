@@ -502,7 +502,10 @@ if [[ -f "$SCRIPT_DIR/lib-component-check.sh" ]]; then
 fi
 
 if [[ "$UPDATE" -eq 1 ]]; then
-  log "UPDATE: refresh lists, patches, tor exit, zapret, units (resumable)"
+  tui_banner "Обновление Olc-cost-l"
+  tui_log_info "Режим: UPDATE — обновление списков, патчей, Tor, zapret, systemd"
+  tui_log_info "Можно продолжить с --resume если процесс прервётся"
+  tui_divider
   profile_apply_env
   state_step_profile patches              run_patches
   state_step_profile sysctl               setup_sysctl
@@ -525,7 +528,9 @@ if [[ "$UPDATE" -eq 1 ]]; then
 fi
 
 if [[ "$INCREMENTAL" -eq 1 ]]; then
-  log "INCREMENTAL: skip working components, install/fix missing (smart update)"
+  tui_banner "Доустановка Olc-cost-l"
+  tui_log_info "Режим: INCREMENTAL — skip работающих компонентов, доустановка недостающих"
+  tui_divider
   profile_apply_env
   
   # Проверка и установка packages только если нужно
@@ -584,22 +589,21 @@ state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager.
 state_finish
 
 tui_divider
-tui_box 70 "Установка завершена!"
-tui_gradient "Olc-cost-l готов к работе"
+tui_banner "Установка завершена!"
 echo ""
 
-log "Done. Read $DOC"
-log "Patches: $REPO_ROOT/patches/PATCHES.md"
+tui_log_info "Документация: $DOC"
+tui_log_info "Патчи: $REPO_ROOT/patches/PATCHES.md"
 if [[ "$ENABLE_TOR" -eq 0 ]]; then
-  log "Mode: FOREIGN / NO TOR — panel only, no bridges, no split scripts"
+  tui_log_info "Режим: FOREIGN / NO TOR — только панель, без мостов и split"
 else
-  log "Mode: Tor + bridge pool (RU VPS)"
+  tui_log_info "Режим: Tor + bridge pool (RU VPS)"
   if [[ "$RU_VPS" -eq 1 && "$ENABLE_SPLIT" -eq 1 ]]; then
-    log "Split: *.ru + players + RF-blocked → direct (zapret DPI); force-tor (YT) + rest → Tor"
+    tui_log_info "Split: *.ru + players + RF-blocked → direct (zapret DPI); force-tor (YT) + rest → Tor"
   elif [[ "$ENABLE_SPLIT" -eq 0 ]]; then
-    log "Split: disabled (--no-split), all via Tor exit"
+    tui_log_info "Split: disabled (--no-split), весь трафик через Tor exit"
   fi
 fi
-log "Olcbox: https://github.com/alananisimov/olcbox/releases (nightly: .../tag/nightly)"
-log "Set OLCRTC_PUBLIC_URL in panel.env (DDNS, not raw IP)"
+tui_log_info "Olcbox: https://github.com/alananisimov/olcbox/releases"
+tui_log_info "Задайте OLCRTC_PUBLIC_URL в panel.env (DDNS, не raw IP)"
 olc_print_finish_help 8888

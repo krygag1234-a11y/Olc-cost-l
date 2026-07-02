@@ -116,22 +116,31 @@ if [[ -f "$SCRIPT_DIR/scripts/lib-tui.sh" ]]; then
   source "$SCRIPT_DIR/scripts/lib-tui.sh"
 else
   # Fallback: define stub functions if TUI not available yet (curl | bash scenario)
-  tui_log_step() { echo "[install] $*"; }
-  tui_log_info() { echo "[install] $*"; }
-  tui_log_warning() { echo "[install] WARN: $*"; }
-  tui_log_error() { echo "[install] ERROR: $*" >&2; }
-  tui_confirm() { return 1; }  # Skip interactive prompts in curl | bash
+  tui_log_step() { echo "→ $*"; }
+  tui_log_info() { echo "ℹ $*"; }
+  tui_log_success() { echo "✓ $*"; }
+  tui_log_warning() { echo "⚠ $*"; }
+  tui_log_error() { echo "✗ $*" >&2; }
+  tui_divider() { echo "────────────────────────────────────────"; }
+  tui_banner() { echo ""; echo "═══ $1 ═══"; echo ""; }
+  tui_clear() { :; }
+  tui_confirm() {
+    local default="${2:-y}"
+    [[ "$default" == "n" ]] && return 1
+    return 0
+  }
   tui_menu() {
-    # Simple fallback: show options and read choice
     local prompt="$1"; shift
+    local i=0
     echo "$prompt" >&2
-    local i=1
     for opt in "$@"; do
-      echo "$i) $opt" >&2
+      echo "$((i+1))) $opt" >&2
       ((i++))
     done
-    read -p "Выбор (1-$#): " choice >&2
-    echo "${!choice}"
+    local choice
+    read -p "Выбор (1-$#): " choice >&2 </dev/tty 2>/dev/null || choice=1
+    # Return 0-based index
+    echo "$(( ${choice:-1} - 1 ))"
   }
 fi
 # shellcheck source=scripts/lib-swap-auto.sh
@@ -208,7 +217,13 @@ if [[ -x "$DETECT" ]]; then
 fi
 
 if [[ "$FORCE_MODE" == "--full" || "$FORCE_MODE" == "--fresh" ]]; then
-  MODE=full
+  if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
+    tui_log_warning "Система уже установлена ($STATE). --full → умное обновление (пересборка + сервисы)."
+    tui_log_info "Для полной переустановки с нуля используйте: sudo olc-purge && curl ... | sudo bash"
+    MODE=full
+  else
+    MODE=full
+  fi
 elif [[ "$FORCE_MODE" == "--update" ]]; then
   MODE=update
 else
@@ -234,16 +249,14 @@ else
         "Переустановить полностью с нуля" \
         "Отмена")
       
-      if [[ "$selected" == "3" ]]; then
-        echo "Установка отменена." >&2
-        exit 0
-      elif [[ "$selected" == "2" ]]; then
-        MODE=full
-      elif [[ "$selected" == "1" ]]; then
-        MODE=update
-      else
-        MODE=incremental
-      fi
+      # tui_menu returns 0-based index
+      case "$selected" in
+        3) echo "Установка отменена." >&2; exit 0 ;;
+        2) MODE=full ;;
+        1) MODE=update ;;
+        0) MODE=incremental ;;
+        *) MODE=incremental ;;
+      esac
     else
       MODE=update
     fi
