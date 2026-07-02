@@ -92,7 +92,7 @@ main() {
   fi
 
   # TUI menu для выбора режима (ПЕРЕД git pull)
-  if [[ -z "$update_mode" ]] && olc_update_has_tty && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
+  if [[ -z "$update_mode" ]] && [[ -t 0 ]] && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
     source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
     if declare -f tui_menu >/dev/null 2>&1; then
       echo ""
