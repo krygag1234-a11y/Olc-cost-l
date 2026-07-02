@@ -339,7 +339,10 @@ tui_banner() {
 tui_divider() {
   local char="${1:-─}"
   local width=$(tui_term_width)
-  printf "${TUI_DIM}%${width}s${TUI_RESET}\n" | tr ' ' "$char"
+  local line=""
+  local i
+  for ((i=0; i<width; i++)); do line+="$char"; done
+  echo -e "${TUI_DIM}${line}${TUI_RESET}"
 }
 
 # Export all functions

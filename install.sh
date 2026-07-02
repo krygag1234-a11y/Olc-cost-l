@@ -163,7 +163,7 @@ BOOT_ARGS=()
 SHOW_STATE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --full|--update|--fresh) FORCE_MODE="$1"; BOOT_ARGS+=("$1") ;;
+    --full|--update|--fresh) FORCE_MODE="$1" ;;  # MODE передаётся через exec, не через BOOT_ARGS
     --tor|--warp|--zapret|--split|--bridges) BOOT_ARGS+=("$1") ;;
     --no-tor|--no-warp|--no-zapret|--no-split|--no-bridges) BOOT_ARGS+=("$1") ;;
     --foreign|--with-warp|--with-tor|--ru) BOOT_ARGS+=("$1") ;;
@@ -220,7 +220,7 @@ if [[ "$FORCE_MODE" == "--full" || "$FORCE_MODE" == "--fresh" ]]; then
   if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
     tui_log_warning "Система уже установлена ($STATE). --full → умное обновление (пересборка + сервисы)."
     tui_log_info "Для полной переустановки с нуля используйте: sudo olc-purge && curl ... | sudo bash"
-    MODE=full
+    MODE=update
   else
     MODE=full
   fi
