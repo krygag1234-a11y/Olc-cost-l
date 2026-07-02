@@ -33,6 +33,8 @@ ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
 ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
 RU_VPS="${OLCRTC_RU_VPS:-1}"
 PANEL_ACCESS="${OLCRTC_PANEL_ACCESS:-ip}"
+PANEL_TLS="${OLCRTC_PANEL_TLS:-0}"
+PANEL_LISTEN_ADDR="${OLCRTC_MANAGER_ADDR:-0.0.0.0}"
 PANEL_ACCESS_EXPLICIT=0
 REBUILD_ONLY=0
 UPDATE=0
@@ -406,17 +408,50 @@ state_init
 
 ensure_panel_jitsi_tls() {
   local env=/etc/olcrtc-manager/panel.env
-  install -d /etc/olcrtc-manager
+  local config_dir=/etc/olcrtc-manager
+  local tls_cert="$config_dir/tls.crt"
+  local tls_key="$config_dir/tls.key"
+
+  install -d "$config_dir"
   touch "$env"
+
   safety_panel_env_set "$env" OLCRTC_JITSI_INSECURE_TLS 1
   safety_panel_env_set "$env" OLCRTC_MANAGER_ADDR "${PANEL_LISTEN_ADDR:-0.0.0.0}"
   safety_panel_env_set "$env" OLCRTC_PANEL_ACCESS "${PANEL_ACCESS:-ip}"
+
+  # HTTPS support: generate self-signed cert if enabled
+  local panel_tls="${PANEL_TLS:-0}"
+  if [[ "$panel_tls" == "1" ]]; then
+    if [[ ! -f "$tls_cert" ]] || [[ ! -f "$tls_key" ]]; then
+      log "Generating self-signed TLS certificate for panel..."
+      local cert_ip="${PANEL_CERT_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+      openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$tls_key" -out "$tls_cert" \
+        -days 365 -subj "/CN=${cert_ip}" \
+        -addext "subjectAltName=IP:${cert_ip}" 2>/dev/null || {
+        log "WARNING: openssl cert generation failed, falling back to HTTP"
+        panel_tls=0
+      }
+      chmod 600 "$tls_key" "$tls_cert" 2>/dev/null || true
+    else
+      log "Using existing TLS certificate: $tls_cert"
+    fi
+
+    if [[ "$panel_tls" == "1" ]]; then
+      safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_CERT "$tls_cert"
+      safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_KEY "$tls_key"
+      log "HTTPS enabled for panel (self-signed cert)"
+    fi
+  fi
+
   if [[ "${PANEL_ACCESS:-ip}" == "ssh" ]]; then
     safety_panel_env_set "$env" OLCRTC_PUBLIC_URL "http://127.0.0.1:8888"
   else
     safety_panel_env_set "$env" OLCRTC_PUBLIC_URL ""
   fi
-  log "panel.env: panel access=${PANEL_ACCESS:-ip}, listen=${PANEL_LISTEN_ADDR:-0.0.0.0}"
+
+  log "panel.env: panel access=${PANEL_ACCESS:-ip}, listen=${PANEL_LISTEN_ADDR:-0.0.0.0}, tls=${panel_tls}"
+
   local panel_lang="${OLC_LANG:-ru}"
   [[ "$panel_lang" == en ]] || panel_lang=ru
   safety_panel_env_set "$env" OLC_PANEL_LANG "$panel_lang"

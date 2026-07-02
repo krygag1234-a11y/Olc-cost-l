@@ -650,11 +650,22 @@ func run() error {
 		Handler:           securityHeaders(updateGuardMiddleware(handler)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	tlsCert, tlsKey, tlsEnabled, err := tlsFilesFromEnv()
+	if err != nil {
+		return err
+	}
 
 	errc := make(chan error, 1)
 	go func() {
 		log.Printf("serving subscription and admin panel on %s", server.Addr)
-		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if tlsEnabled {
+			log.Printf("TLS enabled with certificate %s", tlsCert)
+			err = server.ListenAndServeTLS(tlsCert, tlsKey)
+		} else {
+			err = server.ListenAndServe()
+		}
+		if !errors.Is(err, http.ErrServerClosed) {
 			errc <- err
 			return
 		}
@@ -3612,6 +3623,18 @@ func envDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func tlsFilesFromEnv() (string, string, bool, error) {
+	cert := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_TLS_CERT"))
+	key := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_TLS_KEY"))
+	if cert == "" && key == "" {
+		return "", "", false, nil
+	}
+	if cert == "" || key == "" {
+		return "", "", false, errors.New("OLCRTC_MANAGER_TLS_CERT and OLCRTC_MANAGER_TLS_KEY must be set together")
+	}
+	return cert, key, true, nil
 }
 
 func defaultString(value, fallback string) string {
