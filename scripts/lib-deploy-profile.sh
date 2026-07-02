@@ -26,6 +26,7 @@ profile_from_flags() {
   local fingerprint="${6:-}"
   local warp="${7:-${ENABLE_WARP:-0}}"
   local panel_access="${8:-${PANEL_ACCESS:-ip}}"
+  local panel_tls="${9:-${PANEL_TLS:-0}}"
   local panel_listen_addr="0.0.0.0"
   [[ "$panel_access" == "ssh" ]] && panel_listen_addr="127.0.0.1" || panel_access="ip"
 
@@ -69,6 +70,7 @@ profile_from_flags() {
       --arg fp "$fingerprint" \
       --arg panel_access "$panel_access" \
       --arg panel_listen_addr "$panel_listen_addr" \
+      --argjson panel_tls "$([[ "$panel_tls" -eq 1 ]] && echo true || echo false)" \
       --argjson tor "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
       --argjson split "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
       --argjson zapret "$([[ "$zapret" -eq 1 ]] && echo true || echo false)" \
@@ -80,14 +82,14 @@ profile_from_flags() {
         profile_id: $id,
         label: $label,
         components: { tor: $tor, split: $split, zapret: $zapret, bridges: $bridges, warp: $warp },
-        panel: { access: $panel_access, listen_addr: $panel_listen_addr },
+        panel: { access: $panel_access, listen_addr: $panel_listen_addr, tls: $panel_tls },
         ru_vps: $ru,
         update_mode: "incremental",
         created_at: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
         install_script_fingerprint: $fp
       }' >"$OLCRTC_DEPLOY_PROFILE"
   else
-    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s},"panel":{"access":"%s","listen_addr":"%s"}}\n' \
+    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s},"panel":{"access":"%s","listen_addr":"%s","tls":%s}}\n' \
       "$PROFILE_ID" "$PROFILE_LABEL" \
       "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
@@ -95,6 +97,7 @@ profile_from_flags() {
       "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
       "$panel_access" "$panel_listen_addr" \
+      "$([[ "$panel_tls" -eq 1 ]] && echo true || echo false)" \
       >"$OLCRTC_DEPLOY_PROFILE"
   fi
   profile_log "saved $PROFILE_ID → $OLCRTC_DEPLOY_PROFILE"
