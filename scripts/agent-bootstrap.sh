@@ -517,7 +517,9 @@ if [[ "$UPDATE" -eq 1 ]]; then
   state_step_profile restart-manager      run_restart_manager
   profile_apply_runtime_toggles 2>/dev/null || true
   state_finish
-  log "Update done."
+  tui_divider
+  tui_log_success "✓ Обновление успешно завершено!"
+  tui_divider
   olc_print_finish_help 8888
   exit 0
 fi
@@ -549,7 +551,9 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   state_step_profile restart-manager      run_restart_manager
   profile_apply_runtime_toggles 2>/dev/null || true
   state_finish
-  log "Incremental update done."
+  tui_divider
+  tui_log_success "✓ Доустановка успешно завершена!"
+  tui_divider
   olc_print_finish_help 8888
   exit 0
 fi

@@ -29,6 +29,13 @@ while [[ -L "$_script" ]]; do
   _script="$(readlink -f "$_script")"
 done
 SCRIPT_DIR="$(cd "$(dirname "$_script")" && pwd)"
+
+# shellcheck source=lib-tui.sh
+source "$SCRIPT_DIR/lib-tui.sh" 2>/dev/null || {
+  tui_log_info() { echo "[olc-update] $*"; }
+  tui_log_error() { echo "[ERROR] $*" >&2; }
+  tui_divider() { echo "────────────────────────────────────────"; }
+}
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
 # shellcheck source=lib-git-safe.sh
@@ -105,9 +112,19 @@ main() {
   export OLC_VPS_BACKUP_DISABLE=1 # Чтобы не делать бэкап дважды
   
   olc_git_safe_register "$repo"
-  olc_git "$repo" pull --ff-only origin main
 
-  # TUI menu для выбора режима если не указан флагом
+  # Git pull с русским языком
+  echo ""
+  tui_log_info "Обновление репозитория из GitHub..."
+  tui_divider
+  LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 olc_git "$repo" pull --ff-only origin main || {
+    tui_log_error "Ошибка git pull. Проверьте подключение к GitHub."
+    exit 1
+  }
+  tui_divider
+  echo ""
+
+  # TUI menu для выбора режима (только если не указан флагом)
   if [[ -z "$update_mode" ]] && olc_update_has_tty && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
     source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
     if declare -f tui_menu >/dev/null 2>&1; then
@@ -125,9 +142,15 @@ main() {
       fi
     fi
   fi
-  
+
   # Если режим не выбран, default = --incremental
   : "${update_mode:=--incremental}"
+
+  # Загружаем TUI библиотеку для использования в agent-bootstrap.sh
+  if [[ -f "$repo/scripts/lib-tui.sh" ]]; then
+    source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
+    export OLC_TUI_LOADED=1
+  fi
   # Re-read profile id if passed as --profile <id>
   local boot_args=(--update)
   local i=1
