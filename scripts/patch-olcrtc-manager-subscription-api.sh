@@ -232,12 +232,11 @@ t = t.replace(anchor, api_handlers + anchor, 1)
 print("[patch-subscription-api] handler functions added")
 
 # === 2. Modify existing /api/clients/ handler to route randomization paths ===
-# Insert randomization routing at the start of the handler
-clients_handler_start = '''handler.Handle("/api/clients/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-\t\tif r.Method != http.MethodDelete && r.Method != http.MethodPut && r.Method != http.MethodPost {'''
-
-clients_handler_new = '''handler.Handle("/api/clients/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-\t\trest := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+# Insert randomization routing AFTER existing `rest := strings.TrimPrefix(...)` line
+clients_rest_line = 'rest := strings.TrimPrefix(r.URL.Path, "/api/clients/")'
+if clients_rest_line in t and 'randomizationEnableHandler' not in t:
+    # Find the line and insert routing checks right after it
+    routing_block = '''
 \t\tif strings.HasSuffix(rest, "/randomization/enable") {
 \t\t\trandomizationEnableHandler(configPath)(w, r)
 \t\t\treturn
@@ -253,43 +252,19 @@ clients_handler_new = '''handler.Handle("/api/clients/", adminAuth(http.HandlerF
 \t\tif strings.HasSuffix(rest, "/subscription-url") {
 \t\t\tsubscriptionURLHandler(configPath)(w, r)
 \t\t\treturn
-\t\t}
-\t\tif r.Method != http.MethodDelete && r.Method != http.MethodPut && r.Method != http.MethodPost && r.Method != http.MethodGet {'''
-
-if clients_handler_start in t:
-    t = t.replace(clients_handler_start, clients_handler_new, 1)
-    print("[patch-subscription-api] /api/clients/ routing modified")
+\t\t}'''
+    # Replace the rest line with rest line + routing block
+    t = t.replace(
+        clients_rest_line,
+        clients_rest_line + routing_block,
+        1
+    )
+    print("[patch-subscription-api] /api/clients/ routing added after rest :=")
 else:
-    print("[patch-subscription-api] WARN: /api/clients/ handler anchor not found — trying fallback")
-    # Fallback: try with tabs
-    alt_anchor = 'handler.Handle("/api/clients/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {'
-    if alt_anchor in t:
-        # Find the method check that follows
-        idx = t.index(alt_anchor)
-        # Insert routing block after the opening line
-        insert_pos = t.index('\n', idx) + 1
-        routing_block = '''\t\trest := strings.TrimPrefix(r.URL.Path, "/api/clients/")
-\t\tif strings.HasSuffix(rest, "/randomization/enable") {
-\t\t\trandomizationEnableHandler(configPath)(w, r)
-\t\t\treturn
-\t\t}
-\t\tif strings.HasSuffix(rest, "/randomization/disable") {
-\t\t\trandomizationDisableHandler(configPath)(w, r)
-\t\t\treturn
-\t\t}
-\t\tif strings.HasSuffix(rest, "/randomization/regenerate") {
-\t\t\trandomizationRegenerateHandler(configPath)(w, r)
-\t\t\treturn
-\t\t}
-\t\tif strings.HasSuffix(rest, "/subscription-url") {
-\t\t\tsubscriptionURLHandler(configPath)(w, r)
-\t\t\treturn
-\t\t}
-'''
-        t = t[:insert_pos] + routing_block + t[insert_pos:]
-        print("[patch-subscription-api] /api/clients/ routing added (fallback)")
+    if 'randomizationEnableHandler' in t:
+        print("[patch-subscription-api] routing already present")
     else:
-        print("[patch-subscription-api] ERROR: cannot find /api/clients/ handler")
+        print("[patch-subscription-api] ERROR: rest := line not found in /api/clients/ handler")
         raise SystemExit(1)
 
 # === 3. Add /api/settings/randomization/global route before catch-all ===
