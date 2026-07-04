@@ -234,7 +234,7 @@ print("[patch-subscription-api] handler functions added")
 # === 2. Modify existing /api/clients/ handler to route randomization paths ===
 # Insert routing BEFORE method check, using r.URL.Path directly (not rest)
 clients_handler_anchor = '\thandler.Handle("/api/clients/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {'
-if clients_handler_anchor in t and 'randomizationEnableHandler' not in t:
+if clients_handler_anchor in t and 'urlPath := r.URL.Path' not in t:
     # Find position after the opening line
     idx = t.index(clients_handler_anchor)
     insert_pos = t.index('\n', idx) + 1
@@ -260,7 +260,7 @@ if clients_handler_anchor in t and 'randomizationEnableHandler' not in t:
     t = t[:insert_pos] + routing_block + t[insert_pos:]
     print("[patch-subscription-api] /api/clients/ routing added before method check")
 else:
-    if 'randomizationEnableHandler' in t:
+    if 'urlPath := r.URL.Path' in t:
         print("[patch-subscription-api] routing already present")
     else:
         print("[patch-subscription-api] ERROR: /api/clients/ handler not found")
