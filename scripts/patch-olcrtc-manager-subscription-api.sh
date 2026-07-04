@@ -232,39 +232,38 @@ t = t.replace(anchor, api_handlers + anchor, 1)
 print("[patch-subscription-api] handler functions added")
 
 # === 2. Modify existing /api/clients/ handler to route randomization paths ===
-# Insert randomization routing AFTER existing `rest := strings.TrimPrefix(...)` line
-clients_rest_line = 'rest := strings.TrimPrefix(r.URL.Path, "/api/clients/")'
-if clients_rest_line in t and 'randomizationEnableHandler' not in t:
-    # Find the line and insert routing checks right after it
-    routing_block = '''
-\t\tif strings.HasSuffix(rest, "/randomization/enable") {
+# Insert routing BEFORE method check, using r.URL.Path directly (not rest)
+clients_handler_anchor = 'handler.Handle("/api/clients/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {'
+if clients_handler_anchor in t and 'randomizationEnableHandler' not in t:
+    # Find position after the opening line
+    idx = t.index(clients_handler_anchor)
+    insert_pos = t.index('\n', idx) + 1
+    routing_block = '''\t\t// Subscription randomization API routes (before method check)
+\t\turlPath := r.URL.Path
+\t\tif strings.HasSuffix(urlPath, "/randomization/enable") {
 \t\t\trandomizationEnableHandler(configPath)(w, r)
 \t\t\treturn
 \t\t}
-\t\tif strings.HasSuffix(rest, "/randomization/disable") {
+\t\tif strings.HasSuffix(urlPath, "/randomization/disable") {
 \t\t\trandomizationDisableHandler(configPath)(w, r)
 \t\t\treturn
 \t\t}
-\t\tif strings.HasSuffix(rest, "/randomization/regenerate") {
+\t\tif strings.HasSuffix(urlPath, "/randomization/regenerate") {
 \t\t\trandomizationRegenerateHandler(configPath)(w, r)
 \t\t\treturn
 \t\t}
-\t\tif strings.HasSuffix(rest, "/subscription-url") {
+\t\tif strings.HasSuffix(urlPath, "/subscription-url") {
 \t\t\tsubscriptionURLHandler(configPath)(w, r)
 \t\t\treturn
-\t\t}'''
-    # Replace the rest line with rest line + routing block
-    t = t.replace(
-        clients_rest_line,
-        clients_rest_line + routing_block,
-        1
-    )
-    print("[patch-subscription-api] /api/clients/ routing added after rest :=")
+\t\t}
+'''
+    t = t[:insert_pos] + routing_block + t[insert_pos:]
+    print("[patch-subscription-api] /api/clients/ routing added before method check")
 else:
     if 'randomizationEnableHandler' in t:
         print("[patch-subscription-api] routing already present")
     else:
-        print("[patch-subscription-api] ERROR: rest := line not found in /api/clients/ handler")
+        print("[patch-subscription-api] ERROR: /api/clients/ handler not found")
         raise SystemExit(1)
 
 # === 3. Add /api/settings/randomization/global route before catch-all ===
