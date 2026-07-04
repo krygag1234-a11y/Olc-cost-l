@@ -331,7 +331,6 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v15.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v16-bridge-pool-log.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v17.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-randomization.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-link.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-transports.sh" \
@@ -409,6 +408,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v24-lang-defaults.sh" "$MGR_REPO"
   # Эталон панели — финальное выравнивание UI и main.go (поверх всех hotfix).
   bash "$SCRIPT_DIR/apply-golden-panel.sh" "$MGR_REPO"
+  # Subscription randomization must run after golden-panel because golden-panel rewrites main.go.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-randomization.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
