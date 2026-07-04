@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# Subscription Randomization: защита от enumeration через HMAC-SHA256 hash client_id
+set -euo pipefail
+MAIN_GO="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/cmd/olcrtc-manager/main.go}"
+[[ -f "$MAIN_GO" ]] || exit 0
+grep -q 'ClientRandomization' "$MAIN_GO" && {
+  echo "[patch-subscription-randomization] already applied"
+  exit 0
+}
+
+python3 - "$MAIN_GO" <<'PY'
+import sys
+from pathlib import Path
+import re
+
+p = Path(sys.argv[1])
+t = p.read_text()
+
+# === 1. Add imports (crypto/hmac, crypto/sha256) ===
+imports_section = re.search(r'import \((.*?)\)', t, re.DOTALL)
+if imports_section and 'crypto/hmac' not in t:
+    old_imports = imports_section.group(0)
+    # Add after crypto/rand
+    new_imports = old_imports.replace(
+        '"crypto/rand"',
+        '"crypto/hmac"\n\t"crypto/rand"\n\t"crypto/sha256"'
+    )
+    t = t.replace(old_imports, new_imports, 1)
+    print("[patch-randomization] imports added")
+
+# === 2. Add structs after Client struct ===
+client_struct_end = 'type Quota struct {'
+if client_struct_end in t and 'type ClientRandomization struct' not in t:
+    structs = '''
+type ClientRandomization struct {
+\tEnabled      bool   `json:"enabled"`
+\tRandomizedID string `json:"randomized_id,omitempty"`
+}
+
+type GlobalSettings struct {
+\tSubscription *SubscriptionSettings `json:"subscription,omitempty"`
+}
+
+type SubscriptionSettings struct {
+\tRandomizationEnabled bool `json:"randomization_enabled"`
+}
+
+'''
+    t = t.replace(client_struct_end, structs + client_struct_end, 1)
+    print("[patch-randomization] structs added")
+
+# === 3. Modify Client struct ===
+client_def = re.search(r'type Client struct \{[^}]+\}', t, re.DOTALL)
+if client_def and 'Randomization' not in client_def.group(0):
+    old_client = client_def.group(0)
+    # Add before closing brace
+    new_client = old_client.replace(
+        '\tLocations []Location `json:"locations"`',
+        '\tLocations     []Location            `json:"locations"`\n\tRandomization *ClientRandomization  `json:"randomization,omitempty"`'
+    )
+    t = t.replace(old_client, new_client, 1)
+    print("[patch-randomization] Client struct modified")
+
+# === 4. Modify Config struct ===
+config_def = re.search(r'type Config struct \{.*?Locations\s+\[\]Location[^}]+\}', t, re.DOTALL)
+if config_def and 'RandomizationSecret' not in config_def.group(0):
+    old_config = config_def.group(0)
+    new_config = old_config.replace(
+        '\tLocations        []Location `json:"locations"`',
+        '\tLocations           []Location       `json:"locations"`\n\tGlobalSettings      *GlobalSettings  `json:"global_settings,omitempty"`\n\tRandomizationSecret string           `json:"randomization_secret,omitempty"`'
+    )
+    t = t.replace(old_config, new_config, 1)
+    print("[patch-randomization] Config struct modified")
+
+# === 5. Modify Normalize() to call initRandomizationSecret() ===
+normalize_func = re.search(r'func \(c \*Config\) Normalize\(\) \{.*?\n\tc\.Locations = locations\n\}', t, re.DOTALL)
+if normalize_func and 'initRandomizationSecret' not in normalize_func.group(0):
+    old_normalize = normalize_func.group(0)
+    new_normalize = old_normalize.replace(
+        '\tc.Locations = locations\n}',
+        '\tc.Locations = locations\n\n\tc.initRandomizationSecret()\n}'
+    )
+    t = t.replace(old_normalize, new_normalize, 1)
+    print("[patch-randomization] Normalize() modified")
+
+# === 6. Add helper functions after Normalize() ===
+if 'func (c *Config) initRandomizationSecret()' not in t:
+    anchor = 'func (c Config) Validate() error {'
+    if anchor in t:
+        helpers = '''
+func (c *Config) initRandomizationSecret() {
+\tif c.RandomizationSecret != "" {
+\t\treturn
+\t}
+
+\tbuf := make([]byte, 32)
+\tif _, err := rand.Read(buf); err != nil {
+\t\tlog.Printf("WARN: failed to generate randomization secret: %v", err)
+\t\treturn
+\t}
+\tc.RandomizationSecret = hex.EncodeToString(buf)
+}
+
+func generateRandomizedID(clientID, secret string) string {
+\tif secret == "" {
+\t\treturn ""
+\t}
+
+\tdata := fmt.Sprintf("%s:%d", clientID, time.Now().UnixNano())
+\th := hmac.New(sha256.New, []byte(secret))
+\th.Write([]byte(data))
+\thash := hex.EncodeToString(h.Sum(nil))
+
+\tif len(hash) > 16 {
+\t\treturn hash[:16]
+\t}
+\treturn hash
+}
+
+func globalRandomizationEnabled(cfg Config) bool {
+\tif cfg.GlobalSettings == nil || cfg.GlobalSettings.Subscription == nil {
+\t\treturn false
+\t}
+\treturn cfg.GlobalSettings.Subscription.RandomizationEnabled
+}
+
+func resolveClientID(requestedID string, cfg Config) (string, error) {
+\tglobalEnabled := globalRandomizationEnabled(cfg)
+
+\tfor _, client := range cfg.Clients {
+\t\tif client.ClientID == requestedID {
+\t\t\tperClientEnabled := client.Randomization != nil && client.Randomization.Enabled
+\t\t\tif perClientEnabled || globalEnabled {
+\t\t\t\treturn "", errors.New("not found")
+\t\t\t}
+\t\t\treturn requestedID, nil
+\t\t}
+\t}
+
+\tfor _, client := range cfg.Clients {
+\t\tif client.Randomization != nil && client.Randomization.RandomizedID == requestedID {
+\t\t\tperClientEnabled := client.Randomization.Enabled
+\t\t\tif perClientEnabled || globalEnabled {
+\t\t\t\treturn client.ClientID, nil
+\t\t\t}
+\t\t\treturn "", errors.New("not found")
+\t\t}
+\t}
+
+\treturn "", errors.New("not found")
+}
+
+'''
+        t = t.replace(anchor, helpers + anchor, 1)
+        print("[patch-randomization] helper functions added")
+
+# === 7. Modify subscriptionHandler to use resolveClientID ===
+sub_handler = re.search(r'func subscriptionHandler\(supervisor \*Supervisor\) http\.Handler \{.*?^\}', t, re.DOTALL | re.MULTILINE)
+if sub_handler and 'resolveClientID' not in sub_handler.group(0):
+    old_handler = sub_handler.group(0)
+    new_handler = '''func subscriptionHandler(supervisor *Supervisor) http.Handler {
+\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+\t\trequestedID, ok := clientIDFromSubscriptionPath(r.URL.Path, supervisor.SubscriptionPath())
+\t\tif !ok {
+\t\t\thttp.NotFound(w, r)
+\t\t\treturn
+\t\t}
+
+\t\tsupervisor.mu.RLock()
+\t\tcfg := supervisor.cfg
+\t\tsupervisor.mu.RUnlock()
+
+\t\tresolvedClientID, err := resolveClientID(requestedID, cfg)
+\t\tif err != nil {
+\t\t\thttp.NotFound(w, r)
+\t\t\treturn
+\t\t}
+
+\t\tsub, ok := supervisor.SubscriptionForClient(resolvedClientID, time.Now())
+\t\tif !ok {
+\t\t\thttp.NotFound(w, r)
+\t\t\treturn
+\t\t}
+
+\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+\t\t_, _ = w.Write([]byte(sub))
+\t})
+}'''
+    t = t.replace(old_handler, new_handler, 1)
+    print("[patch-randomization] subscriptionHandler modified")
+
+# === 8. Modify loadConfig to auto-save secret ===
+load_config = re.search(r'func loadConfig\(path string\) \(Config, error\) \{.*?return cfg, nil\n\}', t, re.DOTALL)
+if load_config and 'secretWasEmpty' not in load_config.group(0):
+    old_load = load_config.group(0)
+    new_load = old_load.replace(
+        '\tvar cfg Config\n\tif err := json.Unmarshal(data, &cfg); err != nil {\n\t\treturn Config{}, fmt.Errorf("parse config: %w", err)\n\t}\n\tcfg.Normalize()',
+        '\tvar cfg Config\n\tif err := json.Unmarshal(data, &cfg); err != nil {\n\t\treturn Config{}, fmt.Errorf("parse config: %w", err)\n\t}\n\n\tsecretWasEmpty := cfg.RandomizationSecret == ""\n\tcfg.Normalize()'
+    )
+    new_load = new_load.replace(
+        '\tif warns := sanitizeConfigInvalidLocations(&cfg); len(warns) > 0 {\n\t\tfor _, w := range warns {\n\t\t\tlog.Printf("config sanitize: %s", w)\n\t\t}\n\t\t_ = saveConfig(path, cfg)\n\t}\n\treturn cfg, nil',
+        '\tneedsSave := false\n\tif warns := sanitizeConfigInvalidLocations(&cfg); len(warns) > 0 {\n\t\tfor _, w := range warns {\n\t\t\tlog.Printf("config sanitize: %s", w)\n\t\t}\n\t\tneedsSave = true\n\t}\n\tif secretWasEmpty && cfg.RandomizationSecret != "" {\n\t\tneedsSave = true\n\t}\n\n\tif needsSave {\n\t\t_ = saveConfig(path, cfg)\n\t}\n\treturn cfg, nil'
+    )
+    t = t.replace(old_load, new_load, 1)
+    print("[patch-randomization] loadConfig modified")
+
+p.write_text(t)
+print("[patch-randomization] ok")
+PY
