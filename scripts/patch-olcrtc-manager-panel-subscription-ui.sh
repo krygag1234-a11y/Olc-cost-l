@@ -16,8 +16,8 @@ import re
 p = Path(sys.argv[1])
 t = p.read_text()
 
-# === 1. Add SubscriptionRandomizationPanel component after AutodetectNotificationSettingsPanel ===
-anchor = 'function NotificationPreferencesModal'
+# === 1. Add SubscriptionRandomizationPanel component before App function ===
+anchor = 'function App()'
 if anchor in t and 'SubscriptionRandomizationPanel' not in t:
     component = '''
 function SubscriptionRandomizationPanel({
