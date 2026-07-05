@@ -10,7 +10,7 @@ grep -q 'globalRandomization.*Global subscription ID randomization' "$MAIN_TSX" 
   exit 0
 }
 
-py - "$MAIN_TSX" <<'PY'
+python3 - "$MAIN_TSX" <<'PY'
 import sys
 from pathlib import Path
 import re
