@@ -5,12 +5,16 @@ set -euo pipefail
 MAIN_TSX="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/src/main.tsx}"
 [[ -f "$MAIN_TSX" ]] || exit 0
 
-grep -q 'globalRandomization.*Global subscription ID randomization' "$MAIN_TSX" && {
+grep -q 'toggleRandomization.*clientID.*currentlyEnabled' "$MAIN_TSX" && {
   echo "[patch-randomization-ui-full] already applied"
   exit 0
 }
 
-python3 - "$MAIN_TSX" <<'PY'
+# Use python3 on Linux, py on Windows
+PYTHON_CMD="python3"
+command -v python3 >/dev/null 2>&1 || PYTHON_CMD="py"
+
+$PYTHON_CMD - "$MAIN_TSX" <<'PY'
 import sys
 from pathlib import Path
 import re
@@ -18,28 +22,7 @@ import re
 p = Path(sys.argv[1])
 t = p.read_text(encoding='utf-8')
 
-# === 1. Add i18n keys for globalRandomization ===
-# RU locale
-ru_anchor = '    refreshInterval: "Интервал обновления",'
-if ru_anchor in t and 'globalRandomization' not in t:
-    t = t.replace(
-        ru_anchor,
-        ru_anchor + '\n    globalRandomization: "Глобальная рандомизация subscription ID",',
-        1
-    )
-    print("[patch-randomization-ui-full] added RU i18n key")
-
-# EN locale
-en_anchor = '    refreshInterval: "Refresh interval",'
-if en_anchor in t:
-    t = t.replace(
-        en_anchor,
-        en_anchor + '\n    globalRandomization: "Global subscription ID randomization",',
-        1
-    )
-    print("[patch-randomization-ui-full] added EN i18n key")
-
-# === 2. Add randomization field to ClientState type ===
+# === 1. Add randomization field to ClientState type ===
 if 'type ClientState = {' in t and 'randomization?: {' not in t:
     client_state_anchor = '''  locations: LocationState[];
 };'''
@@ -52,7 +35,7 @@ if 'type ClientState = {' in t and 'randomization?: {' not in t:
     t = t.replace(client_state_anchor, client_state_insert, 1)
     print("[patch-randomization-ui-full] added ClientState.randomization field")
 
-# === 3. Add globalRandomizationEnabled state variable ===
+# === 2. Add globalRandomizationEnabled state variable ===
 password_form_state = '  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", repeat: "" });'
 if password_form_state in t and 'globalRandomizationEnabled' not in t:
     t = t.replace(
@@ -62,7 +45,7 @@ if password_form_state in t and 'globalRandomizationEnabled' not in t:
     )
     print("[patch-randomization-ui-full] added globalRandomizationEnabled state")
 
-# === 4. Load global randomization state in loadSettings ===
+# === 3. Load global randomization state in loadSettings ===
 # Find the loadSettings function and add API call after settingsForm update
 settings_anchor = '''      subscription_path: body.subscription_path,
       refresh: body.refresh ?? "",
@@ -84,7 +67,7 @@ if settings_anchor in t and 'Load global randomization state' not in t:
     t = t.replace(settings_anchor, load_global_rand, 1)
     print("[patch-randomization-ui-full] added global randomization state loading")
 
-# === 5. Add toggleRandomization handler ===
+# === 4. Add toggleRandomization handler ===
 # Insert before copySubscription function
 copy_sub_anchor = '  const copySubscription = (clientID: string) =>'
 if copy_sub_anchor in t and 'toggleRandomization' not in t:
@@ -99,7 +82,7 @@ if copy_sub_anchor in t and 'toggleRandomization' not in t:
     t = t.replace(copy_sub_anchor, toggle_handler, 1)
     print("[patch-randomization-ui-full] added toggleRandomization handler")
 
-# === 6. Add randomized_id display under client_id ===
+# === 5. Add randomized_id display under client_id ===
 # Find the client card rendering section
 client_summary_anchor = '''                        <span className="mt-1 block text-xs text-muted-foreground">
                           {clientSummary(client, running)}
@@ -117,7 +100,7 @@ if client_summary_anchor in t and '🔒' not in t:
     t = t.replace(client_summary_anchor, randomized_display, 1)
     print("[patch-randomization-ui-full] added randomized_id display")
 
-# === 7. Add per-client randomization button (🎲 ON/OFF) ===
+# === 6. Add per-client randomization button (🎲 ON/OFF) ===
 # Insert after "Логи" button, before edit button
 logs_button_anchor = '''                      <button
                         className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
