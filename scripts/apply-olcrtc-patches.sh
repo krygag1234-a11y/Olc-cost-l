@@ -406,14 +406,14 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v24-lang-defaults.sh" "$MGR_REPO"
+  # Патчим эталон панели перед копированием (добавляем randomization UI)
+  bash "$SCRIPT_DIR/patch-golden-panel-randomization-ui.sh"
   # Эталон панели — финальное выравнивание UI и main.go (поверх всех hotfix).
   bash "$SCRIPT_DIR/apply-golden-panel.sh" "$MGR_REPO"
   # Subscription randomization must run after golden-panel because golden-panel rewrites main.go.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-randomization.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-ui-full.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-selective-randomization-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then

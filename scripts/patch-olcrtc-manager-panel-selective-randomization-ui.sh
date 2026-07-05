@@ -8,7 +8,11 @@ grep -q 'SelectiveRandomizationPanel' "$MAIN_TSX" && {
   exit 0
 }
 
-python3 - "$MAIN_TSX" <<'PY'
+# Use python3 on Linux, py on Windows
+PYTHON_CMD="python3"
+command -v python3 >/dev/null 2>&1 || PYTHON_CMD="py"
+
+$PYTHON_CMD - "$MAIN_TSX" <<'PY'
 import sys
 from pathlib import Path
 
