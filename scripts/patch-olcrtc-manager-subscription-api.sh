@@ -64,6 +64,9 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
 \t\t}
+\t\tif panelSupervisor != nil {
+\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
 \t}
 }
@@ -99,6 +102,9 @@ func randomizationDisableHandler(configPath string) http.HandlerFunc {
 \t\tif err := saveConfig(configPath, cfg); err != nil {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
+\t\t}
+\t\tif panelSupervisor != nil {
+\t\t\tpanelSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
 \t}
@@ -138,6 +144,9 @@ func randomizationRegenerateHandler(configPath string) http.HandlerFunc {
 \t\tif err := saveConfig(configPath, cfg); err != nil {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
+\t\t}
+\t\tif panelSupervisor != nil {
+\t\t\tpanelSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"randomized_id": randomizedID})
 \t}
@@ -188,6 +197,9 @@ func subscriptionURLHandler(configPath string) http.HandlerFunc {
 \t\t} else {
 \t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, clientID)
 \t\t}
+\t\tif panelSupervisor != nil {
+\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"url": subURL})
 \t}
 }
@@ -221,6 +233,9 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\tif err := saveConfig(configPath, cfg); err != nil {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
+\t\t}
+\t\tif panelSupervisor != nil {
+\t\t\tpanelSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
 \t}
@@ -266,11 +281,11 @@ else:
         print("[patch-subscription-api] ERROR: /api/clients/ handler not found")
         raise SystemExit(1)
 
-# === 3. Add /api/settings/randomization/global route before catch-all ===
-catch_all = 'handler.Handle("/", subscriptionHandler(supervisor))'
-if catch_all in t and 'globalRandomizationHandler' not in t:
+# === 3. Add /api/settings/randomization/global route before /api/settings/ handler ===
+settings_handler = 'handler.Handle("/api/settings/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {'
+if settings_handler in t and 'globalRandomizationHandler' not in t:
     global_route = '\thandler.Handle("/api/settings/randomization/global", adminAuth(globalRandomizationHandler(configPath)))\n\t'
-    t = t.replace(catch_all, global_route + catch_all, 1)
+    t = t.replace(settings_handler, global_route + settings_handler, 1)
     print("[patch-subscription-api] /api/settings/randomization/global route added")
 
 p.write_text(t)
