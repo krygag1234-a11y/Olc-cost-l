@@ -82,7 +82,14 @@ function SubscriptionRandomizationPanel({
     t = t.replace(anchor, component + anchor, 1)
     print("[patch-subscription-ui] SubscriptionRandomizationPanel component added")
 
-# === 2. Add link to Subscription Randomization in main Settings UI ===
+# === 2. Add state for subscriptionRandomizationOpen (BEFORE using it) ===
+state_anchor = 'const [showAutodetectInline, setShowAutodetectInline] = useState(false);'
+if state_anchor in t and 'subscriptionRandomizationOpen' not in t:
+    new_state = state_anchor + '\n  const [subscriptionRandomizationOpen, setSubscriptionRandomizationOpen] = useState(false);'
+    t = t.replace(state_anchor, new_state, 1)
+    print("[patch-subscription-ui] subscriptionRandomizationOpen state added")
+
+# === 3. Add link to Subscription Randomization in main Settings UI ===
 # Find where AutodetectNotificationSettingsPanel link is placed
 settings_anchor = '<MainSettingsAutodetectLink'
 if settings_anchor in t and 'Subscription Randomization' not in t:
@@ -108,14 +115,6 @@ if settings_anchor in t and 'Subscription Randomization' not in t:
             '''
     t = t.replace(settings_anchor, subscription_link + settings_anchor, 1)
     print("[patch-subscription-ui] Subscription Randomization link added to Settings UI")
-
-# === 3. Add state for subscriptionRandomizationOpen ===
-# Find useState declarations in main Settings component
-state_anchor = 'const [showAutodetectInline, setShowAutodetectInline] = useState(false);'
-if state_anchor in t and 'subscriptionRandomizationOpen' not in t:
-    new_state = state_anchor + '\n  const [subscriptionRandomizationOpen, setSubscriptionRandomizationOpen] = useState(false);'
-    t = t.replace(state_anchor, new_state, 1)
-    print("[patch-subscription-ui] subscriptionRandomizationOpen state added")
 
 p.write_text(t)
 print("[patch-subscription-ui] ok")
