@@ -63,9 +63,16 @@ function SubscriptionRandomizationPanel({
       {loading ? (
         <p className="text-xs text-muted-foreground">Загрузка...</p>
       ) : (
-        <label className="flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={enabled} onChange={() => void toggle()} />
-          Включить глобальную рандомизацию
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={() => void toggle()}
+            className="cursor-pointer transition-transform hover:scale-110"
+          />
+          <span className={enabled ? "text-amber-600 font-medium transition-colors" : "transition-colors"}>
+            Включить глобальную рандомизацию
+          </span>
         </label>
       )}
       {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
@@ -101,7 +108,7 @@ if settings_anchor in t and 'Subscription Randomization' not in t:
               </div>
               <button
                 type="button"
-                className="rounded border border-border px-2 py-1 text-xs"
+                className="rounded bg-amber-500/10 border border-amber-500/30 px-2 py-1 text-xs text-amber-600 hover:bg-amber-500/20 transition-colors"
                 onClick={() => setSubscriptionRandomizationOpen(!subscriptionRandomizationOpen)}
               >
                 {subscriptionRandomizationOpen ? "Скрыть" : "Настроить"}
