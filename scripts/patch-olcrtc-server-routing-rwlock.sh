@@ -16,7 +16,7 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if "routingListsMu" not in t:
+if "routingListsMu     sync.RWMutex" not in t:
     t = t.replace(
         "\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n",
         "\troutingListsStamp  time.Time\n\troutingListsMu     sync.RWMutex\n\tdirectCIDRs      *routing.Matcher\n",

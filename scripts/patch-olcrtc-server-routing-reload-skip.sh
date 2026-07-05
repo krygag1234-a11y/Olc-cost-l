@@ -16,7 +16,7 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if "routingListsStamp" not in t:
+if "routingListsStamp  time.Time" not in t:
     t = t.replace(
         "\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n",
         "\troutingReloadTimer   *time.Timer\n\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n",

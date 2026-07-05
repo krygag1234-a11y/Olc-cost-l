@@ -16,7 +16,7 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if "routingReloadMu" not in t:
+if "routingReloadMu      sync.Mutex" not in t:
     t = t.replace(
         "\tforceTorDomainsPath   string\n\tdirectCIDRs      *routing.Matcher\n",
         "\tforceTorDomainsPath   string\n\troutingReloadMu      sync.Mutex\n\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n",
