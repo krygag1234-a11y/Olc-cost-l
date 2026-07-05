@@ -23,24 +23,13 @@ t = p.read_text()
 
 # === 0. Add global supervisor variable ===
 if 'var globalSupervisor *Supervisor' not in t:
-    # Add after other global variables
-    global_vars_anchor = 'var adminConfigPath string'
-    if global_vars_anchor in t:
-        t = t.replace(global_vars_anchor, global_vars_anchor + '\nvar globalSupervisor *Supervisor', 1)
+    # Add after package declaration and imports
+    package_anchor = 'var (\n\tVersion = "dev"'
+    if package_anchor in t:
+        t = t.replace(package_anchor, 'var globalSupervisor *Supervisor\n\n' + package_anchor, 1)
         print("[patch-subscription-api] global supervisor variable added")
 
-# === 0b. Workaround: Add missing bridge constants if not present ===
-if 'bridgeProfilesPath = ' not in t:
-    const_block_anchor = 'const (\n\tpanelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"'
-    if const_block_anchor in t:
-        const_insert = '''\tpanelUpdateLock    = "/var/lib/olcrtc/panel-update.lock"
-\tbridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
-\tbridgePoolStatusFile = "/var/lib/olcrtc/bridge-pool-status.json"
-\tbridgeCronPath = "/etc/cron.d/olcrtc-bridge-pool"'''
-        t = t.replace('\tpanelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"', const_insert, 1)
-        print("[patch-subscription-api] WORKAROUND: added missing bridge constants")
-
-# === 0c. Assign globalSupervisor in main() ===
+# === 0b. Assign globalSupervisor in main() ===
 if 'globalSupervisor = supervisor' not in t:
     main_supervisor = '\tsupervisor := NewSupervisor(olcrtcPath, startInstance)'
     if main_supervisor in t:
@@ -91,9 +80,7 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.mu.Lock()
-\t\t\tglobalSupervisor.cfg = cfg
-\t\t\tglobalSupervisor.mu.Unlock()
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
 \t}
@@ -132,9 +119,7 @@ func randomizationDisableHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.mu.Lock()
-\t\t\tglobalSupervisor.cfg = cfg
-\t\t\tglobalSupervisor.mu.Unlock()
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
 \t}
@@ -176,9 +161,7 @@ func randomizationRegenerateHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.mu.Lock()
-\t\t\tglobalSupervisor.cfg = cfg
-\t\t\tglobalSupervisor.mu.Unlock()
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"randomized_id": randomizedID})
 \t}
@@ -230,9 +213,7 @@ func subscriptionURLHandler(configPath string) http.HandlerFunc {
 \t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, clientID)
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.mu.Lock()
-\t\t\tglobalSupervisor.cfg = cfg
-\t\t\tglobalSupervisor.mu.Unlock()
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"url": subURL})
 \t}
@@ -269,9 +250,7 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.mu.Lock()
-\t\t\tglobalSupervisor.cfg = cfg
-\t\t\tglobalSupervisor.mu.Unlock()
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
 \t}
@@ -318,8 +297,8 @@ else:
         raise SystemExit(1)
 
 # === 3. Add /api/settings/randomization/global route before /api/settings/ handler ===
-settings_handler = 'handler.Handle("/api/settings/", adminAuth('
-if settings_handler in t and '"/api/settings/randomization/global"' not in t:
+settings_handler = 'handler.Handle("/api/settings/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {'
+if settings_handler in t and 'globalRandomizationHandler' not in t:
     global_route = '\thandler.Handle("/api/settings/randomization/global", adminAuth(globalRandomizationHandler(configPath)))\n\t'
     t = t.replace(settings_handler, global_route + settings_handler, 1)
     print("[patch-subscription-api] /api/settings/randomization/global route added")
