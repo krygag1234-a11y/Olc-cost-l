@@ -36,12 +36,21 @@ for imp in ('"os"', '"os/signal"', '"syscall"'):
     if imp not in t:
         t = t.replace('"net"\n', '"net"\n\t' + imp + '\n', 1)
 
-if "directDomainsPath   string" not in t:
-    t = t.replace(
-        "\tdirectCIDRs      *routing.Matcher\n",
-        "\tdirectCIDRsPath   string\n\tdirectDomainsPath   string\n\tblockedTorDomainsPath string\n\tforceTorDomainsPath   string\n\tdirectCIDRs      *routing.Matcher\n",
-        1,
-    )
+if "directDomainsPath   string" not in t and "directCIDRsPath" not in t:
+    # Try compact format first
+    if "\tdirectCIDRs      *routing.Matcher\n" in t:
+        t = t.replace(
+            "\tdirectCIDRs      *routing.Matcher\n",
+            "\tdirectCIDRsPath   string\n\tdirectDomainsPath   string\n\tblockedTorDomainsPath string\n\tforceTorDomainsPath   string\n\tdirectCIDRs      *routing.Matcher\n",
+            1,
+        )
+    # Try aligned format (BigDaddy 52aea2d after patch-olcrtc-core.sh)
+    elif "\tdirectCIDRs                  *routing.Matcher\n" in t:
+        t = t.replace(
+            "\tdirectCIDRs                  *routing.Matcher\n",
+            "\tdirectCIDRsPath              string\n\tdirectDomainsPath            string\n\tblockedTorDomainsPath        string\n\tforceTorDomainsPath          string\n\tdirectCIDRs                  *routing.Matcher\n",
+            1,
+        )
 
 load_assign = """\ts.directCIDRsPath = cfg.DirectCIDRsFile
 \ts.directDomainsPath = cfg.DirectDomainsFile
