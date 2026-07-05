@@ -94,12 +94,22 @@ if "internal/routing" not in t:
         '"github.com/openlibrecommunity/olcrtc/internal/names"\n\t"github.com/openlibrecommunity/olcrtc/internal/routing"\n\t"github.com/openlibrecommunity/olcrtc/internal/runtime"',
         1,
     )
-if "directCIDRs      *routing.Matcher" not in t:
-    t = t.replace(
-        "\tsocksProxyPass string\n\tliveness       control.Config",
-        "\tsocksProxyPass string\n\tdirectCIDRs      *routing.Matcher\n\tdirectDomains    *routing.DomainMatcher\n\tblockedTorDomains *routing.DomainMatcher\n\tforceTorDomains   *routing.DomainMatcher\n\tliveness       control.Config",
-        1,
-    )
+# Add routing matchers to Server struct (support both old and new upstream format)
+if "directCIDRs      *routing.Matcher" not in t and "directCIDRs" not in t.split("type Server struct")[1].split("}")[0]:
+    # Try old format first (compact tabs)
+    if "\tsocksProxyPass string\n\tliveness       control.Config" in t:
+        t = t.replace(
+            "\tsocksProxyPass string\n\tliveness       control.Config",
+            "\tsocksProxyPass string\n\tdirectCIDRs      *routing.Matcher\n\tdirectDomains    *routing.DomainMatcher\n\tblockedTorDomains *routing.DomainMatcher\n\tforceTorDomains   *routing.DomainMatcher\n\tliveness       control.Config",
+            1,
+        )
+    # Try new format (aligned with spaces) - BigDaddy 52aea2d
+    elif "\tsocksProxyPass               string\n\tliveness                     control.Config" in t:
+        t = t.replace(
+            "\tsocksProxyPass               string\n\tliveness                     control.Config",
+            "\tsocksProxyPass               string\n\tdirectCIDRs                  *routing.Matcher\n\tdirectDomains                *routing.DomainMatcher\n\tblockedTorDomains            *routing.DomainMatcher\n\tforceTorDomains              *routing.DomainMatcher\n\tliveness                     control.Config",
+            1,
+        )
 if "DirectCIDRsFile   string" not in t:
     t = t.replace(
         "\tSOCKSProxyPass   string\n\tTransportOptions transport.Options",
