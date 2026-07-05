@@ -18,4 +18,11 @@ bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-ui-full.sh" "$GOLDEN_
 # Apply selective-randomization-ui patch to golden panel
 bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-selective-randomization-ui.sh" "$GOLDEN_TSX"
 
+# Update SHA256SUMS after patching
+GOLDEN_DIR="$(dirname "$GOLDEN_TSX")"
+if [[ -f "$GOLDEN_DIR/SHA256SUMS" ]]; then
+  (cd "$GOLDEN_DIR" && sha256sum main.go main.tsx > SHA256SUMS)
+  echo "[patch-golden-panel-randomization-ui] SHA256SUMS updated"
+fi
+
 echo "[patch-golden-panel-randomization-ui] done"
