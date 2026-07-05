@@ -21,6 +21,21 @@ import re
 p = Path(sys.argv[1])
 t = p.read_text()
 
+# === 0. Add global supervisor variable ===
+if 'var globalSupervisor *Supervisor' not in t:
+    # Add after package declaration and imports
+    package_anchor = 'var (\n\tVersion = "dev"'
+    if package_anchor in t:
+        t = t.replace(package_anchor, 'var globalSupervisor *Supervisor\n\n' + package_anchor, 1)
+        print("[patch-subscription-api] global supervisor variable added")
+
+# === 0b. Assign globalSupervisor in main() ===
+if 'globalSupervisor = supervisor' not in t:
+    main_supervisor = '\tsupervisor := NewSupervisor(olcrtcPath, startInstance)'
+    if main_supervisor in t:
+        t = t.replace(main_supervisor, main_supervisor + '\n\tglobalSupervisor = supervisor', 1)
+        print("[patch-subscription-api] globalSupervisor assignment added")
+
 # === 1. Add API handler functions before subscriptionHandler ===
 anchor = 'func subscriptionHandler(supervisor *Supervisor) http.Handler {'
 if anchor not in t:
@@ -64,8 +79,8 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
 \t\t}
-\t\tif panelSupervisor != nil {
-\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\tif globalSupervisor != nil {
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
 \t}
@@ -103,8 +118,8 @@ func randomizationDisableHandler(configPath string) http.HandlerFunc {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
 \t\t}
-\t\tif panelSupervisor != nil {
-\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\tif globalSupervisor != nil {
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
 \t}
@@ -145,8 +160,8 @@ func randomizationRegenerateHandler(configPath string) http.HandlerFunc {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
 \t\t}
-\t\tif panelSupervisor != nil {
-\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\tif globalSupervisor != nil {
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"randomized_id": randomizedID})
 \t}
@@ -197,8 +212,8 @@ func subscriptionURLHandler(configPath string) http.HandlerFunc {
 \t\t} else {
 \t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, clientID)
 \t\t}
-\t\tif panelSupervisor != nil {
-\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\tif globalSupervisor != nil {
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"url": subURL})
 \t}
@@ -234,8 +249,8 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
 \t\t}
-\t\tif panelSupervisor != nil {
-\t\t\tpanelSupervisor.UpdateSettings(cfg)
+\t\tif globalSupervisor != nil {
+\t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
 \t}
