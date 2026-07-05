@@ -5,7 +5,7 @@ set -euo pipefail
 MAIN_TSX="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/src/main.tsx}"
 [[ -f "$MAIN_TSX" ]] || exit 0
 
-grep -q 'toggleRandomization.*clientID.*currentlyEnabled' "$MAIN_TSX" && {
+grep -q '🎲.*randomization?.enabled.*globalRandomizationEnabled.*ON.*OFF' "$MAIN_TSX" && {
   echo "[patch-randomization-ui-full] already applied"
   exit 0
 }
