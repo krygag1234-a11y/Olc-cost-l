@@ -3,7 +3,9 @@
 set -euo pipefail
 MAIN_TSX="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/src/main.tsx}"
 [[ -f "$MAIN_TSX" ]] || exit 0
-grep -q 'SelectiveRandomizationPanel' "$MAIN_TSX" && {
+grep -q 'SelectiveRandomizationPanel' "$MAIN_TSX" && \
+grep -q 'selectiveRandomizationOpen' "$MAIN_TSX" && \
+grep -q 'Выборочная рандомизация' "$MAIN_TSX" && {
   echo "[patch-selective-randomization-ui] already applied"
   exit 0
 }
@@ -106,7 +108,7 @@ function SelectiveRandomizationPanel() {
     print("[patch-selective-randomization-ui] SelectiveRandomizationPanel component added")
 
 # === 2. Add state for selectiveRandomizationOpen ===
-state_anchor = 'const [subscriptionRandomizationOpen, setSubscriptionRandomizationOpen] = useState(false);'
+state_anchor = 'const [passwordForm, setPasswordForm] = useState({ current: "", next: "", repeat: "" });'
 if state_anchor in t and 'selectiveRandomizationOpen' not in t:
     new_state = state_anchor + '\n  const [selectiveRandomizationOpen, setSelectiveRandomizationOpen] = useState(false);'
     t = t.replace(state_anchor, new_state, 1)
@@ -114,7 +116,7 @@ if state_anchor in t and 'selectiveRandomizationOpen' not in t:
 
 # === 3. Add link in main UI after SubscriptionRandomization section ===
 settings_anchor = '<MainSettingsAutodetectLink'
-if settings_anchor in t and 'Выборочная рандомизация' not in t:
+if settings_anchor in t and 'setSelectiveRandomizationOpen(!selectiveRandomizationOpen)' not in t:
     selective_link = '''            <div className="flex items-center justify-between border-b border-border py-2">
               <div>
                 <div className="text-sm font-medium">Выборочная рандомизация</div>
