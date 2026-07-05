@@ -30,7 +30,7 @@ if 'var globalSupervisor *Supervisor' not in t:
         print("[patch-subscription-api] global supervisor variable added")
 
 # === 0b. Workaround: Add missing bridge constants if not present ===
-if 'bridgeProfilesPath' not in t:
+if 'bridgeProfilesPath = ' not in t:
     const_block_anchor = 'const (\n\tpanelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"'
     if const_block_anchor in t:
         const_insert = '''\tpanelUpdateLock    = "/var/lib/olcrtc/panel-update.lock"
