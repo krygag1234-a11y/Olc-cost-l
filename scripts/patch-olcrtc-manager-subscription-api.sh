@@ -309,7 +309,7 @@ else:
 
 # === 3. Add /api/settings/randomization/global route before /api/settings/ handler ===
 settings_handler = 'handler.Handle("/api/settings/", adminAuth('
-if settings_handler in t and 'globalRandomizationHandler' not in t:
+if settings_handler in t and '"/api/settings/randomization/global"' not in t:
     global_route = '\thandler.Handle("/api/settings/randomization/global", adminAuth(globalRandomizationHandler(configPath)))\n\t'
     t = t.replace(settings_handler, global_route + settings_handler, 1)
     print("[patch-subscription-api] /api/settings/randomization/global route added")
