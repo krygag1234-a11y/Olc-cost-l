@@ -23,10 +23,10 @@ t = p.read_text()
 
 # === 0. Add global supervisor variable ===
 if 'var globalSupervisor *Supervisor' not in t:
-    # Add after package declaration and imports
-    package_anchor = 'var (\n\tVersion = "dev"'
-    if package_anchor in t:
-        t = t.replace(package_anchor, 'var globalSupervisor *Supervisor\n\n' + package_anchor, 1)
+    # Add after other global variables
+    global_vars_anchor = 'var adminConfigPath string'
+    if global_vars_anchor in t:
+        t = t.replace(global_vars_anchor, global_vars_anchor + '\nvar globalSupervisor *Supervisor', 1)
         print("[patch-subscription-api] global supervisor variable added")
 
 # === 0b. Assign globalSupervisor in main() ===
