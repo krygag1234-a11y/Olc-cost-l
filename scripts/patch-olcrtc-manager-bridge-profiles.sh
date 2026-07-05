@@ -14,13 +14,14 @@ p = Path(sys.argv[1])
 repo = Path(sys.argv[2])
 t = p.read_text()
 
-const_old = '''const (
+# Old upstream format (with panelUpdateStatus)
+const_old_v1 = '''const (
 	panelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"
 	panelUpdateStatus = "/var/lib/olcrtc/panel-update-status.json"
 	panelJobsDir     = "/var/lib/olcrtc/panel-jobs"
 	panelNotifFile   = "/var/lib/olcrtc/notifications.json"
 )'''
-const_new = '''const (
+const_new_v1 = '''const (
 	panelUpdateLock    = "/var/lib/olcrtc/panel-update.lock"
 	panelUpdateStatus  = "/var/lib/olcrtc/panel-update-status.json"
 	panelJobsDir       = "/var/lib/olcrtc/panel-jobs"
@@ -28,8 +29,26 @@ const_new = '''const (
 	bridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
 	bridgeCronPath     = "/etc/cron.d/olcrtc-bridge-pool"
 )'''
-if 'bridgeProfilesPath =' not in t and const_old in t:
-    t = t.replace(const_old, const_new, 1)
+
+# New upstream format (without panelUpdateStatus) - BigDaddy ad8ec6f+
+const_old_v2 = '''const (
+	panelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"
+	panelJobsDir     = "/var/lib/olcrtc/panel-jobs"
+	panelNotifFile   = "/var/lib/olcrtc/notifications.json"
+)'''
+const_new_v2 = '''const (
+	panelUpdateLock    = "/var/lib/olcrtc/panel-update.lock"
+	panelJobsDir       = "/var/lib/olcrtc/panel-jobs"
+	panelNotifFile     = "/var/lib/olcrtc/notifications.json"
+	bridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
+	bridgeCronPath     = "/etc/cron.d/olcrtc-bridge-pool"
+)'''
+
+if 'bridgeProfilesPath =' not in t:
+    if const_old_v1 in t:
+        t = t.replace(const_old_v1, const_new_v1, 1)
+    elif const_old_v2 in t:
+        t = t.replace(const_old_v2, const_new_v2, 1)
 
 helpers = r'''
 func defaultBridgeProfiles() map[string]any {
