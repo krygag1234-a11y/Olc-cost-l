@@ -29,7 +29,18 @@ if 'var globalSupervisor *Supervisor' not in t:
         t = t.replace(global_vars_anchor, global_vars_anchor + '\nvar globalSupervisor *Supervisor', 1)
         print("[patch-subscription-api] global supervisor variable added")
 
-# === 0b. Assign globalSupervisor in main() ===
+# === 0b. Workaround: Add missing bridge constants if not present ===
+if 'bridgeProfilesPath' not in t:
+    const_block_anchor = 'const (\n\tpanelUpdateLock'
+    if const_block_anchor in t:
+        const_insert = '''\tpanelUpdateLock    = "/var/lib/olcrtc/panel-update.lock"
+\tbridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
+\tbridgePoolStatusFile = "/var/lib/olcrtc/bridge-pool-status.json"
+\tbridgeCronPath = "/etc/cron.d/olcrtc-bridge-pool"'''
+        t = t.replace('\tpanelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"', const_insert, 1)
+        print("[patch-subscription-api] WORKAROUND: added missing bridge constants")
+
+# === 0c. Assign globalSupervisor in main() ===
 if 'globalSupervisor = supervisor' not in t:
     main_supervisor = '\tsupervisor := NewSupervisor(olcrtcPath, startInstance)'
     if main_supervisor in t:
