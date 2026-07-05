@@ -91,7 +91,7 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.UpdateSettings(cfg)
+\t\t\tglobalSupervisor.Reload(context.Background(), cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
 \t}
@@ -130,7 +130,7 @@ func randomizationDisableHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.UpdateSettings(cfg)
+\t\t\tglobalSupervisor.Reload(context.Background(), cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
 \t}
@@ -172,7 +172,7 @@ func randomizationRegenerateHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.UpdateSettings(cfg)
+\t\t\tglobalSupervisor.Reload(context.Background(), cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"randomized_id": randomizedID})
 \t}
@@ -224,7 +224,7 @@ func subscriptionURLHandler(configPath string) http.HandlerFunc {
 \t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, clientID)
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.UpdateSettings(cfg)
+\t\t\tglobalSupervisor.Reload(context.Background(), cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"url": subURL})
 \t}
@@ -261,7 +261,7 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tif globalSupervisor != nil {
-\t\t\tglobalSupervisor.UpdateSettings(cfg)
+\t\t\tglobalSupervisor.Reload(context.Background(), cfg)
 \t\t}
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
 \t}
