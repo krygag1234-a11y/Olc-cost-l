@@ -16,12 +16,21 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if "routingListsMu     sync.RWMutex" not in t:
-    t = t.replace(
-        "\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n",
-        "\troutingListsStamp  time.Time\n\troutingListsMu     sync.RWMutex\n\tdirectCIDRs      *routing.Matcher\n",
-        1,
-    )
+if "routingListsMu     sync.RWMutex" not in t and "routingListsMu" not in t.split("type Server struct")[1].split("}")[0]:
+    # Try compact format
+    if "\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n" in t:
+        t = t.replace(
+            "\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n",
+            "\troutingListsStamp  time.Time\n\troutingListsMu     sync.RWMutex\n\tdirectCIDRs      *routing.Matcher\n",
+            1,
+        )
+    # Try aligned format (BigDaddy 52aea2d)
+    elif "\troutingListsStamp            time.Time\n\tdirectCIDRs                  *routing.Matcher\n" in t:
+        t = t.replace(
+            "\troutingListsStamp            time.Time\n\tdirectCIDRs                  *routing.Matcher\n",
+            "\troutingListsStamp            time.Time\n\troutingListsMu               sync.RWMutex\n\tdirectCIDRs                  *routing.Matcher\n",
+            1,
+        )
 
 helper = """
 func routingListsLatestMtime(paths ...string) time.Time {

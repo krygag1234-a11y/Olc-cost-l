@@ -16,12 +16,21 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if "routingListsStamp  time.Time" not in t:
-    t = t.replace(
-        "\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n",
-        "\troutingReloadTimer   *time.Timer\n\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n",
-        1,
-    )
+if "routingListsStamp  time.Time" not in t and "routingListsStamp" not in t.split("type Server struct")[1].split("}")[0]:
+    # Try compact format
+    if "\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n" in t:
+        t = t.replace(
+            "\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n",
+            "\troutingReloadTimer   *time.Timer\n\troutingListsStamp  time.Time\n\tdirectCIDRs      *routing.Matcher\n",
+            1,
+        )
+    # Try aligned format (BigDaddy 52aea2d)
+    elif "\troutingReloadTimer           *time.Timer\n\tdirectCIDRs                  *routing.Matcher\n" in t:
+        t = t.replace(
+            "\troutingReloadTimer           *time.Timer\n\tdirectCIDRs                  *routing.Matcher\n",
+            "\troutingReloadTimer           *time.Timer\n\troutingListsStamp            time.Time\n\tdirectCIDRs                  *routing.Matcher\n",
+            1,
+        )
 
 helper = """
 func routingListsChanged(stamp time.Time, paths ...string) bool {

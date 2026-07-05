@@ -16,12 +16,21 @@ from pathlib import Path
 p = Path(sys.argv[1])
 t = p.read_text()
 
-if "routingReloadMu      sync.Mutex" not in t:
-    t = t.replace(
-        "\tforceTorDomainsPath   string\n\tdirectCIDRs      *routing.Matcher\n",
-        "\tforceTorDomainsPath   string\n\troutingReloadMu      sync.Mutex\n\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n",
-        1,
-    )
+if "routingReloadMu      sync.Mutex" not in t and "routingReloadMu" not in t.split("type Server struct")[1].split("}")[0]:
+    # Try compact format
+    if "\tforceTorDomainsPath   string\n\tdirectCIDRs      *routing.Matcher\n" in t:
+        t = t.replace(
+            "\tforceTorDomainsPath   string\n\tdirectCIDRs      *routing.Matcher\n",
+            "\tforceTorDomainsPath   string\n\troutingReloadMu      sync.Mutex\n\troutingReloadTimer   *time.Timer\n\tdirectCIDRs      *routing.Matcher\n",
+            1,
+        )
+    # Try aligned format (BigDaddy 52aea2d)
+    elif "\tforceTorDomainsPath          string\n\tdirectCIDRs                  *routing.Matcher\n" in t:
+        t = t.replace(
+            "\tforceTorDomainsPath          string\n\tdirectCIDRs                  *routing.Matcher\n",
+            "\tforceTorDomainsPath          string\n\troutingReloadMu              sync.Mutex\n\troutingReloadTimer           *time.Timer\n\tdirectCIDRs                  *routing.Matcher\n",
+            1,
+        )
 
 schedule_fn = """
 func (s *Server) scheduleRoutingReload() {
