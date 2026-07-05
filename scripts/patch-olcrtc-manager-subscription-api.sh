@@ -31,7 +31,7 @@ if 'var globalSupervisor *Supervisor' not in t:
 
 # === 0b. Workaround: Add missing bridge constants if not present ===
 if 'bridgeProfilesPath' not in t:
-    const_block_anchor = 'const (\n\tpanelUpdateLock'
+    const_block_anchor = 'const (\n\tpanelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"'
     if const_block_anchor in t:
         const_insert = '''\tpanelUpdateLock    = "/var/lib/olcrtc/panel-update.lock"
 \tbridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
