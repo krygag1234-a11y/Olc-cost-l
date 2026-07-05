@@ -23,12 +23,21 @@ const defaultTorDialSlots = 8
 if "defaultTorDialSlots" not in t:
     t = t.replace("const connectCommand = \"connect\"\n", "const connectCommand = \"connect\"\n" + const_block, 1)
 
-if "torDialSem" not in t:
-    t = t.replace(
-        "\tforceTorDomains   *routing.DomainMatcher\n\tliveness",
-        "\tforceTorDomains   *routing.DomainMatcher\n\ttorDialSem        chan struct{}\n\tliveness",
-        1,
-    )
+if "torDialSem" not in t and "torDialSem" not in t.split("type Server struct")[1].split("}")[0]:
+    # Try compact format
+    if "\tforceTorDomains   *routing.DomainMatcher\n\tliveness" in t:
+        t = t.replace(
+            "\tforceTorDomains   *routing.DomainMatcher\n\tliveness",
+            "\tforceTorDomains   *routing.DomainMatcher\n\ttorDialSem        chan struct{}\n\tliveness",
+            1,
+        )
+    # Try aligned format (BigDaddy 52aea2d)
+    elif "\tforceTorDomains              *routing.DomainMatcher\n\tliveness" in t:
+        t = t.replace(
+            "\tforceTorDomains              *routing.DomainMatcher\n\tliveness",
+            "\tforceTorDomains              *routing.DomainMatcher\n\ttorDialSem                   chan struct{}\n\tliveness",
+            1,
+        )
 
 if "torDialSem: make(chan struct{}, defaultTorDialSlots)" not in t:
     t = t.replace(
