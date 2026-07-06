@@ -39,6 +39,34 @@
 
 ---
 
+## 0.5 ФИЛОСОФИЯ ПАТЧЕЙ (КРИТИЧЕСКИ ВАЖНО)
+
+### ⛔ ЗОЛОТОЕ ПРАВИЛО
+
+**НИКОГДА:**
+- НЕ ТРОГАТЬ upstream https://github.com/krygag1234-a11y/local-panel-version
+- НЕ РЕДАКТИРОВАТЬ packaging/golden-panel/ напрямую в git
+- НЕ ХАРДКОДИТЬ изменения в эталон
+- НЕ КОММИТИТЬ патченный golden-panel как "исходник"
+- НЕ ТЕСТИРОВАТЬ патчи на Windows (encoding проблемы)
+
+**ВСЕГДА:**
+- Изменения через патчи в scripts/patch-*.sh
+- Пересборка с --manager-stable
+- Проверка anchor в чистом upstream ПЕРЕД созданием патча
+- Строгий idempotency check (проверка ВСЕХ частей патча)
+- Тестирование на VPS (Linux), не на Windows
+
+### Почему патчи?
+
+1. **Upstream evolves:** local-panel-version обновляется независимо
+2. **Reproducibility:** патчи переприменяются к новой версии
+3. **Auditability:** git history показывает ЧТО изменили
+4. **Rollback:** откат = удалить вызов патча
+5. **Testing:** можно тестировать на чистом upstream без коммита
+
+---
+
 ## 1. ПОЛНАЯ СТРУКТУРА РЕПОЗИТОРИЯ
 
 ```
@@ -178,6 +206,64 @@ Olc-cost-l/
     │
     └── healthcheck.sh            # Проверка здоровья системы
 ```
+
+---
+
+## 1.5 DEPLOYMENT PIPELINE (критический порядок)
+
+### Полный порядок при install.sh --full --manager-stable
+
+**ФАЗА 4: Патчи к golden-panel (КРИТИЧЕСКАЯ ТОЧКА)**
+```bash
+# apply-olcrtc-patches.sh:409-410
+bash scripts/patch-golden-panel-randomization-ui.sh
+  # Патчит packaging/golden-panel/main.tsx
+  # Обновляет SHA256SUMS
+  # Вызывает внутри:
+  #   - patch-olcrtc-manager-panel-randomization-ui-full.sh
+  #   - patch-olcrtc-manager-panel-selective-randomization-ui.sh
+```
+
+**ФАЗА 5: Копирование golden-panel**
+```bash
+# apply-olcrtc-patches.sh:412
+bash scripts/apply-golden-panel.sh /tmp/olcrtc-manager-panel
+  # Проверяет SHA256SUMS
+  # Копирует: golden-panel/main.tsx → upstream/src/main.tsx
+  # Копирует: golden-panel/main.go → upstream/cmd/.../main.go
+```
+
+**ФАЗА 6: Патчи ПОСЛЕ golden-panel**
+```bash
+# apply-olcrtc-patches.sh:414-416
+bash scripts/patch-olcrtc-manager-subscription-randomization.sh
+bash scripts/patch-olcrtc-manager-subscription-api.sh
+# ⚠️ Эти патчи ПОСЛЕ, т.к. golden-panel перезаписывает main.go
+```
+
+### Почему порядок критичен?
+
+**❌ Неправильно:**
+```
+apply-golden-panel → patch-randomization-ui
+                     ↑ патч потерян (эталон перезаписал)
+```
+
+**✅ Правильно:**
+```
+patch-golden-panel → apply-golden-panel → patch-subscription
+     ↑ патчим          ↑ копируем           ↑ патчим то что
+     эталон            пропатченный          golden перезаписывает
+```
+
+### Что делает apply-golden-panel.sh
+
+1. Проверяет SHA256SUMS для main.tsx и main.go
+2. Если checksum не совпадает → ERROR и exit
+3. Копирует файлы в upstream
+4. Логирует результат
+
+**Критично:** Любой патч к golden-panel ОБЯЗАН обновить SHA256SUMS!
 
 ---
 
@@ -327,6 +413,102 @@ function ComponentSettingsModal({
 - patch-olcrtc-manager-bridge-notifications.sh
 
 **158 патчей разбиты на категории — см. apply-olcrtc-patches.sh для полного списка**
+
+---
+
+## 3.5 АНАТОМИЯ ПАТЧА (подробный разбор)
+
+### Структура типичного патча
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Принять путь с default
+MAIN_TSX="${1:-/tmp/olcrtc-manager-panel/src/main.tsx}"
+
+# 2. Строгий idempotency check (ВСЕ части!)
+grep -q 'Part1' "$MAIN_TSX" && \
+grep -q 'Part2' "$MAIN_TSX" && \
+grep -q 'Part3' "$MAIN_TSX" && {
+  echo "[patch-name] already applied"
+  exit 0
+}
+
+# 3. Python скрипт
+python3 - "$MAIN_TSX" <<'PY'
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+text = target.read_text(encoding='utf-8')
+
+anchor = 'unique_string_in_upstream'
+if anchor not in text:
+    print(f"[patch] anchor not found", file=sys.stderr)
+    sys.exit(1)
+
+new_code = '''код'''
+text = text.replace(anchor, new_code + anchor)  # ПЕРЕД anchor
+
+target.write_text(text, encoding='utf-8')
+print("[patch] applied")
+PY
+```
+
+### Выбор anchor
+
+**✅ Хорошие:**
+- `function App() {` — уникальная функция
+- `const [passwordForm, setPasswordForm] = ...` — конкретный state
+- `<MainSettingsAutodetectLink` — уникальный компонент
+
+**❌ Плохие:**
+- `<div>` — слишком общий
+- `"Настройки"` — UI текст может измениться
+- `subscriptionRandomizationOpen` — не существует в upstream!
+
+**Проверка:**
+```bash
+git clone https://github.com/krygag1234-a11y/local-panel-version.git /tmp/test
+grep -c "anchor_text" /tmp/test/src/main.tsx
+# Output ДОЛЖЕН быть: 1
+```
+
+### Idempotency check (строгий!)
+
+**❌ Слабый:**
+```bash
+grep -q 'ComponentName' && exit 0
+# Проблема: не проверяет state и UI link
+```
+
+**✅ Строгий:**
+```bash
+grep -q 'ComponentName' && \
+grep -q 'stateName' && \
+grep -q 'uniqueCode' && exit 0
+# Проверяет ВСЕ части
+```
+
+### Патчи к golden-panel (особый случай)
+
+**ОБЯЗАТЕЛЬНО обновлять SHA256SUMS:**
+```bash
+# В конце патча:
+GOLDEN_DIR="$(dirname "$GOLDEN_TSX")"
+if [[ -f "$GOLDEN_DIR/SHA256SUMS" ]]; then
+  (cd "$GOLDEN_DIR" && sha256sum main.go main.tsx > SHA256SUMS)
+  echo "[patch] SHA256SUMS updated"
+fi
+```
+
+**Без этого:**
+```
+[patch] applied
+[golden-panel] error: SHA256 mismatch
+# ❌ Эталон НЕ скопируется!
+```
 
 ---
 

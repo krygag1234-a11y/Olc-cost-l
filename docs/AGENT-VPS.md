@@ -36,6 +36,50 @@
 
 ---
 
+## 0.3 СТРУКТУРА ДИРЕКТОРИЙ (временные vs постоянные)
+
+### ⚠️ ВАЖНО: Не все директории постоянные!
+
+**ВРЕМЕННЫЕ (удаляются после сборки):**
+```
+/tmp/olcrtc-src/                # Upstream olcrtc (Go core)
+/tmp/olcrtc-manager-panel/      # Upstream panel (клонируется → патчится → собирается → УДАЛЯЕТСЯ)
+```
+
+**ПОСТОЯННЫЕ:**
+```
+/opt/Olc-cost-l/                          # Git репо проекта (НЕ удаляется)
+/opt/Olc-cost-l/packaging/golden-panel/   # Эталон панели (патчится перед копированием)
+/usr/local/bin/olcrtc-manager             # Скомпилированный бинарь
+/etc/olcrtc-manager/                      # Runtime конфиги
+/var/lib/olcrtc/                          # Runtime данные
+/var/log/olcrtc-apply-patches.log         # Лог применения патчей
+```
+
+### ❌ Частая ошибка AI-агентов
+
+**Неправильно:**
+```bash
+grep "pattern" /tmp/olcrtc-manager-panel/src/main.tsx
+# ❌ Файла УЖЕ НЕТ! Удалён после сборки
+```
+
+**Правильно:**
+```bash
+grep "pattern" /opt/Olc-cost-l/packaging/golden-panel/main.tsx
+# ✅ Этот файл НЕ удаляется
+```
+
+### Где искать что патч применился
+
+**НЕ ищи в `/tmp/`** — там ничего нет после сборки.
+
+**Ищи в:**
+1. `/opt/Olc-cost-l/packaging/golden-panel/main.tsx` — эталон (патчится перед копированием)
+2. `/var/log/olcrtc-apply-patches.log` — логи применения
+
+---
+
 ## 1. ПРОЦЕССЫ И ИХ ВЗАИМОДЕЙСТВИЕ
 
 ### 1.1 Активные процессы (реальные данные с VPS)
@@ -573,6 +617,139 @@ cat /var/lib/olcrtc/tor-bridge-health.tsv
 ```bash
 wc -l /var/lib/olcrtc/ru-direct-domains.txt
 wc -l /var/lib/olcrtc/ru-cidrs.txt
+```
+
+---
+
+## 5.5 DEBUG ПАТЧЕЙ НА VPS
+
+### Проверка логов применения
+
+```bash
+# Последние 100 строк лога патчей:
+tail -100 /var/log/olcrtc-apply-patches.log
+
+# Найти конкретный патч:
+grep 'patch-selective-randomization-ui' /var/log/olcrtc-apply-patches.log
+
+# Найти ошибки:
+grep -E 'error|failed|ERROR|not found' /var/log/olcrtc-apply-patches.log | tail -20
+```
+
+### Проверка что патч применился к golden-panel
+
+```bash
+# Проверить наличие маркера:
+grep -n 'SelectiveRandomizationPanel' /opt/Olc-cost-l/packaging/golden-panel/main.tsx
+
+# Посчитать упоминания (должно быть конкретное число):
+grep -c 'selectiveRandomizationOpen' /opt/Olc-cost-l/packaging/golden-panel/main.tsx
+# Expected output: 6
+
+# Показать контекст вокруг маркера:
+grep -A 5 -B 5 'SelectiveRandomizationPanel' \
+  /opt/Olc-cost-l/packaging/golden-panel/main.tsx | head -20
+```
+
+### Ручное тестирование патча на чистом upstream
+
+```bash
+# 1. Клонировать чистый upstream
+cd /tmp && rm -rf test-panel
+git clone --depth 1 \
+  https://github.com/krygag1234-a11y/local-panel-version.git test-panel
+
+# 2. Запустить патч
+bash /opt/Olc-cost-l/scripts/patch-NAME.sh /tmp/test-panel/src/main.tsx
+
+# 3. Проверить результат
+grep -n 'ExpectedPattern' /tmp/test-panel/src/main.tsx
+
+# 4. Проверить idempotency (запустить 2 раза)
+bash /opt/Olc-cost-l/scripts/patch-NAME.sh /tmp/test-panel/src/main.tsx
+# Output должен быть: [patch-NAME] already applied ✓
+
+# 5. Cleanup
+rm -rf /tmp/test-panel
+```
+
+### Проверка SHA256SUMS
+
+```bash
+# Текущие хэши:
+cat /opt/Olc-cost-l/packaging/golden-panel/SHA256SUMS
+
+# Пересчитать вручную для сравнения:
+cd /opt/Olc-cost-l/packaging/golden-panel
+sha256sum main.go main.tsx
+
+# Хэши ДОЛЖНЫ совпадать с файлом SHA256SUMS!
+```
+
+### Типичные проблемы на VPS
+
+**Проблема 1: "Патч в логах, но UI нет в панели"**
+
+```bash
+# Диагностика:
+grep -c 'PatternFromPatch' /opt/Olc-cost-l/packaging/golden-panel/main.tsx
+# Output: 0 ❌
+
+# Root cause: патч применился к /tmp/, но не к golden-panel
+# Fix: создать wrapper патч (см. patch-golden-panel-randomization-ui.sh)
+```
+
+**Проблема 2: "SHA256 mismatch при копировании"**
+
+```bash
+# Лог показывает:
+[golden-panel] error: SHA256 mismatch for main.tsx
+
+# Root cause: патч изменил main.tsx но не обновил SHA256SUMS
+# Fix: добавить в конец патча:
+#   (cd "$GOLDEN_DIR" && sha256sum main.go main.tsx > SHA256SUMS)
+```
+
+**Проблема 3: "Git pull не работает (uncommitted changes)"**
+
+```bash
+# Error: Your local changes would be overwritten by merge
+
+# Fix 1: stash перед pull
+cd /opt/Olc-cost-l && git stash && git pull
+
+# Fix 2: force reset (ОСТОРОЖНО!)
+cd /opt/Olc-cost-l && git fetch && git reset --hard origin/main
+```
+
+**Проблема 4: "/tmp/olcrtc-manager-panel не существует"**
+
+```bash
+# Это НЕ проблема! Директория удаляется после сборки.
+
+# ❌ НЕ делай:
+grep 'pattern' /tmp/olcrtc-manager-panel/src/main.tsx
+# Error: No such file or directory
+
+# ✅ Делай:
+grep 'pattern' /opt/Olc-cost-l/packaging/golden-panel/main.tsx
+# ✅ Работает
+```
+
+### Полная пересборка после изменения патчей
+
+```bash
+# 1. Обновить код на VPS:
+cd /opt/Olc-cost-l && git pull
+
+# 2. Запустить полную пересборку:
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | \
+  sudo bash -s -- --full --manager-stable
+
+# 3. Проверить что патч применился:
+grep -c 'ExpectedPattern' /opt/Olc-cost-l/packaging/golden-panel/main.tsx
+
+# 4. Проверить UI в панели (Ctrl+Shift+R в браузере для очистки кэша)
 ```
 
 ---
