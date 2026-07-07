@@ -4,7 +4,9 @@
 set -euo pipefail
 MAIN_GO="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/cmd/olcrtc-manager/main.go}"
 [[ -f "$MAIN_GO" ]] || exit 0
-grep -q 'randomizationEnableHandler' "$MAIN_GO" && {
+grep -q 'randomizationEnableHandler' "$MAIN_GO" && \
+grep -q 'randomizationPatchHandler' "$MAIN_GO" && \
+grep -q '/api/settings/randomization/global' "$MAIN_GO" && {
   echo "[patch-subscription-api] already applied"
   exit 0
 }
