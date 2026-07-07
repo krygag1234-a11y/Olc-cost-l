@@ -6,7 +6,7 @@ MAIN_GO="${1:-${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}/cmd/olcrtc-manager/m
 [[ -f "$MAIN_GO" ]] || exit 0
 grep -q 'randomizationEnableHandler' "$MAIN_GO" && \
 grep -q 'randomizationPatchHandler' "$MAIN_GO" && \
-grep -q '/api/settings/randomization/global' "$MAIN_GO" && {
+grep -q 'handler.Handle("/api/settings/randomization/global"' "$MAIN_GO" && {
   echo "[patch-subscription-api] already applied"
   exit 0
 }
@@ -359,9 +359,9 @@ else:
         raise SystemExit(1)
 
 # === 3. Add /api/settings/randomization/global route before /api/settings/ handler ===
-settings_handler = 'handler.Handle("/api/settings/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {'
-if settings_handler in t and '/api/settings/randomization/global' not in t:
-    global_route = '\thandler.Handle("/api/settings/randomization/global", adminAuth(globalRandomizationHandler(configPath)))\n\t'
+settings_handler = '\thandler.Handle("/api/settings/", adminAuth(http.HandlerFunc(componentSettingsHandler())))'
+if settings_handler in t and 'handler.Handle("/api/settings/randomization/global"' not in t:
+    global_route = '\thandler.Handle("/api/settings/randomization/global", adminAuth(globalRandomizationHandler(configPath)))\n'
     t = t.replace(settings_handler, global_route + settings_handler, 1)
     print("[patch-subscription-api] /api/settings/randomization/global route added")
 
