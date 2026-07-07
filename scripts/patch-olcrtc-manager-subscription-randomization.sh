@@ -265,6 +265,33 @@ if state_append in t and 'Randomization: randomization,' not in t:
     t = t.replace(state_append, state_append_new, 1)
     print("[patch-randomization] State() emits randomization field")
 
+# === 10. Sync Clients + GlobalSettings into supervisor on UpdateSettings ===
+# Upstream UpdateSettings only copies Name/Port/SubscriptionPath/Refresh, so
+# randomization changes (enable/disable/global) never reach s.cfg.Clients that
+# State() reads -> /api/state randomization stayed stale. (Root cause of Task 1.)
+update_settings = '''func (s *Supervisor) UpdateSettings(cfg Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Name = cfg.Name
+	s.cfg.Port = cfg.Port
+	s.cfg.SubscriptionPath = cfg.SubscriptionPath
+	s.cfg.Refresh = cfg.Refresh
+}'''
+if update_settings in t and 's.cfg.Clients = cfg.Clients' not in t:
+    update_settings_new = '''func (s *Supervisor) UpdateSettings(cfg Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Name = cfg.Name
+	s.cfg.Port = cfg.Port
+	s.cfg.SubscriptionPath = cfg.SubscriptionPath
+	s.cfg.Refresh = cfg.Refresh
+	s.cfg.Clients = cfg.Clients
+	s.cfg.GlobalSettings = cfg.GlobalSettings
+	s.cfg.RandomizationSecret = cfg.RandomizationSecret
+}'''
+    t = t.replace(update_settings, update_settings_new, 1)
+    print("[patch-randomization] UpdateSettings syncs Clients + GlobalSettings")
+
 p.write_text(t)
 print("[patch-randomization] ok")
 PY
