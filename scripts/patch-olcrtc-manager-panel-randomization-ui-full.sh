@@ -121,19 +121,19 @@ if logs_button_anchor in t and '🎲' not in t:
                         Логи
                       </button>
                       <button
-                        className={`inline-flex h-8 items-center gap-2 rounded-md border px-2 text-sm disabled:opacity-60 ${
+                        className={`inline-flex h-8 items-center gap-2 rounded-md border px-2 text-sm transition-all duration-200 ${
                           client.randomization?.enabled || globalRandomizationEnabled
                             ? "border-green-500/40 bg-green-500/10 text-green-600 hover:bg-green-500/20"
-                            : "border-border hover:bg-muted"
-                        }`}
+                            : "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
+                        } ${globalRandomizationEnabled ? 'opacity-50 cursor-not-allowed' : 'disabled:opacity-60'}`}
                         disabled={busy || globalRandomizationEnabled}
                         onClick={() => toggleRandomization(client.client_id, client.randomization?.enabled ?? false)}
                         title={
                           globalRandomizationEnabled
-                            ? "Global randomization enabled (disable global first)"
+                            ? "Глобальная рандомизация включена (сначала отключите глобальную)"
                             : client.randomization?.enabled
-                            ? "Randomization ON — click to disable"
-                            : "Randomization OFF — click to enable"
+                            ? "Рандомизация ВКЛ — нажмите для отключения"
+                            : "Рандомизация ВЫКЛ — нажмите для включения"
                         }
                       >
                         🎲 {client.randomization?.enabled || globalRandomizationEnabled ? "ON" : "OFF"}
