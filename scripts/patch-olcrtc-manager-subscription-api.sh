@@ -124,6 +124,61 @@ func randomizationDisableHandler(configPath string) http.HandlerFunc {
 \t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
 \t}
 }
+func randomizationPatchHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			w.Header().Set("Allow", http.MethodPatch)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		clientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		clientID = strings.TrimSuffix(clientID, "/randomization")
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := false
+		var randomizedID string
+		for i := range cfg.Clients {
+			if cfg.Clients[i].ClientID == clientID {
+				if cfg.Clients[i].Randomization == nil {
+					cfg.Clients[i].Randomization = &ClientRandomization{}
+				}
+				cfg.Clients[i].Randomization.Enabled = req.Enabled
+				if req.Enabled {
+					cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+					randomizedID = cfg.Clients[i].Randomization.RandomizedID
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		if req.Enabled {
+			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
+		} else {
+			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
+		}
+	}
+}
 
 func randomizationRegenerateHandler(configPath string) http.HandlerFunc {
 \treturn func(w http.ResponseWriter, r *http.Request) {
@@ -270,6 +325,11 @@ if clients_handler_anchor in t and 'urlPath := r.URL.Path' not in t:
     insert_pos = t.index('\n', idx) + 1
     routing_block = '''\t\t// Subscription randomization API routes (before method check)
 \t\turlPath := r.URL.Path
+\t\t// PATCH /api/clients/:id/randomization (exact match, no suffix)
+\t\tif strings.HasSuffix(urlPath, "/randomization") && !strings.Contains(urlPath, "/randomization/") {
+\t\t\trandomizationPatchHandler(configPath)(w, r)
+\t\t\treturn
+\t\t}
 \t\tif strings.HasSuffix(urlPath, "/randomization/enable") {
 \t\t\trandomizationEnableHandler(configPath)(w, r)
 \t\t\treturn
