@@ -278,8 +278,17 @@ func subscriptionURLHandler(configPath string) http.HandlerFunc {
 
 func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \treturn func(w http.ResponseWriter, r *http.Request) {
+\t\tif r.Method == http.MethodGet {
+\t\t\tcfg, err := loadConfig(configPath)
+\t\t\tif err != nil {
+\t\t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
+\t\t\t\treturn
+\t\t\t}
+\t\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": globalRandomizationEnabled(cfg)})
+\t\t\treturn
+\t\t}
 \t\tif r.Method != http.MethodPatch {
-\t\t\tw.Header().Set("Allow", http.MethodPatch)
+\t\t\tw.Header().Set("Allow", "GET, PATCH")
 \t\t\thttp.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 \t\t\treturn
 \t\t}
@@ -327,6 +336,24 @@ if clients_handler_anchor in t and 'urlPath := r.URL.Path' not in t:
     insert_pos = t.index('\n', idx) + 1
     routing_block = '''\t\t// Subscription randomization API routes (before method check)
 \t\turlPath := r.URL.Path
+\t\t// GET /api/clients/ — list clients (id + randomization) for selective panel
+\t\tif r.Method == http.MethodGet && (urlPath == "/api/clients/" || urlPath == "/api/clients") {
+\t\t	cfg, err := loadConfig(configPath)
+\t\t	if err != nil {
+\t\t		http.Error(w, err.Error(), http.StatusInternalServerError)
+\t\t		return
+\t\t	}
+\t\t	type clientListItem struct {
+\t\t		ClientID      string               `json:"client_id"`
+\t\t		Randomization *ClientRandomization `json:"randomization,omitempty"`
+\t\t	}
+\t\t	items := make([]clientListItem, 0, len(cfg.Clients))
+\t\t	for _, c := range cfg.Clients {
+\t\t		items = append(items, clientListItem{ClientID: c.ClientID, Randomization: c.Randomization})
+\t\t	}
+\t\t	writeJSONStatus(w, http.StatusOK, map[string]any{"clients": items})
+\t\t	return
+\t\t}
 \t\t// PATCH /api/clients/:id/randomization (exact match, no suffix)
 \t\tif strings.HasSuffix(urlPath, "/randomization") && !strings.Contains(urlPath, "/randomization/") {
 \t\t\trandomizationPatchHandler(configPath)(w, r)

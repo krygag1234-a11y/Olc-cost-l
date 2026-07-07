@@ -142,6 +142,25 @@ if logs_button_anchor in t and '🎲' not in t:
     t = t.replace(logs_button_anchor, randomize_button, 1)
     print("[patch-randomization-ui-full] added per-client randomization button")
 
+# === 7. Preserve randomization field through normalizePanelState ===
+# Upstream normalizePanelState() rebuilds each client object and drops unknown
+# fields — without this, client.randomization never reaches the button and it
+# stays OFF after loadState(). (Root cause of Task 1.)
+normalize_anchor = '''      client_id: String(c.client_id ?? "").trim(),
+      refresh: c.refresh,
+      quota: c.quota ?? {},
+      locations: (c.locations ?? []).map((loc) => normalizeLocationState(loc as Partial<LocationState>)),
+    }))'''
+if normalize_anchor in t and 'randomization: c.randomization,' not in t:
+    normalize_fixed = '''      client_id: String(c.client_id ?? "").trim(),
+      refresh: c.refresh,
+      quota: c.quota ?? {},
+      locations: (c.locations ?? []).map((loc) => normalizeLocationState(loc as Partial<LocationState>)),
+      randomization: c.randomization,
+    }))'''
+    t = t.replace(normalize_anchor, normalize_fixed, 1)
+    print("[patch-randomization-ui-full] normalizePanelState preserves randomization")
+
 p.write_text(t, encoding='utf-8')
 print("[patch-randomization-ui-full] ok")
 PY

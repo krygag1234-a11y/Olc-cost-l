@@ -204,6 +204,67 @@ if load_config and 'secretWasEmpty' not in load_config.group(0):
     t = t.replace(old_load, new_load, 1)
     print("[patch-randomization] loadConfig modified")
 
+# === 9. Expose randomization in /api/state ClientState ===
+# 9a. Add Randomization field to ClientState struct
+client_state_struct = '''type ClientState struct {
+	ClientID  string          `json:"client_id"`
+	Refresh   string          `json:"refresh,omitempty"`
+	Quota     Quota           `json:"quota"`
+	Locations []LocationState `json:"locations"`
+}'''
+if client_state_struct in t and 'Randomization *ClientRandomization `json:"randomization' not in t:
+    client_state_new = '''type ClientState struct {
+	ClientID      string               `json:"client_id"`
+	Refresh       string               `json:"refresh,omitempty"`
+	Quota         Quota                `json:"quota"`
+	Locations     []LocationState      `json:"locations"`
+	Randomization *ClientRandomization `json:"randomization,omitempty"`
+}'''
+    t = t.replace(client_state_struct, client_state_new, 1)
+    print("[patch-randomization] ClientState struct extended with Randomization")
+
+# 9b. Capture randomization pointer in State() lookup loop and emit it
+state_lookup = '''		quota := Quota{}
+		refresh := ""
+		for _, client := range s.cfg.Clients {
+			if client.ClientID == id {
+				quota = client.Quota
+				refresh = client.Refresh
+				break
+			}
+		}'''
+if state_lookup in t and 'var randomization *ClientRandomization' not in t:
+    state_lookup_new = '''		quota := Quota{}
+		refresh := ""
+		var randomization *ClientRandomization
+		for _, client := range s.cfg.Clients {
+			if client.ClientID == id {
+				quota = client.Quota
+				refresh = client.Refresh
+				randomization = client.Randomization
+				break
+			}
+		}'''
+    t = t.replace(state_lookup, state_lookup_new, 1)
+    print("[patch-randomization] State() captures randomization pointer")
+
+state_append = '''		out.Clients = append(out.Clients, ClientState{
+			ClientID:  id,
+			Refresh:   refresh,
+			Quota:     quota,
+			Locations: clients[id],
+		})'''
+if state_append in t and 'Randomization: randomization,' not in t:
+    state_append_new = '''		out.Clients = append(out.Clients, ClientState{
+			ClientID:      id,
+			Refresh:       refresh,
+			Quota:         quota,
+			Locations:     clients[id],
+			Randomization: randomization,
+		})'''
+    t = t.replace(state_append, state_append_new, 1)
+    print("[patch-randomization] State() emits randomization field")
+
 p.write_text(t)
 print("[patch-randomization] ok")
 PY
