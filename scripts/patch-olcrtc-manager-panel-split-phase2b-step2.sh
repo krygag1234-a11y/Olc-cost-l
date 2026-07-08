@@ -342,8 +342,70 @@ if old_panel_cidrs not in t:
 
 t = t.replace(old_panel_cidrs, new_panel_cidrs, 1)
 
-# Anchor 4: Replace force_tor_domains with collapsible version (height 200→120, inline textarea)
-old_force_tor = '                    <textarea className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs" value={String(settings.force_tor_domains ?? "")} onChange={(e) => setStr("force_tor_domains", e.target.value)} />'
+# Anchor 4: Replace force_tor_domains with collapsible version (height 200→120)
+# Phase 2B already replaced textarea with card-based list, so search for that structure
+old_force_tor = '''                    <div className="space-y-2">
+                      <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                        {String(settings.force_tor_domains ?? "").split('\\n').filter(s => s.trim()).map((domain, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1.5">
+                            <span className="font-mono text-xs truncate">{domain.trim()}</span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-xs text-red-400 hover:text-red-300"
+                              onClick={() => {
+                                const domains = String(settings.force_tor_domains ?? "").split('\\n').filter(s => s.trim()).map(s => s.trim());
+                                const updated = domains.filter((d, i) => i !== idx);
+                                setStr("force_tor_domains", updated.join('\\n'));
+                              }}
+                              title="Удалить"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs font-mono"
+                          placeholder="example.com"
+                          value={newForceTorDomain}
+                          onChange={(e) => setNewForceTorDomain(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = newForceTorDomain.trim();
+                              if (!trimmed) return;
+                              const domains = String(settings.force_tor_domains ?? "").split('\\n').filter(s => s.trim()).map(s => s.trim());
+                              if (domains.includes(trimmed)) {
+                                setNewForceTorDomain("");
+                                return;
+                              }
+                              const updated = [...domains, trimmed];
+                              setStr("force_tor_domains", updated.join('\\n'));
+                              setNewForceTorDomain("");
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="rounded border border-primary px-3 py-1 text-xs text-primary hover:bg-primary/10"
+                          onClick={() => {
+                            const trimmed = newForceTorDomain.trim();
+                            if (!trimmed) return;
+                            const domains = String(settings.force_tor_domains ?? "").split('\\n').filter(s => s.trim()).map(s => s.trim());
+                            if (domains.includes(trimmed)) {
+                              setNewForceTorDomain("");
+                              return;
+                            }
+                            const updated = [...domains, trimmed];
+                            setStr("force_tor_domains", updated.join('\\n'));
+                            setNewForceTorDomain("");
+                          }}
+                        >
+                          Добавить
+                        </button>
+                      </div>
+                    </div>'''
 
 new_force_tor = '''                    <div className="space-y-2">
                       <button
@@ -432,8 +494,70 @@ if old_force_tor not in t:
 
 t = t.replace(old_force_tor, new_force_tor, 1)
 
-# Anchor 5: Replace blocked_tor_domains with collapsible version (height 200→120, inline textarea)
-old_blocked_tor = '                    <textarea className="min-h-[60px] rounded-md border border-border bg-background p-2 font-mono text-xs" value={String(settings.blocked_tor_domains ?? "")} onChange={(e) => setStr("blocked_tor_domains", e.target.value)} />'
+# Anchor 5: Replace blocked_tor_domains with collapsible version (height 200→120)
+# Phase 2B already replaced textarea with card-based list, so search for that structure
+old_blocked_tor = '''                    <div className="space-y-2">
+                      <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                        {String(settings.blocked_tor_domains ?? "").split('\\n').filter(s => s.trim()).map((domain, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1.5">
+                            <span className="font-mono text-xs truncate">{domain.trim()}</span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-xs text-red-400 hover:text-red-300"
+                              onClick={() => {
+                                const domains = String(settings.blocked_tor_domains ?? "").split('\\n').filter(s => s.trim()).map(s => s.trim());
+                                const updated = domains.filter((d, i) => i !== idx);
+                                setStr("blocked_tor_domains", updated.join('\\n'));
+                              }}
+                              title="Удалить"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs font-mono"
+                          placeholder="example.com"
+                          value={newBlockedTorDomain}
+                          onChange={(e) => setNewBlockedTorDomain(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = newBlockedTorDomain.trim();
+                              if (!trimmed) return;
+                              const domains = String(settings.blocked_tor_domains ?? "").split('\\n').filter(s => s.trim()).map(s => s.trim());
+                              if (domains.includes(trimmed)) {
+                                setNewBlockedTorDomain("");
+                                return;
+                              }
+                              const updated = [...domains, trimmed];
+                              setStr("blocked_tor_domains", updated.join('\\n'));
+                              setNewBlockedTorDomain("");
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="rounded border border-primary px-3 py-1 text-xs text-primary hover:bg-primary/10"
+                          onClick={() => {
+                            const trimmed = newBlockedTorDomain.trim();
+                            if (!trimmed) return;
+                            const domains = String(settings.blocked_tor_domains ?? "").split('\\n').filter(s => s.trim()).map(s => s.trim());
+                            if (domains.includes(trimmed)) {
+                              setNewBlockedTorDomain("");
+                              return;
+                            }
+                            const updated = [...domains, trimmed];
+                            setStr("blocked_tor_domains", updated.join('\\n'));
+                            setNewBlockedTorDomain("");
+                          }}
+                        >
+                          Добавить
+                        </button>
+                      </div>
+                    </div>'''
 
 new_blocked_tor = '''                    <div className="space-y-2">
                       <button
