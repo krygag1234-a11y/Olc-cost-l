@@ -20,6 +20,7 @@
 |-----------|------------------|--------|
 | olcrtc | **`master`** (pin в `data/upstream-pins.json`) | https://github.com/openlibrecommunity/olcrtc/tree/master |
 | manager panel | **`main`** + патчи в `scripts/patch-olcrtc-manager-*.sh` | https://github.com/BigDaddy3334/olcrtc-manager-panel |
+| local manager panel | **`stable-v1`** | https://github.com/krygag1234-a11y/local-panel-version |
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
