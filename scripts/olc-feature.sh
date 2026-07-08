@@ -160,8 +160,14 @@ tor_on() {
 }
 tor_off() {
   _save OLCRTC_ENABLE_TOR 0
+  # Tor is the parent of both split (routes non-RU via exit) and bridges/webtunnel
+  # (obfs4/webtunnel transports feed Tor). Disabling Tor must cascade to BOTH,
+  # otherwise split + bridges stay "ON" in the UI while their dependency is gone.
   if [[ "${OLCRTC_ENABLE_SPLIT:-1}" == "1" ]]; then
     split_off
+  fi
+  if [[ "${OLCRTC_ENABLE_WEBTUNNEL:-0}" == "1" ]]; then
+    webtunnel_off || echo "[tor] WARN: webtunnel_off had errors"
   fi
   systemctl stop tor@default.service 2>/dev/null || true
   systemctl disable tor@default.service 2>/dev/null || true
