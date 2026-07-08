@@ -430,6 +430,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-modal-memory.sh" "$MGR_REPO/src/main.tsx"
   # Resilient feature-toggle fetch (survives the deferred manager restart; no stuck buttons).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-toggle-resilient.sh" "$MGR_REPO/src/main.tsx"
+  # Clarify + restructure addon settings modals (intro banner, sections, captions).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
