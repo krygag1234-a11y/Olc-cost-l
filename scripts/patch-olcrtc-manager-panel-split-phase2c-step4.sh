@@ -9,8 +9,8 @@ if ! [ -f "$TARGET" ]; then
   exit 1
 fi
 
-# Idempotency check: search for the specific green button structure (not just any bg-emerald-500)
-if grep -q "w-full rounded-lg bg-emerald-500.*Применить" "$TARGET" 2>/dev/null; then
+# Idempotency check: search for the specific green button structure (not just any bg-emerald-600)
+if grep -q "w-full rounded-lg bg-emerald-600.*Применить" "$TARGET" 2>/dev/null; then
   echo "[split-2c-step4] already applied" >&2
   exit 0
 fi
@@ -48,21 +48,21 @@ old_section = '''                <section className="rounded-md border border-bo
                 </section>'''
 
 # New structure: enhanced visual design with warm green button below text
-new_section = '''                <section className="rounded-lg border-2 border-emerald-500/20 bg-gradient-to-br from-emerald-50/10 to-muted/20 p-4 space-y-3 shadow-sm">
+new_section = '''                <section className="rounded-lg border-2 border-emerald-600/20 bg-gradient-to-br from-emerald-50/10 to-muted/20 p-4 space-y-3 shadow-sm">
                   <div>
                     <div className="font-semibold text-base">Применить изменения</div>
                     <p className="text-xs text-muted-foreground mt-1">Синхронизирует конфиг, логи и применяет роутинг</p>
                   </div>
                   <button
                     type="button"
-                    className="w-full rounded-lg bg-emerald-500 px-6 py-3 text-base font-semibold text-white hover:bg-emerald-600 active:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                    className="w-full rounded-lg bg-emerald-600 px-6 py-3 text-base font-semibold text-white hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
                     disabled={saving}
                     onClick={() => void splitApplyAll()}
                   >
                     Применить
                   </button>
                   {splitAnalyzeMsg && (
-                    <p className={`text-xs ${splitAnalyzeMsg.startsWith("✓") ? "text-emerald-500 font-medium" : splitAnalyzeMsg.includes("...") ? "text-blue-400" : "text-red-400"}`}>
+                    <p className={`text-xs ${splitAnalyzeMsg.startsWith("✓") ? "text-emerald-600 font-medium" : splitAnalyzeMsg.includes("...") ? "text-blue-400" : "text-red-400"}`}>
                       {splitAnalyzeMsg}
                     </p>
                   )}
