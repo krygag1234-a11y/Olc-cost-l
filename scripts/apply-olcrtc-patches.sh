@@ -450,16 +450,16 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2a-step1.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2A Step 2: collapse discovery.groups by default, add summary.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2a-step2.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2C Step 3: unify 3 split routing buttons into one "Apply" with progress.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step3.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2C Step 4: improve visual design of "Применить изменения" section + warm green button.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step4.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2B: transform 4 remaining lists → card-based UI (panel_hosts, panel_cidrs, force_tor_domains, blocked_tor_domains).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2B Step 2: make 4 lists collapsible with persisted state (usePersistedOpen), reduce height to 120px.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step2.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2B Step 3: add collapsible for custom_direct_domains (5th list) + improve UX (border, hover, padding).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step3.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 2C Step 3: unify 3 split routing buttons into one "Apply" with progress.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step3.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 2C Step 4: improve visual design of "Применить изменения" section + warm green button.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step4.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
