@@ -92,7 +92,7 @@ mount_new = mount_old + '''
       default: break;
     }
   }, [authenticated, state, pendingModal]);'''
-repl(mount_old, mount_new, "App write+restore effects", guard='olc-active-modal-v1"')
+repl(mount_old, mount_new, "App write+restore effects", guard='modalRestoredRef.current = true;')
 
 # --- 3. FeaturesPanel: persist + restore addon feature modals ---
 fp_state_old = '''  const [logFeature, setLogFeature] = useState<FeatureName | null>(null);
