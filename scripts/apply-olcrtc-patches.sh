@@ -454,6 +454,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step3.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2B: transform 4 remaining lists → card-based UI (panel_hosts, panel_cidrs, force_tor_domains, blocked_tor_domains).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 2B Step 2: make 4 lists collapsible with persisted state (usePersistedOpen), reduce height to 120px.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step2.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
