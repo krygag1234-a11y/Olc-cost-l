@@ -360,6 +360,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-status-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-types-persist.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-list-cards-ui.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-profile-cards-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-preflight-v1.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-preflight-v2.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-preflight-v3.sh" "$MGR_REPO/src/main.tsx"
