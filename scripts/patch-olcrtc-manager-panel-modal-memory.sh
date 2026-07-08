@@ -29,6 +29,45 @@ def repl(old, new, label, guard=None):
     else:
         print(f"[patch-modal-memory] WARN {label}: anchor not found")
 
+# --- 0. usePersistedOpen hook: a drop-in useState<boolean> that remembers itself ---
+repl(
+    'function readStoredBool(key: string, fallback = false) {',
+    '''function usePersistedOpen(key: string): [boolean, (v: boolean | ((p: boolean) => boolean)) => void] {
+  const [open, setOpenRaw] = useState(() => readStoredBool(key, false));
+  const setOpen = useCallback((v: boolean | ((p: boolean) => boolean)) => {
+    setOpenRaw((prev) => {
+      const next = typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v;
+      writeStoredBool(key, next);
+      return next;
+    });
+  }, [key]);
+  return [open, setOpen];
+}
+
+function readStoredBool(key: string, fallback = false) {''',
+    "usePersistedOpen hook",
+    guard='function usePersistedOpen(',
+)
+
+# --- 0b. Wire the 4 header-button components to persist their open state ---
+for fn_sig, storage_key in [
+    ('function NotificationBell() {\n  const { t } = usePanelLang();\n  const [open, setOpen] = useState(false);',
+     'olc-modal-notifications-v1'),
+    ('function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {\n  const { t } = usePanelLang();\n  const [open, setOpen] = useState(false);',
+     'olc-modal-project-v1'),
+    ('function ComponentsDrawerButton() {\n  const { t } = usePanelLang();\n  const [open, setOpen] = useState(false);',
+     'olc-modal-components-v1'),
+    ('function ErrorsSummaryButton() {\n  const { t } = usePanelLang();\n  const [open, setOpen] = useState(false);',
+     'olc-modal-errors-v1'),
+]:
+    repl(
+        fn_sig,
+        fn_sig.replace('const [open, setOpen] = useState(false);',
+                       f'const [open, setOpen] = usePersistedOpen("{storage_key}");'),
+        f"persist header button {storage_key}",
+        guard=f'usePersistedOpen("{storage_key}")',
+    )
+
 # --- 1. App: pendingModal (lazy read) + restoredRef, right after showSettings ---
 repl(
     '  const [showSettings, setShowSettings] = useState(false);',
