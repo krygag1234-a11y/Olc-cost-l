@@ -446,6 +446,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-sources-ui.sh" "$MGR_REPO/src/main.tsx"
   # Phase 1: fix delete dead bridge + better profiles UI (card-based with radio buttons).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-fix-final.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 2A Step 1: transform custom_direct_domains textarea → card-based list with add/remove.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2a-step1.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
