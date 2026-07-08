@@ -159,6 +159,7 @@ tor_on() {
   echo "[tor] ON"
 }
 tor_off() {
+  _load  # must read current flags BEFORE checking dependents (else :-defaults lie)
   _save OLCRTC_ENABLE_TOR 0
   # Tor is the parent of both split (routes non-RU via exit) and bridges/webtunnel
   # (obfs4/webtunnel transports feed Tor). Disabling Tor must cascade to BOTH,
