@@ -424,8 +424,10 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-feature-logs-guard.sh" "$MGR_REPO/src/main.tsx"
   # Autologi UI + unified LIVE across log modals + panel-expand memory.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-autologi-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Polish: hide log-source path label; persist settings-modal open state across reload.
+  # Polish: hide log-source path label in addon log modal.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-polish.sh" "$MGR_REPO/src/main.tsx"
+  # Remember + restore whichever modal was open across a page reload.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-modal-memory.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
