@@ -456,6 +456,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2B Step 2: make 4 lists collapsible with persisted state (usePersistedOpen), reduce height to 120px.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step2.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 2B Step 3: add collapsible for custom_direct_domains (5th list) + improve UX (border, hover, padding).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step3.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
