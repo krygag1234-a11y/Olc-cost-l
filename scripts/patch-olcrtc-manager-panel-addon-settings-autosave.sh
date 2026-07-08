@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Phase 0 (autosave) — addon settings modal (ComponentSettingsModal).
-# Removes the "Сохранить" button; changes autosave automatically:
+# Removes the "Сохранить" button; changes save automatically:
 #   - debounced ~1s after any edit,
 #   - immediately on modal close and on page unload/reload.
 # Shows a "сохранено ✓ / сохраняю…" status indicator instead of a button.
-# Behavior of save() (payload shaping for webtunnel etc.) is reused unchanged.
+#
+# IMPORTANT ordering: this component early-returns while loading, and defines
+# `save` AFTER those returns. All React hooks (useRef/useEffect) MUST stay above
+# the early returns (rules of hooks), and effects must NOT reference `save`
+# directly (TDZ) — they go through saveRef, which is assigned as a plain
+# statement right after `save` is defined.
 # Idempotent. Target: manager src/main.tsx. Run after addon-settings-ui.
 set -euo pipefail
 
@@ -29,16 +34,21 @@ def repl(old, new, label, guard=None):
     else:
         print(f"[patch-addon-autosave] WARN {label}: anchor not found")
 
-# --- 1. Add autosave plumbing right after setStr/setBool definitions ---
+# --- 1. Hooks + helpers ABOVE the early returns (anchor: the [feature] effect).
+#        Only refs are touched here; `save` is reached via saveRef, never directly.
 repl(
-    '''  const setStr = (key: string, value: string) => setSettings((s) => ({ ...s, [key]: value }));
-  const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));''',
-    '''  // --- Autosave (Phase 0): no Save button; persist changes automatically. ---
+    '''  useEffect(() => {
+    setInstanceDefaultsOpen(false);
+  }, [feature]);''',
+    '''  useEffect(() => {
+    setInstanceDefaultsOpen(false);
+  }, [feature]);
+
+  // --- Autosave (Phase 0): no Save button; persist changes automatically. ---
   const saveRef = useRef<() => Promise<void>>(async () => {});
   const dirtyRef = useRef(false);
   const autoTimer = useRef<number | null>(null);
   const markDirtyAndSchedule = () => {
-    if (loading) return; // don't autosave while initial load is populating state
     dirtyRef.current = true;
     if (autoTimer.current) window.clearTimeout(autoTimer.current);
     autoTimer.current = window.setTimeout(() => {
@@ -56,26 +66,6 @@ repl(
       void saveRef.current();
     }
   };
-  const setStr = (key: string, value: string) => { setSettings((s) => ({ ...s, [key]: value })); markDirtyAndSchedule(); };
-  const setBool = (key: string, value: boolean) => { setSettings((s) => ({ ...s, [key]: value })); markDirtyAndSchedule(); };''',
-    "autosave plumbing",
-    guard='markDirtyAndSchedule',
-)
-
-# --- 2. Keep saveRef current + save on unload; flush on unmount ---
-# Anchor on the existing effect that resets instanceDefaultsOpen per feature.
-repl(
-    '''  useEffect(() => {
-    setInstanceDefaultsOpen(false);
-  }, [feature]);''',
-    '''  useEffect(() => {
-    setInstanceDefaultsOpen(false);
-  }, [feature]);
-
-  // Keep the latest save fn in a ref so timers/unload always call the current one.
-  useEffect(() => {
-    saveRef.current = save;
-  });
   // Persist on page unload/reload and flush any pending debounce on unmount.
   useEffect(() => {
     const onUnload = () => { if (dirtyRef.current) { dirtyRef.current = false; void saveRef.current(); } };
@@ -85,11 +75,22 @@ repl(
       flushSave();
     };
   }, []);''',
-    "saveRef + unload effects",
-    guard='window.addEventListener("beforeunload", onUnload);',
+    "autosave hooks+helpers",
+    guard='markDirtyAndSchedule',
 )
 
-# --- 3. Flush pending save when closing the modal (wrap onClose in the footer) ---
+# --- 2. After `save` is defined, keep saveRef current + wire setStr/setBool.
+repl(
+    '''  const setStr = (key: string, value: string) => setSettings((s) => ({ ...s, [key]: value }));
+  const setBool = (key: string, value: boolean) => setSettings((s) => ({ ...s, [key]: value }));''',
+    '''  saveRef.current = save;
+  const setStr = (key: string, value: string) => { setSettings((s) => ({ ...s, [key]: value })); markDirtyAndSchedule(); };
+  const setBool = (key: string, value: boolean) => { setSettings((s) => ({ ...s, [key]: value })); markDirtyAndSchedule(); };''',
+    "wire saveRef + setStr/setBool",
+    guard='saveRef.current = save;',
+)
+
+# --- 3. Replace the Save button with an autosave status indicator + flushing close.
 repl(
     '''        {msg && <p className={`text-xs ${msg === t("saved") ? "text-emerald-400" : "text-destructive"}`}>{msg}</p>}
         <div className="flex justify-end gap-2">
