@@ -413,7 +413,37 @@ apply_manager() {
   # Subscription randomization must run after golden-panel because golden-panel rewrites main.go.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-randomization.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Fix addon log resolution (correct file paths + journald fallback).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-feature-logs-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Server-side autologi (auto-refresh logs) setting + endpoint.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-autologi-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Phase 1: per-bridge health API (join active bridges.conf with health TSV) + probe_now action.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-health-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Phase 1: bridge sources API + init on startup + legacy migration.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-sources-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-sync.sh" "$MGR_REPO/src/main.tsx"
+  # Disable addon "Логи" button when the addon is OFF.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-feature-logs-guard.sh" "$MGR_REPO/src/main.tsx"
+  # Autologi UI + unified LIVE across log modals + panel-expand memory.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-autologi-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Polish: hide log-source path label in addon log modal.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-polish.sh" "$MGR_REPO/src/main.tsx"
+  # Remember + restore whichever modal was open across a page reload.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-modal-memory.sh" "$MGR_REPO/src/main.tsx"
+  # Resilient feature-toggle fetch (survives the deferred manager restart; no stuck buttons).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-toggle-resilient.sh" "$MGR_REPO/src/main.tsx"
+  # Clarify + restructure addon settings modals (intro banner, sections, captions).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 0: autosave in addon settings modal (no Save button; debounce + on-close/unload).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-autosave.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 0: autosave in general settings modal (validated; save on close/unload).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-general-settings-autosave.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 1: per-bridge health list UI (uses new backend 'health' field + probe_now).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-health-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 1: bridge sources management UI (toggle/add/remove sources inline).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-sources-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
