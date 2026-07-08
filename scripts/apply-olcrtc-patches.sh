@@ -434,6 +434,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-ui.sh" "$MGR_REPO/src/main.tsx"
   # Phase 0: autosave in addon settings modal (no Save button; debounce + on-close/unload).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-autosave.sh" "$MGR_REPO/src/main.tsx"
+  # Phase 0: autosave in general settings modal (validated; save on close/unload).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-general-settings-autosave.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
