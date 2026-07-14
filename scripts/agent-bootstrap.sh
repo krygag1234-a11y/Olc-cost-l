@@ -507,7 +507,6 @@ if [[ "$UPDATE" -eq 1 ]]; then
   tui_log_info "Режим: UPDATE — обновление списков, патчей, Tor, zapret, systemd"
   tui_log_info "Можно продолжить с --resume если процесс прервётся"
   tui_divider
-  export OLCRTC_TOTAL_STEPS=11
   profile_apply_env
   state_step_profile patches              run_patches
   state_step_profile sysctl               setup_sysctl
@@ -533,7 +532,6 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   tui_banner "Доустановка Olc-cost-l"
   tui_log_info "Режим: INCREMENTAL — skip работающих компонентов, доустановка недостающих"
   tui_divider
-  export OLCRTC_TOTAL_STEPS=13
   profile_apply_env
   
   # Проверка и установка packages только если нужно
@@ -567,7 +565,6 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
 fi
 
 if [[ "$FULL" -eq 1 ]]; then
-  export OLCRTC_TOTAL_STEPS=9
   state_step packages       install_deps
   state_step patches        run_patches
   state_step webtunnel      build_webtunnel

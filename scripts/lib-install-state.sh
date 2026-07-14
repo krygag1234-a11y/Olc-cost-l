@@ -97,10 +97,7 @@ state_step() {
     _state_log "skip $name (already done — resume)"
     return 0
   fi
-  if [[ "$OLCRTC_TOTAL_STEPS" -gt 0 ]] && declare -f tui_progress_bar >/dev/null 2>&1; then
-    tui_progress_bar "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS" 30
-  fi
-  _state_log "→ $name [$_OLCRTC_STEP_NUM/$OLCRTC_TOTAL_STEPS]"
+  _state_log "→ $name"
   local started; started=$(date +%s)
   local rc=0
   "$@" || rc=$?
