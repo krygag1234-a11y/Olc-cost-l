@@ -30,6 +30,24 @@
 : "${OLCRTC_TOTAL_STEPS:=0}"
 _OLCRTC_STEP_NUM=0
 
+# Progress bar helper — safe wrapper
+_olc_show_progress() {
+  [[ "$OLCRTC_TOTAL_STEPS" -le 0 ]] && return 0
+  local curr="$1" total="$2"
+  local percent=$(( curr * 100 / total ))
+  local width=30
+  local filled=$(( width * curr / total ))
+  local empty=$(( width - filled ))
+
+  local bar=""
+  local i
+  for ((i=0; i<filled; i++)); do bar+="█"; done
+  for ((i=0; i<empty; i++)); do bar+="░"; done
+
+  printf "\r[%s] %d%% (шаг %d/%d)" "$bar" "$percent" "$curr" "$total"
+  [[ "$curr" -eq "$total" ]] && printf "\n"
+}
+
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
   # shellcheck source=lib-olc-ru.sh
   source "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh"
@@ -97,6 +115,8 @@ state_step() {
     _state_log "skip $name (already done — resume)"
     return 0
   fi
+  # Show progress bar if OLCRTC_TOTAL_STEPS is set
+  _olc_show_progress "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS"
   _state_log "→ $name"
   local started; started=$(date +%s)
   local rc=0
