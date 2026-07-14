@@ -99,6 +99,14 @@ noninteractive_install() {
   if [[ -f "$OPT/common/installer.sh" ]]; then
     sed -i 's/if \[ -n "\$1" \] || ask_yes_no N "do you want to continue";/if true;/' \
       "$OPT/common/installer.sh" 2>/dev/null || true
+    sed -i 's/ask_yes_no [YN] .*/true/' \
+      "$OPT/common/installer.sh" 2>/dev/null || true
+  fi
+  if [[ -f "$OPT/install_easy.sh" ]]; then
+    sed -i 's/ask_yes_no [YN] .*/true/' \
+      "$OPT/install_easy.sh" 2>/dev/null || true
+    sed -i '/read -r.*REPLY\|read -p/d' \
+      "$OPT/install_easy.sh" 2>/dev/null || true
   fi
   export INIT_APPLY_FW=1
   export PRESS_ENTER_TO_CONTINUE=0

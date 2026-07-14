@@ -176,32 +176,33 @@ require_root() {
 
 install_deps() {
   log "Установка зависимостей (git, build-essential, golang${ENABLE_TOR:+, tor, obfs4})"
+  local apt_log="/var/log/olcrtc-apt-install.log"
+  : >"$apt_log"
+
   tui_log_info "Обновление списка пакетов..."
-  apt-get update -qq 2>&1 | tee -a /var/log/olcrtc-apt-update.log >/dev/null
-  
-  tui_log_info "Установка базовых пакетов (git, curl, build-essential, golang, jq, ca-certificates)..."
-  apt-get install -y git curl build-essential golang-go jq ca-certificates 2>&1 | \
-    grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
-  
+  apt-get update -qq >>"$apt_log" 2>&1
+
+  tui_log_info "Установка базовых пакетов..."
+  apt-get install -y -qq git curl build-essential golang-go jq ca-certificates >>"$apt_log" 2>&1 || true
+
   tui_log_info "Установка Node.js и npm..."
-  apt-get install -y patch nodejs npm 2>&1 | \
-    grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
-  
+  apt-get install -y -qq patch nodejs npm >>"$apt_log" 2>&1 || true
+
   if [[ "${ENABLE_TOR:-0}" -eq 1 ]]; then
-    tui_log_info "Установка Tor и плагинов обхода (tor, obfs4proxy, snowflake, ffmpeg)..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y tor obfs4proxy snowflake-client apparmor-utils ffmpeg 2>&1 | \
-      grep -E "^(Unpacking|Setting up|Processing)" | sed 's/^/  /' || true
+    tui_log_info "Установка Tor и плагинов обхода..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tor obfs4proxy snowflake-client apparmor-utils ffmpeg >>"$apt_log" 2>&1 || true
   fi
-  
+
   tui_log_info "Установка Go toolchain..."
-  bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>&1 | grep -v "^$" | head -10 | sed 's/^/  /' || true
-  
+  bash "$SCRIPT_DIR/install-go-toolchain.sh" >>"$apt_log" 2>&1 || true
+
   export PATH="/usr/local/go/bin:${PATH:-}"
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   tui_log_success "Зависимости установлены ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
-  
+  tui_log_info "  подробный лог: $apt_log"
+
   if [[ "$ENABLE_TOR" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
-    command -v go >/dev/null || apt-get install -y -qq golang-go 2>&1 >/dev/null
+    command -v go >/dev/null || apt-get install -y -qq golang-go >>"$apt_log" 2>&1
   fi
 }
 
@@ -506,6 +507,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   tui_log_info "Режим: UPDATE — обновление списков, патчей, Tor, zapret, systemd"
   tui_log_info "Можно продолжить с --resume если процесс прервётся"
   tui_divider
+  export OLCRTC_TOTAL_STEPS=11
   profile_apply_env
   state_step_profile patches              run_patches
   state_step_profile sysctl               setup_sysctl
@@ -531,6 +533,7 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   tui_banner "Доустановка Olc-cost-l"
   tui_log_info "Режим: INCREMENTAL — skip работающих компонентов, доустановка недостающих"
   tui_divider
+  export OLCRTC_TOTAL_STEPS=13
   profile_apply_env
   
   # Проверка и установка packages только если нужно
@@ -564,6 +567,7 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
 fi
 
 if [[ "$FULL" -eq 1 ]]; then
+  export OLCRTC_TOTAL_STEPS=9
   state_step packages       install_deps
   state_step patches        run_patches
   state_step webtunnel      build_webtunnel

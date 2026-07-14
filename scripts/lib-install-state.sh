@@ -26,6 +26,10 @@
 # Force re-run specific step even on resume.
 : "${OLCRTC_FORCE_STEP:=}"
 
+# Step progress counter (set OLCRTC_TOTAL_STEPS before first state_step for progress bar)
+: "${OLCRTC_TOTAL_STEPS:=0}"
+_OLCRTC_STEP_NUM=0
+
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
   # shellcheck source=lib-olc-ru.sh
   source "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh"
@@ -88,11 +92,15 @@ _state_record_fail() {
 # If OLCRTC_SOFT_STEPS includes the step, failure is logged but continues.
 state_step() {
   local name="$1"; shift
+  _OLCRTC_STEP_NUM=$(( _OLCRTC_STEP_NUM + 1 ))
   if state_already_done "$name"; then
     _state_log "skip $name (already done — resume)"
     return 0
   fi
-  _state_log "→ $name"
+  if [[ "$OLCRTC_TOTAL_STEPS" -gt 0 ]] && declare -f tui_progress_bar >/dev/null 2>&1; then
+    tui_progress_bar "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS" 30
+  fi
+  _state_log "→ $name [$_OLCRTC_STEP_NUM/$OLCRTC_TOTAL_STEPS]"
   local started; started=$(date +%s)
   local rc=0
   "$@" || rc=$?

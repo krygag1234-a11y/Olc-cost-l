@@ -144,6 +144,9 @@ main() {
     echo ""
     tui_log_info "Обновление репозитория из GitHub..."
     tui_divider
+    # Reset local modifications (patches may leave dirty state)
+    olc_git "$repo" reset --hard HEAD >/dev/null 2>&1 || true
+    olc_git "$repo" clean -fd >/dev/null 2>&1 || true
     LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 olc_git "$repo" pull --quiet --ff-only origin main || {
       tui_log_error "Ошибка git pull. Проверьте подключение к GitHub."
       exit 1
