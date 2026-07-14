@@ -8,7 +8,7 @@ _LIB_OLC_CORE_LOADED=1
 
 # === Глобальные переменные ===
 # Флаги устанавливаются через parse_common_flags()
-declare -g OLC_MANAGER_STABLE="${OLC_MANAGER_STABLE:-0}"
+declare -g OLC_MANAGER_STABLE="${OLC_MANAGER_STABLE:-1}"
 declare -g OLC_MANAGER_LATEST="${OLC_MANAGER_LATEST:-0}"
 declare -g OLCRTC_FORCE_SHA_UPDATE="${OLCRTC_FORCE_SHA_UPDATE:-0}"
 declare -g OLCRTC_RESUME="${OLCRTC_RESUME:-0}"
