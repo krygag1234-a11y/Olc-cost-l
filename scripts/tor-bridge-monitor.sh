@@ -10,6 +10,16 @@ LOG_FILE="${LOG_FILE:-/var/log/olcrtc-bridge-monitor.log}"
 FAST_WINDOW="${FAST_WINDOW:-6}"
 STATE_FILE="${STATE_FILE:-/var/lib/olcrtc/tor-monitor-state.txt}"
 
+# Guard: skip if Tor not installed or bridges component removed
+if ! systemctl is-enabled tor@default >/dev/null 2>&1; then
+  echo "monitor: tor@default not enabled — skipping" >>"$LOG_FILE"
+  exit 0
+fi
+if [[ -f /var/lib/olcrtc/component-removed/bridges ]]; then
+  echo "monitor: bridges component removed — skipping" >>"$LOG_FILE"
+  exit 0
+fi
+
 tor_socks_ok() {
   # Fast path: if SOCKS port is down, don't waste time on HTTP.
   timeout 1 bash -lc ':</dev/tcp/127.0.0.1/9050' >/dev/null 2>&1 || return 1

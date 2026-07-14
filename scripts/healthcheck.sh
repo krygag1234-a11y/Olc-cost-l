@@ -37,7 +37,8 @@ for _ in $(seq 1 "$TOR_RETRIES"); do
 done
 panel_ok && PANEL_OK=1
 
-if [[ "$TOR_OK" -eq 0 ]] && systemctl is-enabled tor@default &>/dev/null; then
+if [[ "$TOR_OK" -eq 0 ]] && systemctl is-enabled tor@default &>/dev/null \
+   && [[ ! -f /var/lib/olcrtc/component-removed/bridges ]]; then
   log "$(olc_print_warn "Tor недоступен — запуск ротации мостов")"
   FAST_WINDOW=6 "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart >>"$LOG" 2>&1 || true
   if ! tor_socks_ok; then

@@ -59,12 +59,18 @@ case "$COMPONENT" in
   ;;
   bridges)
     bash "$FEATURES" webtunnel off || true
+    for u in olcrtc-tor-bridge-monitor olcrtc-tor-bridge-pool olcrtc-tor-bridge-deep; do
+      systemctl stop "${u}.timer" 2>/dev/null || true
+      systemctl disable "${u}.timer" 2>/dev/null || true
+      systemctl stop "${u}.service" 2>/dev/null || true
+    done
     rm -f /usr/bin/webtunnel-client /usr/local/bin/webtunnel-client 2>/dev/null || true
     if [[ -f /etc/tor/bridges.conf ]]; then
       ts="$(date -u +%Y%m%dT%H%M%SZ)"
       cp -a /etc/tor/bridges.conf "/etc/tor/bridges.conf.uninstalled.${ts}" 2>/dev/null || true
       : > /etc/tor/bridges.conf
     fi
+    mark_removed
   ;;
   *)
     echo "unknown component: $COMPONENT" >&2
