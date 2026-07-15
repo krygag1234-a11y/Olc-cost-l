@@ -232,8 +232,12 @@ setup_warp() {
 
 setup_tor() {
   [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
-  bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
-  bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
+  # Перенаправить весь вывод в лог, чтобы не накладывался на spinner
+  {
+    bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
+    bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
+  } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
+
   local btypes
   btypes="$(effective_bridge_types "${BRIDGE_TYPES:-obfs4}")"
   if ! webtunnel_client_ready; then
@@ -242,10 +246,13 @@ setup_tor() {
     log "Tor bridges pool ($btypes)"
   fi
   export BRIDGE_TYPES="$btypes"
-  bash "$SCRIPT_DIR/fetch-bridge-extra-sources.sh" 2>/dev/null || \
-    bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types "$btypes" || \
-    bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
-  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --types "$btypes" 2>/dev/null || true
+
+  {
+    bash "$SCRIPT_DIR/fetch-bridge-extra-sources.sh" 2>/dev/null || \
+      bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types "$btypes" || \
+      bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
+    bash "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --types "$btypes" 2>/dev/null || true
+  } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
   # Respect features.env: maintenance may run, but don't force-start if user toggled off.
   if [[ -f /etc/olcrtc-manager/features.env ]]; then
     # shellcheck disable=SC1091
