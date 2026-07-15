@@ -167,9 +167,7 @@ if [[ "$PANEL_ACCESS_EXPLICIT" -eq 1 ]]; then
   profile_set_panel_access "$PANEL_ACCESS"
 fi
 
-profile_apply_env
-
-# Установить флаг UPDATE режима ДО вызова profile_apply_env
+# Установить флаг UPDATE режима для profile_apply_env
 if [[ "$UPDATE" -eq 1 ]]; then
   export OLCRTC_UPDATE_MODE=1
 fi
