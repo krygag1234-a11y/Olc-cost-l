@@ -469,10 +469,28 @@ apply_manager() {
     else
       _olc_substep "npm install" 2>/dev/null || true
       log "build manager admin UI (web/dist)"
-      rm -rf "$MGR_REPO/web/dist"
       run_quiet "npm install (manager UI)" bash -c 'cd "$1" && npm ci 2>/dev/null || npm install' _ "$MGR_REPO"
-      _olc_substep "npm build" 2>/dev/null || true
-      run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || tui_fatal "Сборка UI панели (npm run build) завершилась с ошибкой" "Возможно: node_modules повреждены или недостаточно памяти" "Попробуйте: rm -rf $MGR_REPO/node_modules && cd $MGR_REPO && npm install && npm run build"
+
+      # Проверить, изменился ли UI src с последней сборки (экономия ~15-20s)
+      local ui_cache="$MGR_REPO/.ui-build-cache"
+      local current_hash=""
+      if [[ -d "$MGR_REPO/src" ]]; then
+        current_hash=$(find "$MGR_REPO/src" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.css" \) -exec sha256sum {} + 2>/dev/null | sort | sha256sum | awk '{print $1}')
+      fi
+      local cached_hash=""
+      [[ -f "$ui_cache" ]] && cached_hash=$(cat "$ui_cache" 2>/dev/null)
+
+      if [[ -n "$current_hash" && "$current_hash" == "$cached_hash" && -d "$MGR_REPO/web/dist" && -f "$MGR_REPO/web/dist/index.html" ]]; then
+        log "UI src не изменился — пропуск npm build (используется кэшированная сборка)"
+        _olc_substep "npm build (cached)" 2>/dev/null || true
+      else
+        rm -rf "$MGR_REPO/web/dist"
+        _olc_substep "npm build" 2>/dev/null || true
+        run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || tui_fatal "Сборка UI панели (npm run build) завершилась с ошибкой" "Возможно: node_modules повреждены или недостаточно памяти" "Попробуйте: rm -rf $MGR_REPO/node_modules && cd $MGR_REPO && npm install && npm run build"
+        # Сохранить hash успешной сборки
+        [[ -n "$current_hash" ]] && echo "$current_hash" > "$ui_cache"
+      fi
+
       if [[ -x "$SCRIPT_DIR/olc-panel-verify.sh" ]]; then
         bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
       else
@@ -506,32 +524,49 @@ build_binaries() {
       OLC_KEEP_BUILD_CLONES=1 olc_cleanup_build_caches "apply-patches-pre-build" || true
     fi
   fi
+
+  # Параллельная сборка Go-бинарей для ускорения (экономия ~10-12s)
   _olc_substep "go build olcrtc" 2>/dev/null || true
-  tui_spinner_start "Сборка olcrtc ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
-  olc_run_quiet_with_progress "сборка olcrtc" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
-    bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
-  if [[ "$rc" -ne 0 ]]; then
+  tui_spinner_start "Параллельная сборка olcrtc + olcrtc-manager ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
+
+  local olcrtc_log="/tmp/olcrtc-build-$$.log"
+  local manager_log="/tmp/olcrtc-manager-build-$$.log"
+
+  # Запустить обе сборки параллельно
+  (cd "$OLCRTC_REPO" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc 2>&1 | tee "$olcrtc_log") &
+  local olcrtc_pid=$!
+
+  _olc_substep "go build olcrtc-manager" 2>/dev/null || true
+  (cd "$MGR_REPO" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager 2>&1 | tee "$manager_log") &
+  local manager_pid=$!
+
+  # Ждать завершения обеих сборок
+  local olcrtc_rc=0 manager_rc=0
+  wait "$olcrtc_pid" || olcrtc_rc=$?
+  wait "$manager_pid" || manager_rc=$?
+
+  # Проверить результаты
+  if [[ "$olcrtc_rc" -ne 0 ]]; then
     tui_spinner_fail
-    tui_log_error "olcrtc build failed (rc=$rc) — проверьте место на диске: df -h /"
-    show_failure_logs_hint
-    return "$rc"
+    tui_log_error "olcrtc build failed (rc=$olcrtc_rc)"
+    cat "$olcrtc_log" >&2
+    rm -f "$olcrtc_log" "$manager_log"
+    return "$olcrtc_rc"
   fi
+
+  if [[ "$manager_rc" -ne 0 ]]; then
+    tui_spinner_fail
+    tui_log_error "olcrtc-manager build failed (rc=$manager_rc)"
+    cat "$manager_log" >&2
+    rm -f "$olcrtc_log" "$manager_log"
+    return "$manager_rc"
+  fi
+
+  rm -f "$olcrtc_log" "$manager_log"
   tui_spinner_ok
 
   install -d /var/lib/olcrtc
   date -Is > /var/lib/olcrtc/.split-routing-reload
-
-  _olc_substep "go build olcrtc-manager" 2>/dev/null || true
-  tui_spinner_start "Сборка olcrtc-manager"
-  olc_run_quiet_with_progress "сборка olcrtc-manager" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
-    bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
-  if [[ "$rc" -ne 0 ]]; then
-    tui_spinner_fail
-    tui_log_error "olcrtc-manager build failed (rc=$rc)"
-    show_failure_logs_hint
-    return "$rc"
-  fi
-  tui_spinner_ok
 }
 
 # Число подзадач зависит от реально исполняемых npm/build веток.
