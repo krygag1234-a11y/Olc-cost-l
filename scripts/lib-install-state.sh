@@ -98,7 +98,6 @@ _olc_progress_start() {
     trap '' TERM
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
-    local last_substep=""
 
     while true; do
       local curr="$_OLCRTC_PROGRESS_CURR"
@@ -130,15 +129,14 @@ _olc_progress_start() {
       for ((j=0; j<filled; j++)); do bar+="█"; done
       for ((j=0; j<empty; j++)); do bar+="░"; done
 
-      # Очистить строку и вывести: спиннер + бар + процент + шаг + название
-      printf "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s" \
-        "${frames[$i]}" "$bar" "$display_percent" "$curr" "$total" "$_OLCRTC_PROGRESS_STEP_NAME"
-
-      # Вывести текущую подзадачу ниже прогресс-бара если есть
-      if [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_NAME" ]] && [[ "$_OLCRTC_PROGRESS_SUBSTEP_NAME" != "$last_substep" ]]; then
-        printf "\n\033[2m→ %s\033[0m" "$_OLCRTC_PROGRESS_SUBSTEP_NAME"
-        last_substep="$_OLCRTC_PROGRESS_SUBSTEP_NAME"
+      # Очистить строку и вывести: спиннер + бар + процент + шаг + название + подзадача
+      local substep_display=""
+      if [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_NAME" ]]; then
+        substep_display=" \033[2m→ $_OLCRTC_PROGRESS_SUBSTEP_NAME\033[0m"
       fi
+
+      printf "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s%s" \
+        "${frames[$i]}" "$bar" "$display_percent" "$curr" "$total" "$_OLCRTC_PROGRESS_STEP_NAME" "$substep_display"
 
       i=$(( (i + 1) % ${#frames[@]} ))
       sleep 0.1
