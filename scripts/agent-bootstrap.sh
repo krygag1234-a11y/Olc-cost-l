@@ -467,8 +467,8 @@ run_patches() {
 
   ensure_ui_build_deps
 
-  # Использовать tee чтобы вывод шёл И в лог И на экран (для live-прогресса)
-  if ! BUILD=1 bash "$PATCH_SCRIPT" 2>&1 | tee -a /var/log/olcrtc-bootstrap-patches.log; then
+  # Редирект в лог — вывод команд не нужен, прогресс через _olc_substep()
+  if ! BUILD=1 bash "$PATCH_SCRIPT" >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
     log "ERROR: патчи/сборка не удались — см. детали выше"
     log "Полный лог: /var/log/olcrtc-bootstrap-patches.log"
     return 1
