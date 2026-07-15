@@ -483,12 +483,15 @@ _olc_progress_start() {
           fi
           _sp '\r\033[K  \033[2m── подробный вывод (Ctrl+O — скрыть) ──\033[0m\n'
           # Контекст: хвост уже накопленного лога текущей подзадачи
+          # (число строк настраивается: OLC_UI_VERBOSE_TAIL, default 12)
           local vcur=""
           if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile" ]]; then
             IFS= read -r vcur < "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || vcur=""
           fi
           if [[ -n "$vcur" && -f "$vcur" ]]; then
-            _sp_log_lines "$(tail -n 12 "$vcur" 2>/dev/null)"
+            local vtail="${OLC_UI_VERBOSE_TAIL:-12}"
+            [[ "$vtail" =~ ^[0-9]+$ ]] || vtail=12
+            _sp_log_lines "$(tail -n "$vtail" "$vcur" 2>/dev/null)"
           fi
         fi
       fi
