@@ -36,6 +36,7 @@ _OLCRTC_PROGRESS_CURR=0
 _OLCRTC_PROGRESS_TOTAL=0
 _OLCRTC_PROGRESS_STEP_NAME=""
 _OLCRTC_PROGRESS_SUBSTEP_FILE="/tmp/olc-substep-$$"
+_OLCRTC_PROGRESS_ACTIVE=0
 
 # Функция для отчёта о подзадаче (вызывается из agent-bootstrap.sh и др.)
 _olc_substep() {
@@ -89,6 +90,10 @@ _olc_progress_start() {
 
   # Создать файл для обмена данными с подзадачами
   echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
+
+  # Установить флаг что прогресс-бар активен
+  _OLCRTC_PROGRESS_ACTIVE=1
+  export _OLCRTC_PROGRESS_ACTIVE
 
   # Запустить фоновый процесс анимации
   (
@@ -152,6 +157,8 @@ _olc_progress_stop() {
   [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
   kill "$_OLCRTC_PROGRESS_PID" 2>/dev/null && wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null
   _OLCRTC_PROGRESS_PID=""
+  # Сбросить флаг активности
+  _OLCRTC_PROGRESS_ACTIVE=0
   # Очистить строку с анимацией
   [[ -t 1 ]] && printf "\r\033[K"
   # Удалить файл обмена данными

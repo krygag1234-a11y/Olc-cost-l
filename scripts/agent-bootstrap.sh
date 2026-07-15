@@ -45,6 +45,8 @@ source "$SCRIPT_DIR/lib-tui.sh"
 # shellcheck source=lib-olc-ru.sh
 source "$SCRIPT_DIR/lib-olc-ru.sh"
 log() {
+  # Подавить вывод если прогресс-бар активен (предотвращает дублирование строк)
+  [[ "${_OLCRTC_PROGRESS_ACTIVE:-0}" == "1" ]] && return 0
   tui_log_step "$*"
 }
 
