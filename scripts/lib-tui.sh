@@ -87,7 +87,11 @@ _TUI_SPINNER_MSG=""
 tui_spinner_start() {
   local msg="${1:-Loading}"
   _TUI_SPINNER_MSG="$msg"
-  [[ ! -t 1 ]] && { echo "→ $msg..."; return; }
+  # Skip spinner if OLC_NO_SPINNER=1 or not a TTY
+  if [[ "${OLC_NO_SPINNER:-0}" == "1" ]] || [[ ! -t 1 ]]; then
+    echo "→ $msg..."
+    return
+  fi
   tui_cursor_hide
   (
     local i=0

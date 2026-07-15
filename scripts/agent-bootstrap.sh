@@ -461,7 +461,8 @@ ensure_panel_jitsi_tls() {
 
 run_patches() {
   ensure_ui_build_deps
-  if ! BUILD=1 bash "$PATCH_SCRIPT" >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
+  # Отключаем TUI когда stdout/stderr редиректятся
+  if ! OLC_NO_SPINNER=1 BUILD=1 bash "$PATCH_SCRIPT" >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
     log "ERROR: патчи/сборка не удались — см. детали выше"
     log "Полный лог: /var/log/olcrtc-bootstrap-patches.log"
     return 1
