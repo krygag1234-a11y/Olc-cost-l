@@ -130,7 +130,9 @@ state_step() {
   echo "[STATE-DEBUG] step not done, continuing" >&2
 
   # Show progress bar if OLCRTC_TOTAL_STEPS is set
+  echo "[STATE-DEBUG] before _olc_show_progress" >&2
   _olc_show_progress "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS"
+  echo "[STATE-DEBUG] after _olc_show_progress" >&2
 
   # DEBUG: явный вывод в stderr
   echo "[STATE-DEBUG] before _state_log for: $name" >&2
