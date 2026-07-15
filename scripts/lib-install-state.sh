@@ -73,12 +73,17 @@ state_init() {
 
 state_already_done() {
   local step="$1"
+  # Только в режиме --resume проверяем историю
   [[ "$OLCRTC_RESUME" == "1" ]] || return 1
   [[ "$OLCRTC_FORCE_STEP" == "$step" ]] && return 1
+
+  # Проверяем присутствие в истории
   if command -v jq >/dev/null 2>&1; then
     jq -e --arg s "$step" '.history | index($s) != null' "$OLCRTC_STATE_FILE" >/dev/null 2>&1
+    return $?
   else
     grep -q "\"$step\"" "$OLCRTC_STATE_FILE" 2>/dev/null
+    return $?
   fi
 }
 
