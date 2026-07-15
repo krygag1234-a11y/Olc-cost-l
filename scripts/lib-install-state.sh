@@ -30,10 +30,17 @@
 : "${OLCRTC_TOTAL_STEPS:=0}"
 _OLCRTC_STEP_NUM=0
 
-# Progress bar helper — safe wrapper
+# Progress bar — динамический с анимацией
+_OLCRTC_PROGRESS_PID=""
+_OLCRTC_PROGRESS_CURR=0
+_OLCRTC_PROGRESS_TOTAL=0
+_OLCRTC_PROGRESS_STEP_NAME=""
+
 _olc_show_progress() {
   [[ "$OLCRTC_TOTAL_STEPS" -le 0 ]] && return 0
   local curr="$1" total="$2"
+  _OLCRTC_PROGRESS_CURR="$curr"
+  _OLCRTC_PROGRESS_TOTAL="$total"
   local percent=$(( curr * 100 / total ))
   local width=30
   local filled=$(( width * curr / total ))
@@ -46,6 +53,43 @@ _olc_show_progress() {
 
   printf "\r[%s] %d%% (шаг %d/%d)" "$bar" "$percent" "$curr" "$total"
   [[ "$curr" -eq "$total" ]] && printf "\n"
+}
+
+# Запуск анимированного прогресс-бара (вызывается в начале state_step)
+_olc_progress_start() {
+  local step_name="$1"
+  _OLCRTC_PROGRESS_STEP_NAME="$step_name"
+
+  # Пропустить если не TTY или OLC_NO_SPINNER=1
+  [[ ! -t 1 ]] && return 0
+  [[ "${OLC_NO_SPINNER:-0}" == "1" ]] && return 0
+
+  # Остановить предыдущую анимацию если была
+  _olc_progress_stop >/dev/null 2>&1
+
+  # Запустить фоновый процесс анимации
+  (
+    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local i=0
+    while true; do
+      local percent=$(( _OLCRTC_PROGRESS_CURR * 100 / _OLCRTC_PROGRESS_TOTAL ))
+      printf "\r\033[36m%s\033[0m \033[2m%s\033[0m (%d%%, шаг %d/%d)" \
+        "${frames[$i]}" "$_OLCRTC_PROGRESS_STEP_NAME" "$percent" \
+        "$_OLCRTC_PROGRESS_CURR" "$_OLCRTC_PROGRESS_TOTAL"
+      i=$(( (i + 1) % ${#frames[@]} ))
+      sleep 0.1
+    done
+  ) &
+  _OLCRTC_PROGRESS_PID=$!
+}
+
+# Остановка анимации (вызывается после завершения state_step)
+_olc_progress_stop() {
+  [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
+  kill "$_OLCRTC_PROGRESS_PID" 2>/dev/null && wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null
+  _OLCRTC_PROGRESS_PID=""
+  # Очистить строку с анимацией
+  [[ -t 1 ]] && printf "\r\033[K"
 }
 
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
@@ -69,6 +113,8 @@ state_init() {
     printf '{"started":"%s","last_ok":null,"history":[],"failed":null}\n' \
       "$(date -u +%FT%TZ)" > "$OLCRTC_STATE_FILE"
   fi
+  # Установить trap для очистки анимации при прерывании
+  trap '_olc_progress_stop 2>/dev/null || true' EXIT INT TERM
 }
 
 state_already_done() {
@@ -120,33 +166,23 @@ state_step() {
     _state_log "skip $name (already done — resume)"
     return 0
   fi
-  # Show progress bar if OLCRTC_TOTAL_STEPS is set
-  _olc_show_progress "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS"
-  _state_log "→ $name"
+
+  # Обновить счётчик для анимации
+  _OLCRTC_PROGRESS_CURR="$_OLCRTC_STEP_NUM"
+  _OLCRTC_PROGRESS_TOTAL="$OLCRTC_TOTAL_STEPS"
+
+  # Запустить анимированный прогресс-бар
+  _olc_progress_start "$name"
+
   local started; started=$(date +%s)
   local rc=0
   "$@" || rc=$?
   local dur=$(( $(date +%s) - started ))
 
-  # Очистить прогресс-бар перед выводом результата
-  printf "\r\033[K"
+  # Остановить анимацию и очистить строку
+  _olc_progress_stop
 
   if [[ $rc -eq 0 ]]; then
-    _state_log "✓ $name (${dur}s)"
-    _state_record_ok "$name"
-    return 0
-  fi
-  _state_log "✗ $name (rc=$rc, ${dur}s)"
-  _state_record_fail "$name" "$rc"
-  case ",${OLCRTC_SOFT_STEPS:-}," in
-    *",$name,"*)
-      _state_log "step '$name' is soft — continuing"
-      return 0
-      ;;
-  esac
-  _state_log "ABORT. Resume with: OLCRTC_RESUME=1 $0 ${OLCRTC_RESUME_HINT:-}"
-  return $rc
-}
     _state_log "✓ $name (${dur}s)"
     _state_record_ok "$name"
     return 0
