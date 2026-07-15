@@ -313,11 +313,14 @@ profile_step_enabled() {
 state_step_profile() {
   local name="$1"
   shift
+  echo "[PROFILE-DEBUG] state_step_profile called: name=$name, args=$*" >&2
   if ! profile_step_enabled "$name"; then
     echo "[state] skip $name (deploy profile)"
     return 0
   fi
+  echo "[PROFILE-DEBUG] calling state_step with: $name $*" >&2
   state_step "$name" "$@"
+  echo "[PROFILE-DEBUG] state_step returned: $?" >&2
 }
 
 profile_list_templates() {
