@@ -72,6 +72,7 @@ _olc_progress_ipc_init() {
 _olc_progress_step_cleanup() {
   [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]] && rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || true
   [[ -n "$_OLCRTC_PROGRESS_SIMPLE_FLAG" ]] && rm -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" 2>/dev/null || true
+  [[ -n "$_OLCRTC_PROGRESS_IPC_DIR" ]] && rm -f "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
   _OLCRTC_PROGRESS_SIMPLE=0
   _OLCRTC_PROGRESS_ACTIVE=0
 }
@@ -164,8 +165,10 @@ _olc_progress_start() {
   # Остановить предыдущую анимацию если была
   _olc_progress_stop >/dev/null 2>&1
 
-  # Создать файл для обмена данными с подзадачами
+  # Создать файл для обмена данными с подзадачами и spinner
   echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
+  # IPC для передачи CURR/TOTAL spinner-процессу (родительские переменные не видны fork)
+  echo "$_OLCRTC_STEP_NUM $OLCRTC_TOTAL_STEPS" > "$_OLCRTC_PROGRESS_IPC_DIR/progress"
 
   # Установить флаг что прогресс-бар активен
   _OLCRTC_PROGRESS_ACTIVE=1
@@ -179,8 +182,11 @@ _olc_progress_start() {
     local i=0
 
     while true; do
-      local curr="$_OLCRTC_PROGRESS_CURR"
-      local total="$_OLCRTC_PROGRESS_TOTAL"
+      # Читать актуальные CURR/TOTAL из IPC-файла (родительские переменные недоступны fork)
+      local curr=1 total=1
+      if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/progress" ]]; then
+        read curr total < "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || { curr=1; total=1; }
+      fi
       [[ "$total" -le 0 ]] && total=1
 
       # Вычислить общий процент (по шагам)
@@ -216,7 +222,8 @@ _olc_progress_start() {
       # Очистить строку и вывести: спиннер + бар + процент + шаг + название + подзадача
       local substep_display=""
       if [[ -n "$substep_name" ]]; then
-        substep_display=" \033[2m→ $substep_name\033[0m"
+        # Экранировать substep_name от случайных ANSI-последовательностей, применить dim стиль
+        substep_display=$( printf ' \033[2m→ %s\033[0m' "$substep_name" )
       fi
 
       printf "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s%s" \
@@ -339,6 +346,8 @@ state_step() {
 
   # Запустить прогресс и только затем экспортировать финальный IPC-контракт.
   _olc_progress_start "$name"
+  # Обновить IPC progress-файл после запуска spinner
+  echo "$_OLCRTC_STEP_NUM $OLCRTC_TOTAL_STEPS" > "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
   export _OLCRTC_PROGRESS_IPC_DIR
   export _OLCRTC_PROGRESS_SUBSTEP_FILE
   export _OLCRTC_PROGRESS_SIMPLE_FLAG
