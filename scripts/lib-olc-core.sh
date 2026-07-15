@@ -104,12 +104,19 @@ handle_unknown_flag() {
     echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
     echo "  --ssh               Панель доступна только через SSH-туннель" >&2
     echo "" >&2
-    echo "Продолжить установку с интерактивным меню? (y/N): " >&2
-    read -r answer
-    if [[ "${answer,,}" == "y" ]]; then
-      return 0  # Продолжить с меню
+
+    # Проверка TTY перед read
+    if [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null; then
+      echo "Продолжить установку с интерактивным меню? (y/N): " >&2
+      read -r answer </dev/tty || answer="n"
+      if [[ "${answer,,}" == "y" ]]; then
+        return 0  # Продолжить с меню
+      else
+        echo "Установка отменена." >&2
+        return 1
+      fi
     else
-      echo "Установка отменена." >&2
+      echo "Нет интерактивного терминала. Используйте правильные флаги." >&2
       return 1
     fi
   elif [[ "$script_mode" == "update" ]]; then
@@ -119,20 +126,33 @@ handle_unknown_flag() {
     echo "  --resume            Продолжить прерванное обновление" >&2
     echo "  --fresh-state       Очистить состояние и начать заново" >&2
     echo "" >&2
-    echo "Продолжить обновление без этого флага? (Y/n): " >&2
-    read -r answer
-    if [[ "${answer,,}" != "n" ]]; then
-      echo "✓ Продолжаю обновление с дефолтными настройками..." >&2
-      return 0
+
+    # Проверка TTY перед read
+    if [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null; then
+      echo "Продолжить обновление без этого флага? (Y/n): " >&2
+      read -r answer </dev/tty || answer="y"
+      if [[ "${answer,,}" != "n" ]]; then
+        echo "✓ Продолжаю обновление с дефолтными настройками..." >&2
+        return 0
+      else
+        echo "Обновление отменено." >&2
+        return 1
+      fi
     else
-      echo "Обновление отменено." >&2
-      return 1
+      echo "Нет интерактивного терминала. Продолжаю с дефолтными настройками." >&2
+      return 0
     fi
   fi
 }
 
 # === Интерактивное меню установки ===
 interactive_install_menu() {
+  # Проверка TTY перед запуском меню
+  if ! { [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; }; } 2>/dev/null; then
+    echo "[olc-core] Нет интерактивного терминала — меню недоступно" >&2
+    return 1
+  fi
+
   echo ""
   echo "╔═══════════════════════════════════════════════════════════╗"
   echo "║ Интерактивная установка Olc-cost-l                       ║"
@@ -144,7 +164,7 @@ interactive_install_menu() {
   echo "   [1] HTTP — панель доступна по IP:8888 (рекомендуется)"
   echo "   [2] SSH  — панель только через SSH-туннель (безопаснее)"
   echo -n "Ваш выбор (1-2) [1]: "
-  read -r access_mode
+  read -r access_mode </dev/tty || access_mode="1"
   access_mode="${access_mode:-1}"
 
   # 2. Выбор компонентов
@@ -155,7 +175,7 @@ interactive_install_menu() {
   echo "   [3] Без Split (весь трафик через Tor)"
   echo "   [4] Выборочная установка (выбрать компоненты)"
   echo -n "Ваш выбор (1-4) [1]: "
-  read -r components_mode
+  read -r components_mode </dev/tty || components_mode="1"
   components_mode="${components_mode:-1}"
 
   # 3. Выборочная установка
@@ -187,21 +207,21 @@ interactive_install_menu() {
       echo ""
       echo "Выберите компоненты для установки:"
       echo -n "  Установить Tor? (Y/n): "
-      read -r ans_tor
+      read -r ans_tor </dev/tty || ans_tor="y"
       [[ "${ans_tor,,}" != "n" ]] && install_tor="1" || install_tor="0"
 
       if [[ "$install_tor" == "1" ]]; then
         echo -n "  Установить мосты Tor? (Y/n): "
-        read -r ans_bridges
+        read -r ans_bridges </dev/tty || ans_bridges="y"
         [[ "${ans_bridges,,}" != "n" ]] && install_bridges="1" || install_bridges="0"
 
         echo -n "  Установить Split-routing? (Y/n): "
-        read -r ans_split
+        read -r ans_split </dev/tty || ans_split="y"
         [[ "${ans_split,,}" != "n" ]] && install_split="1" || install_split="0"
       fi
 
       echo -n "  Установить Zapret (DPI bypass)? (Y/n): "
-      read -r ans_zapret
+      read -r ans_zapret </dev/tty || ans_zapret="y"
       [[ "${ans_zapret,,}" != "n" ]] && install_zapret="1" || install_zapret="0"
       ;;
   esac
