@@ -19,7 +19,17 @@ INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
 REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
 BRANCH="${OLC_REPO_BRANCH:-main}"
 
-[[ "$(id -u)" -eq 0 ]] || { echo "[install] ОШИБКА: запустите от root (sudo bash …)" >&2; exit 1; }
+# Early fatal (before TUI loaded)
+fatal_early() {
+  echo "" >&2
+  echo "[ОШИБКА] $1" >&2
+  [[ -n "${2:-}" ]] && echo "Контекст: $2" >&2
+  [[ -n "${3:-}" ]] && echo "Подсказка: $3" >&2
+  echo "" >&2
+  exit 1
+}
+
+[[ "$(id -u)" -eq 0 ]] || fatal_early "Требуются права root" "install.sh должен запускаться с sudo" "Используйте: curl ... | sudo bash"
 
 # Load TUI early if available
 if [[ -f "$INSTALL_DIR/scripts/lib-tui.sh" ]]; then
@@ -70,8 +80,8 @@ if command -v df >/dev/null 2>&1; then
         _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
         _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
         if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
-          echo "[install] ОШИБКА: место всё ещё мало (~${_avail} МБ). Прерывание." >&2
-          exit 1
+          [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Недостаточно места на диске после очистки" "Свободно: ~${_avail} МБ, занято ${_use}%" "Удалите старые бэкапы/логи вручную или увеличьте диск" || \
+            fatal_early "Недостаточно места на диске после очистки (~${_avail} МБ)" "Занято ${_use}%" "Удалите старые файлы или увеличьте диск"
         else
           echo "[install] Очистка помогла. Продолжаем установку (~${_avail} МБ свободно)." >&2
         fi
@@ -85,8 +95,8 @@ if command -v df >/dev/null 2>&1; then
       _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
       _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
       if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
-        echo "[install] ОШИБКА: после очистки всё ещё мало места (~${_avail} МБ). Сначала освободите диск." >&2
-        exit 1
+        [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Недостаточно места на диске после автоочистки" "Свободно: ~${_avail} МБ, занято ${_use}%" "Освободите диск вручную: rm -rf /root/.cache /var/log/*.gz" || \
+          fatal_early "Недостаточно места после автоочистки (~${_avail} МБ, ${_use}% занято)" "" "Освободите диск и повторите"
       fi
       echo "[install] Очистка помогла. Продолжаем установку (~${_avail} МБ свободно)." >&2
     fi
@@ -208,8 +218,8 @@ if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
       exit 1
     fi
   else
-    echo "Нет интерактивного терминала. Используйте правильные флаги." >&2
-    exit 1
+    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Нет интерактивного терминала для меню" "Конфликтующие флаги требуют выбора через меню" "Используйте правильные флаги: --no-tor, --with-warp, --full, --update" || \
+      fatal_early "Нет интерактивного терминала" "Конфликтующие флаги требуют меню" "Используйте правильные флаги установки"
   fi
 fi
 
@@ -219,8 +229,8 @@ if [[ "${FORCE_INTERACTIVE_MENU:-0}" == "1" ]] && olc_has_tty; then
     source "$INSTALL_DIR/scripts/lib-olc-core.sh"
     interactive_install_menu || exit 1
   else
-    echo "[install] lib-olc-core.sh не найден, меню недоступно" >&2
-    exit 1
+    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "lib-olc-core.sh не найден" "Интерактивное меню недоступно" "Переклонируйте репозиторий: rm -rf $INSTALL_DIR && curl ... | sudo bash" || \
+      fatal_early "lib-olc-core.sh не найден" "Меню недоступно" "Переклонируйте репозиторий"
   fi
 fi
 
@@ -318,9 +328,9 @@ if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   tui_log_step "Клонирование $REPO_URL → $INSTALL_DIR"
   rm -rf "$INSTALL_DIR.partial"
   resilient_git clone clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR.partial" || {
-    echo "[install] СТОП: не удалось клонировать репозиторий. Повторите: curl … | sudo bash (сеть? DNS?)" >&2
+    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Не удалось клонировать репозиторий" "URL: $REPO_URL, ветка: $BRANCH" "Проверьте сеть/DNS: ping github.com && curl -I https://github.com" || \
+      fatal_early "Не удалось клонировать репозиторий" "Сеть/DNS недоступны" "Проверьте подключение и повторите"
     rm -rf "$INSTALL_DIR.partial"
-    exit 1
   }
   [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_success "Репозиторий склонирован успешно"
   mv "$INSTALL_DIR.partial" "$INSTALL_DIR"

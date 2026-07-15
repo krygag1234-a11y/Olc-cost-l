@@ -144,16 +144,13 @@ done
 
 # Проверка конфликтов флагов
 if [[ "${ENABLE_TOR:-0}" -eq 1 && "${ENABLE_WARP:-0}" -eq 1 ]]; then
-  tui_log_error "Нельзя комбинировать Tor (--tor) и WARP (--warp). Выберите что-то одно."
-  exit 1
+  tui_fatal "Нельзя комбинировать Tor и WARP одновременно" "Флаги --tor и --warp взаимоисключающие" "Выберите: --tor (для RU VPS) или --warp (для зарубежных VPS)"
 fi
 if [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
-  tui_log_error "--split требует установки Tor. Маршрутизация без Tor не имеет смысла."
-  exit 1
+  tui_fatal "Split-routing требует Tor" "Флаг --split используется без --tor" "Добавьте --tor для маршрутизации через Tor exit nodes"
 fi
 if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
-  tui_log_error "--bridges требует установки Tor. Маршрутизация без Tor не имеет смысла."
-  exit 1
+  tui_fatal "Tor bridges требуют Tor" "Флаг --bridges используется без --tor" "Добавьте --tor для использования obfs4/webtunnel мостов"
 fi
 
 if [[ -n "$PROFILE_ID" ]]; then
@@ -404,7 +401,7 @@ else
 fi
 tui_divider
 
-olc_preflight_disk_space "agent-bootstrap" || exit 1
+olc_preflight_disk_space "agent-bootstrap" || tui_fatal "Недостаточно места на диске для установки" "Требуется минимум 500 МБ свободного места" "Освободите диск: sudo olc-cleanup-caches или удалите старые логи"
 olc_preflight_vps_backup "agent-bootstrap" || true
 olc_git_safe_register "${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 ensure_install_symlink

@@ -30,14 +30,30 @@ FEATURES_ENV=/etc/olcrtc-manager/features.env
 TOR_BRIDGES=/etc/tor/bridges.conf
 TOR_BRIDGES_BACKUP_DIR=/var/lib/olcrtc/feature-backups
 
-[[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || {
+  if declare -f tui_fatal >/dev/null 2>&1; then
+    tui_fatal "Требуются права root" "olc-feature управляет системными сервисами" "Используйте: sudo olc-feature ..."
+  else
+    echo "ОШИБКА: требуются права root. Используйте: sudo olc-feature ..." >&2
+    exit 1
+  fi
+}
+# shellcheck source=lib-tui.sh
+source "$SCRIPT_DIR/lib-tui.sh" 2>/dev/null || true
 # shellcheck source=lib-output.sh
 source "$SCRIPT_DIR/lib-output.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-vps-backup.sh
 source "$SCRIPT_DIR/lib-vps-backup.sh"
-olc_preflight_disk_space "olc-feature" || exit 1
+olc_preflight_disk_space "olc-feature" || {
+  if declare -f tui_fatal >/dev/null 2>&1; then
+    tui_fatal "Недостаточно места на диске" "olc-feature требует место для логов и бэкапов" "Освободите диск: sudo olc-cleanup-caches"
+  else
+    echo "ОШИБКА: недостаточно места на диске. Запустите: sudo olc-cleanup-caches" >&2
+    exit 1
+  fi
+}
 olc_preflight_vps_backup "olc-feature" || true
 install -d /etc/olcrtc-manager "$TOR_BRIDGES_BACKUP_DIR"
 [[ -f "$FEATURES_ENV" ]] || cat >"$FEATURES_ENV" <<'EOF'

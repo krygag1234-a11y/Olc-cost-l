@@ -160,7 +160,7 @@ clone_repos() {
       fi
     elif [[ "$mgr_source" == "stable" ]]; then
       log "switching to stable fork"
-      clone_manager_from_fork || exit 1
+      clone_manager_from_fork || tui_fatal "Не удалось клонировать stable fork панели" "Репозиторий: krygag1234-a11y/local-panel-version (stable-v1)" "Проверьте сеть и повторите: sudo olc-update --manager-stable"
     elif [[ -n "$mgr_pin_sha" && "$mgr_source" == "pinned" ]]; then
       log "checkout pinned manager ${mgr_pin_sha:0:12}"
       olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
@@ -186,10 +186,7 @@ clone_repos() {
     local mgr_source
     mgr_source="$(get_manager_source)"
     if [[ "$mgr_source" == "stable" ]]; then
-      clone_manager_from_fork || {
-        log "ERROR: stable fork failed, exiting"
-        exit 1
-      }
+      clone_manager_from_fork || tui_fatal "Не удалось клонировать stable fork панели при первой установке" "Репозиторий: krygag1234-a11y/local-panel-version (stable-v1)" "Проверьте сеть и повторите: sudo olc-update --manager-stable"
     else
       git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
       olc_git_safe_register "$MGR_REPO"
@@ -206,8 +203,7 @@ clone_repos() {
     if clone_manager_from_fork; then
       log "✓ fallback to stable fork successful"
     else
-      log "ERROR: both upstream and fork failed"
-      exit 1
+      tui_fatal "Не удалось клонировать панель — upstream и fork недоступны" "Upstream: BigDaddy3334/olcrtc-manager-panel, Fork: krygag1234-a11y/local-panel-version" "Проверьте доступ к GitHub и повторите через 5-10 минут"
     fi
   fi
 }
@@ -468,7 +464,7 @@ apply_manager() {
       log "build manager admin UI (web/dist)"
       rm -rf "$MGR_REPO/web/dist"
       run_quiet "npm install (manager UI)" bash -c 'cd "$1" && npm ci 2>/dev/null || npm install' _ "$MGR_REPO"
-      run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || { log "ERROR: admin UI build failed — fix npm and retry"; exit 1; }
+      run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || tui_fatal "Сборка UI панели (npm run build) завершилась с ошибкой" "Возможно: node_modules повреждены или недостаточно памяти" "Попробуйте: rm -rf $MGR_REPO/node_modules && cd $MGR_REPO && npm install && npm run build"
       if [[ -x "$SCRIPT_DIR/olc-panel-verify.sh" ]]; then
         bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
       else
@@ -532,7 +528,7 @@ run_quiet "apply olcrtc patches" apply_olcrtc
 run_quiet "apply manager patches + UI" apply_manager
 if [[ "${BUILD:-1}" == "1" ]]; then
   bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>/dev/null || true
-  build_binaries || exit 1
+  build_binaries || tui_fatal "Сборка Go-бинарников (olcrtc/olcrtc-manager) завершилась с ошибкой" "Возможно: Go toolchain не установлен или GOPATH повреждён" "Проверьте: /usr/local/go/bin/go version && export GOTOOLCHAIN=auto"
 fi
   install -m 0755 "$SCRIPT_DIR/olc-panel-update-run.sh" /usr/local/bin/olc-panel-update-run 2>/dev/null || true
   install -m 0755 "$SCRIPT_DIR/olc-error-scan.sh" /usr/local/bin/olc-error-scan 2>/dev/null || true
