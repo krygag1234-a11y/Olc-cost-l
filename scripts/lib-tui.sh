@@ -173,7 +173,12 @@ tui_menu() {
     done
     echo -e "\033[K"
 
-    IFS= read -rsn1 key </dev/tty 2>/dev/null || break
+    IFS= read -rsn1 -t 1 key </dev/tty 2>/dev/null || {
+      # Timeout или ошибка чтения — выход с дефолтом
+      echo "$selected"
+      tui_cursor_show
+      return 0
+    }
     case "$key" in
       $'\x1b')
         read -rsn2 -t 0.1 key </dev/tty 2>/dev/null || true
