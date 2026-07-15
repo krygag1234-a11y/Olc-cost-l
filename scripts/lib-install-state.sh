@@ -36,6 +36,7 @@ _OLCRTC_PROGRESS_CURR=0
 _OLCRTC_PROGRESS_TOTAL=0
 _OLCRTC_PROGRESS_STEP_NAME=""
 _OLCRTC_PROGRESS_SUBSTEP_FILE="/tmp/olc-substep-$$"
+_OLCRTC_PROGRESS_SIMPLE_FLAG="/tmp/olc-progress-simple-$$"
 _OLCRTC_PROGRESS_ACTIVE=0
 _OLCRTC_PROGRESS_SIMPLE=0  # Статичный режим для не-TTY
 
@@ -51,7 +52,8 @@ _olc_substep() {
     echo "$curr $total $substep_name" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
 
     # Если simple mode — сразу печатать статичный прогресс
-    if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" && "$total" -gt 0 ]]; then
+    # Проверка через файл-флаг вместо переменной окружения
+    if [[ -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" && "$total" -gt 0 ]]; then
       local percent=$(( curr * 100 / total ))
       printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent"
     fi
@@ -90,6 +92,7 @@ _olc_progress_start() {
 
   # Сбросить simple mode от предыдущего шага
   _OLCRTC_PROGRESS_SIMPLE=0
+  rm -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" 2>/dev/null
 
   # Если не TTY или OLC_NO_SPINNER=1 → включить simple mode (статичный вывод)
   if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
@@ -99,6 +102,8 @@ _olc_progress_start() {
     export _OLCRTC_PROGRESS_ACTIVE
     # Создать файл для обмена данными с подзадачами
     echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
+    # Создать файл-флаг simple mode (для видимости в подпроцессах)
+    touch "$_OLCRTC_PROGRESS_SIMPLE_FLAG"
     # Печатать статичный заголовок шага
     if [[ "$OLCRTC_TOTAL_STEPS" -gt 0 ]]; then
       printf "[%d/%d] %s\n" "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS" "$step_name"
@@ -181,6 +186,7 @@ _olc_progress_stop() {
   if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]]; then
     _OLCRTC_PROGRESS_ACTIVE=0
     # НЕ сбрасываем _OLCRTC_PROGRESS_SIMPLE здесь — нужен для вывода результата в _state_log
+    # НЕ удаляем файл-флаг — нужен для olc_state_line()
     rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
     return 0
   fi
