@@ -11,6 +11,10 @@ if [[ -f "$_script_dir/lib-output.sh" ]]; then
 fi
 
 olc_cleanup_log() {
+  # При активном прогресс-баре НЕ выводить шаги (накладываются на spinner)
+  if [[ "${_OLCRTC_PROGRESS_ACTIVE:-0}" == "1" ]]; then
+    return 0
+  fi
   if declare -f olc_print_step >/dev/null 2>&1; then
     olc_print_step "$*"
   else
