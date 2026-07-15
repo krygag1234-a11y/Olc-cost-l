@@ -117,10 +117,19 @@ state_step() {
   fi
   # Show progress bar if OLCRTC_TOTAL_STEPS is set
   _olc_show_progress "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS"
+
+  # DEBUG: явный вывод в stderr
+  echo "[STATE-DEBUG] before _state_log for: $name" >&2
   _state_log "→ $name"
+  echo "[STATE-DEBUG] after _state_log" >&2
+
   local started; started=$(date +%s)
   local rc=0
+
+  echo "[STATE-DEBUG] calling function: $*" >&2
   "$@" || rc=$?
+  echo "[STATE-DEBUG] function returned rc=$rc" >&2
+
   local dur=$(( $(date +%s) - started ))
   if [[ $rc -eq 0 ]]; then
     _state_log "✓ $name (${dur}s)"
