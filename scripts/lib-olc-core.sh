@@ -84,6 +84,168 @@ validate_flags() {
   return 0
 }
 
+# === Обработка неизвестного флага ===
+handle_unknown_flag() {
+  local unknown_flag="$1"
+  local script_mode="${2:-install}"  # install | update
+
+  echo "" >&2
+  echo "⚠️  ОШИБКА: Неизвестный флаг '$unknown_flag'" >&2
+  echo "" >&2
+
+  if [[ "$script_mode" == "install" ]]; then
+    echo "Доступные флаги установки:" >&2
+    echo "  --full              Полная установка (Tor + Split + Zapret + Панель)" >&2
+    echo "  --tor               Только Tor + Панель" >&2
+    echo "  --split             Только Split-routing + Панель" >&2
+    echo "  --zapret            Только Zapret + Панель" >&2
+    echo "  --bridges           Только мосты Tor + Панель" >&2
+    echo "  --warp              Cloudflare WARP + Панель" >&2
+    echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
+    echo "  --ssh               Панель доступна только через SSH-туннель" >&2
+    echo "" >&2
+    echo "Продолжить установку с интерактивным меню? (y/N): " >&2
+    read -r answer
+    if [[ "${answer,,}" == "y" ]]; then
+      return 0  # Продолжить с меню
+    else
+      echo "Установка отменена." >&2
+      return 1
+    fi
+  elif [[ "$script_mode" == "update" ]]; then
+    echo "Доступные флаги обновления:" >&2
+    echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
+    echo "  --force-sha-update  Принудительно обновить pinned SHA" >&2
+    echo "  --resume            Продолжить прерванное обновление" >&2
+    echo "  --fresh-state       Очистить состояние и начать заново" >&2
+    echo "" >&2
+    echo "Продолжить обновление без этого флага? (Y/n): " >&2
+    read -r answer
+    if [[ "${answer,,}" != "n" ]]; then
+      echo "✓ Продолжаю обновление с дефолтными настройками..." >&2
+      return 0
+    else
+      echo "Обновление отменено." >&2
+      return 1
+    fi
+  fi
+}
+
+# === Интерактивное меню установки ===
+interactive_install_menu() {
+  echo ""
+  echo "╔═══════════════════════════════════════════════════════════╗"
+  echo "║ Интерактивная установка Olc-cost-l                       ║"
+  echo "╚═══════════════════════════════════════════════════════════╝"
+  echo ""
+
+  # 1. Выбор режима доступа к панели
+  echo "1️⃣  Режим доступа к панели:"
+  echo "   [1] HTTP — панель доступна по IP:8888 (рекомендуется)"
+  echo "   [2] SSH  — панель только через SSH-туннель (безопаснее)"
+  echo -n "Ваш выбор (1-2) [1]: "
+  read -r access_mode
+  access_mode="${access_mode:-1}"
+
+  # 2. Выбор компонентов
+  echo ""
+  echo "2️⃣  Компоненты для установки:"
+  echo "   [1] Полная установка (Tor + Split + Zapret + Мосты)"
+  echo "   [2] Без Tor (только Zapret для иностранного VPS)"
+  echo "   [3] Без Split (весь трафик через Tor)"
+  echo "   [4] Выборочная установка (выбрать компоненты)"
+  echo -n "Ваш выбор (1-4) [1]: "
+  read -r components_mode
+  components_mode="${components_mode:-1}"
+
+  # 3. Выборочная установка
+  local install_tor="1"
+  local install_split="1"
+  local install_zapret="1"
+  local install_bridges="1"
+
+  case "$components_mode" in
+    1) # Полная
+      install_tor="1"
+      install_split="1"
+      install_zapret="1"
+      install_bridges="1"
+      ;;
+    2) # Без Tor
+      install_tor="0"
+      install_split="0"
+      install_zapret="1"
+      install_bridges="0"
+      ;;
+    3) # Без Split
+      install_tor="1"
+      install_split="0"
+      install_zapret="1"
+      install_bridges="1"
+      ;;
+    4) # Выборочная
+      echo ""
+      echo "Выберите компоненты для установки:"
+      echo -n "  Установить Tor? (Y/n): "
+      read -r ans_tor
+      [[ "${ans_tor,,}" != "n" ]] && install_tor="1" || install_tor="0"
+
+      if [[ "$install_tor" == "1" ]]; then
+        echo -n "  Установить мосты Tor? (Y/n): "
+        read -r ans_bridges
+        [[ "${ans_bridges,,}" != "n" ]] && install_bridges="1" || install_bridges="0"
+
+        echo -n "  Установить Split-routing? (Y/n): "
+        read -r ans_split
+        [[ "${ans_split,,}" != "n" ]] && install_split="1" || install_split="0"
+      fi
+
+      echo -n "  Установить Zapret (DPI bypass)? (Y/n): "
+      read -r ans_zapret
+      [[ "${ans_zapret,,}" != "n" ]] && install_zapret="1" || install_zapret="0"
+      ;;
+  esac
+
+  # 4. Сохранить профиль установки
+  local profile_json="/var/lib/olcrtc/install-profile.json"
+  mkdir -p "$(dirname "$profile_json")" 2>/dev/null || true
+
+  cat > "$profile_json" <<EOF
+{
+  "installed_at": "$(date -Iseconds 2>/dev/null || date)",
+  "access_mode": "$([[ "$access_mode" == "2" ]] && echo "ssh" || echo "http")",
+  "components": {
+    "tor": $([[ "$install_tor" == "1" ]] && echo "true" || echo "false"),
+    "bridges": $([[ "$install_bridges" == "1" ]] && echo "true" || echo "false"),
+    "split": $([[ "$install_split" == "1" ]] && echo "true" || echo "false"),
+    "zapret": $([[ "$install_zapret" == "1" ]] && echo "true" || echo "false")
+  }
+}
+EOF
+
+  # 5. Экспортировать флаги для install.sh
+  [[ "$access_mode" == "2" ]] && export OLC_INSTALL_SSH=1
+  [[ "$install_tor" == "0" ]] && export OLC_NO_TOR=1
+  [[ "$install_split" == "0" ]] && export OLC_NO_SPLIT=1
+  [[ "$install_zapret" == "0" ]] && export OLC_NO_ZAPRET=1
+  [[ "$install_bridges" == "0" ]] && export OLC_NO_BRIDGES=1
+
+  # 6. Показать итоговый выбор
+  echo ""
+  echo "✓ Конфигурация сохранена:"
+  echo "  Режим доступа: $([[ "$access_mode" == "2" ]] && echo "SSH-туннель" || echo "HTTP (IP:8888)")"
+  echo "  Компоненты:"
+  [[ "$install_tor" == "1" ]] && echo "    ✓ Tor" || echo "    ✗ Tor"
+  [[ "$install_bridges" == "1" ]] && echo "    ✓ Мосты Tor" || echo "    ✗ Мосты Tor"
+  [[ "$install_split" == "1" ]] && echo "    ✓ Split-routing" || echo "    ✗ Split-routing"
+  [[ "$install_zapret" == "1" ]] && echo "    ✓ Zapret" || echo "    ✗ Zapret"
+  echo ""
+  echo "Профиль сохранён в: $profile_json"
+  echo ""
+
+  return 0
+}
+
 # === Логирование с префиксом ===
 olc_log() {
   echo "[olc-core] $*"

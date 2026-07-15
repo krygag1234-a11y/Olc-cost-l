@@ -161,6 +161,7 @@ safety_check_install_dir "$INSTALL_DIR"
 FORCE_MODE=""
 BOOT_ARGS=()
 SHOW_STATE=0
+UNKNOWN_FLAGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full|--update|--fresh) FORCE_MODE="$1" ;;  # MODE передаётся через exec, не через BOOT_ARGS
@@ -173,10 +174,44 @@ while [[ $# -gt 0 ]]; do
     --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1") ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;
-    *) BOOT_ARGS+=("$1") ;;
+    --interactive) FORCE_INTERACTIVE_MENU=1 ;;
+    *) UNKNOWN_FLAGS+=("$1") ;;
   esac
   shift
 done
+
+# Валидация неизвестных флагов
+if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
+  echo "" >&2
+  echo "⚠️  ОШИБКА: Неизвестные флаги: ${UNKNOWN_FLAGS[*]}" >&2
+  echo "" >&2
+  echo "Доступные флаги установки:" >&2
+  echo "  --full              Полная установка (Tor + Split + Zapret + Панель)" >&2
+  echo "  --update            Только обновление (без переустановки)" >&2
+  echo "  --tor               Только Tor + Панель" >&2
+  echo "  --split             Только Split-routing + Панель (требует --tor)" >&2
+  echo "  --zapret            Только Zapret + Панель" >&2
+  echo "  --bridges           Только мосты Tor + Панель" >&2
+  echo "  --warp              Cloudflare WARP + Панель" >&2
+  echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
+  echo "  --ssh               Панель доступна только через SSH-туннель" >&2
+  echo "  --interactive       Показать интерактивное меню выбора" >&2
+  echo "" >&2
+
+  if olc_has_tty; then
+    echo "Продолжить установку с интерактивным меню? (y/N): " >&2
+    read -r answer </dev/tty
+    if [[ "${answer,,}" == "y" ]]; then
+      FORCE_INTERACTIVE_MENU=1
+    else
+      echo "Установка отменена." >&2
+      exit 1
+    fi
+  else
+    echo "Нет интерактивного терминала. Используйте правильные флаги." >&2
+    exit 1
+  fi
+fi
 
 if [[ "$SHOW_STATE" -eq 1 ]]; then
   if [[ -f /var/lib/olcrtc/install-state.json ]]; then
