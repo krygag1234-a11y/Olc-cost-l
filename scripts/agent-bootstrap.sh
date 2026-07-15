@@ -531,6 +531,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   tui_log_info "Режим: UPDATE — обновление списков, патчей, Tor, zapret, systemd"
   tui_log_info "Можно продолжить с --resume если процесс прервётся"
   tui_divider
+  export OLCRTC_UPDATE_MODE=1  # Флаг для отключения совета про olc-update
   export OLCRTC_TOTAL_STEPS=11
 
   profile_apply_env

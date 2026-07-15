@@ -265,8 +265,11 @@ _olc_progress_stop() {
   _OLCRTC_PROGRESS_PID=""
   # Сбросить флаг активности
   _OLCRTC_PROGRESS_ACTIVE=0
-  # Очистить строку с анимацией
-  [[ -t 1 ]] && printf "\r\033[K"
+  # Очистить строку с анимацией (ВАЖНО: делать ДО удаления файла, пока spinner ещё может быть виден)
+  if [[ -t 1 ]]; then
+    printf "\r\033[K"  # очистить строку
+    printf "\r"        # вернуть каретку в начало
+  fi
   # Удалить файл обмена данными
   rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
 }

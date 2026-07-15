@@ -270,7 +270,10 @@ EOF
 
   export ENABLE_TOR ENABLE_SPLIT RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR
   profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP panel=$PANEL_ACCESS)"
-  profile_log "Совет: для доустановки или обновления можно использовать короткую команду: olc-update"
+  # Совет про olc-update только при первой установке (не при UPDATE режиме)
+  if [[ "${OLCRTC_UPDATE_MODE:-0}" != "1" ]]; then
+    profile_log "Совет: для доустановки или обновления можно использовать короткую команду: olc-update"
+  fi
 }
 
 profile_step_enabled() {
