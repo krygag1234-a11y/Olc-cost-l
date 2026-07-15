@@ -598,6 +598,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
   tui_log_success "Обновление успешно завершено!"
   olc_ui_success_recap
+  olc_ui_logs_recap
   olc_print_finish_help 8888
   exit 0
 fi
@@ -639,6 +640,7 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
   tui_log_success "Доустановка успешно завершена!"
   olc_ui_success_recap
+  olc_ui_logs_recap
   olc_print_finish_help 8888
   exit 0
 fi

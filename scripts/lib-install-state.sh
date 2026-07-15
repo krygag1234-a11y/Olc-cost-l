@@ -83,6 +83,10 @@ _olc_progress_logfile() {
   if [[ -n "${1:-}" ]]; then
     printf '%s\n' "$1" > "$_OLCRTC_PROGRESS_IPC_DIR/logfile.tmp" 2>/dev/null || return 0
     mv -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile.tmp" "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || true
+    # Копилка ВСЕХ логов сессии (уникально) — для финальной сводки путей
+    if ! grep -qxF -- "$1" "$_OLCRTC_PROGRESS_IPC_DIR/logpaths" 2>/dev/null; then
+      printf '%s\n' "$1" >> "$_OLCRTC_PROGRESS_IPC_DIR/logpaths" 2>/dev/null || true
+    fi
   else
     rm -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || true
   fi
@@ -169,7 +173,8 @@ _olc_progress_cleanup() {
     if [[ "$rc" != "0" ]]; then
       _olc_ui_abort_dump "$rc" || true
     else
-      printf '\033[?1049l' 2>/dev/null || true
+      # \033[r — сброс scroll-региона (мог остаться от подробного режима Ctrl+O)
+      printf '\033[r\033[?1049l' 2>/dev/null || true
       _OLC_UI_ALT=0
     fi
   fi
@@ -178,7 +183,8 @@ _olc_progress_cleanup() {
       "$_OLCRTC_PROGRESS_IPC_DIR"/progress "$_OLCRTC_PROGRESS_IPC_DIR"/progress.tmp \
       "$_OLCRTC_PROGRESS_IPC_DIR"/spinner "$_OLCRTC_PROGRESS_IPC_DIR"/simple \
       "$_OLCRTC_PROGRESS_IPC_DIR"/substep "$_OLCRTC_PROGRESS_IPC_DIR"/transcript \
-      "$_OLCRTC_PROGRESS_IPC_DIR"/logfile "$_OLCRTC_PROGRESS_IPC_DIR"/logfile.tmp 2>/dev/null || true
+      "$_OLCRTC_PROGRESS_IPC_DIR"/logfile "$_OLCRTC_PROGRESS_IPC_DIR"/logfile.tmp \
+      "$_OLCRTC_PROGRESS_IPC_DIR"/verbose "$_OLCRTC_PROGRESS_IPC_DIR"/logpaths 2>/dev/null || true
     rmdir "$_OLCRTC_PROGRESS_IPC_DIR" 2>/dev/null || true
   fi
   return "$rc"
@@ -439,11 +445,38 @@ _olc_progress_start() {
       fi
       if [[ "$key" == $'\x0f' ]]; then   # Ctrl+O
         if (( verbose )); then
+          # ГЛОБАЛЬНОЕ закрытие: один Ctrl+O скрывает ВСЁ накопленное подробное —
+          # сброс scroll-региона + полная перерисовка компактного экрана
+          # (заголовок + журнал шагов). Никаких «хвостов» от прошлых логов.
           verbose=0
-          _sp '\r\033[K  \033[2m── подробный вывод скрыт (Ctrl+O — показать) ──\033[0m\n'
+          rm -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" 2>/dev/null || true
+          if [[ "${_OLC_UI_ALT:-0}" == "1" ]]; then
+            _sp '\033[r'
+            _olc_ui_redraw_compact || true
+          else
+            # Без alt-screen перерисовка невозможна — только разделитель
+            _sp '\r\033[K  \033[2m── подробный вывод скрыт (Ctrl+O — показать) ──\033[0m\n'
+          fi
         else
           verbose=1
           vlog="" vlog_line=0
+          # Флаг для родителя: финал/ошибка знают, что подробный режим включён
+          : > "$_OLCRTC_PROGRESS_IPC_DIR/verbose" 2>/dev/null || true
+          if [[ "${_OLC_UI_ALT:-0}" == "1" ]]; then
+            # Детерминированный старт: чистая перерисовка компактного экрана,
+            # затем scroll-регион ниже шапки — верхняя панель ЗАКРЕПЛЕНА и не
+            # уезжает, сколько бы логов ни стримилось.
+            _olc_ui_redraw_compact || true
+            local vh vtop vrow
+            vh="$(tput lines 2>/dev/null)" || vh=24
+            [[ "$vh" =~ ^[0-9]+$ ]] || vh=24
+            vtop=$(( ${_OLC_UI_HEADER_ROWS:-0} + 1 ))
+            (( vtop >= vh )) && vtop=1
+            vrow=$(( ${_OLC_UI_REDRAW_ROWS:-0} + 1 ))
+            (( vrow > vh )) && vrow="$vh"
+            (( vrow < vtop )) && vrow="$vtop"
+            _sp '\033[%d;%dr\033[%d;1H' "$vtop" "$vh" "$vrow"
+          fi
           _sp '\r\033[K  \033[2m── подробный вывод (Ctrl+O — скрыть) ──\033[0m\n'
           # Контекст: хвост уже накопленного лога текущей подзадачи
           local vcur=""
@@ -552,24 +585,60 @@ olc_ui_begin() {
 
 _olc_ui_draw_header() {
   if declare -f tui_banner >/dev/null 2>&1; then
-    tui_banner "$_OLC_UI_TITLE"          # 5 строк
+    tui_banner "$_OLC_UI_TITLE"          # 7 строк (пустая + рамка 3 + пустые 2 + reset)
     local line
     for line in ${_OLC_UI_INFO[@]+"${_OLC_UI_INFO[@]}"}; do
       tui_log_info "$line"
     done
     tui_divider
+    # Точная высота шапки критична: от неё считаются scroll-регион (Ctrl+O)
+    # и целевая строка финальной анимации схлопывания.
+    _OLC_UI_HEADER_ROWS=$(( 7 + ${#_OLC_UI_INFO[@]} + 1 ))
   else
     echo "== $_OLC_UI_TITLE =="
     printf '%s\n' ${_OLC_UI_INFO[@]+"${_OLC_UI_INFO[@]}"}
+    _OLC_UI_HEADER_ROWS=$(( 1 + ${#_OLC_UI_INFO[@]} ))
   fi
-  _OLC_UI_HEADER_ROWS=$(( 5 + ${#_OLC_UI_INFO[@]} + 1 ))
+}
+
+# Полная перерисовка КОМПАКТНОГО экрана (только alt-screen): очистка, шапка,
+# хвост журнала шагов (transcript), влезающий по высоте терминала.
+# Используется глобальным Ctrl+O (вкл — чистый старт подробного режима,
+# выкл — скрыть ВСЕ подробные строки разом) и финалом при включённом verbose.
+# Число занятых строк после перерисовки — в _OLC_UI_REDRAW_ROWS.
+_OLC_UI_REDRAW_ROWS=0
+_olc_ui_redraw_compact() {
+  [[ "${_OLC_UI_ALT:-0}" == "1" ]] || return 1
+  local term_h
+  term_h="$(tput lines 2>/dev/null)" || term_h=24
+  [[ "$term_h" =~ ^[0-9]+$ ]] || term_h=24
+  _olc_progress_print '\033[2J\033[H'
+  # Шапка рисуется в ту же цель, что и бар (stdout или /dev/tty)
+  if [[ -n "${_OLCRTC_PROGRESS_OUT:-}" ]]; then
+    _olc_ui_draw_header > "$_OLCRTC_PROGRESS_OUT" 2>/dev/null || _olc_ui_draw_header
+  else
+    _olc_ui_draw_header
+  fi
+  local avail=$(( term_h - ${_OLC_UI_HEADER_ROWS:-0} - 2 ))
+  (( avail < 0 )) && avail=0
+  local shown=0 line
+  local t="${_OLCRTC_PROGRESS_IPC_DIR:-}/transcript"
+  if (( avail > 0 )) && [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -s "$t" ]]; then
+    while IFS= read -r line; do
+      _olc_progress_print '  \033[2m→ %s\033[0m\n' "$line"
+      shown=$(( shown + 1 ))
+    done < <(tail -n "$avail" "$t" 2>/dev/null)
+  fi
+  _OLC_UI_REDRAW_ROWS=$(( ${_OLC_UI_HEADER_ROWS:-0} + shown ))
+  return 0
 }
 
 # Закрыть alt-screen (успешное завершение). После вызова печатать финальный
 # вывод — он попадёт в основной буфер терминала.
 olc_ui_end() {
   [[ "$_OLC_UI_ALT" == "1" ]] || return 0
-  printf '\033[?1049l'
+  # \033[r — сброс scroll-региона (мог остаться от подробного режима Ctrl+O)
+  printf '\033[r\033[?1049l'
   _OLC_UI_ALT=0
 }
 
@@ -587,14 +656,20 @@ _olc_ui_cursor_row() {
 # Анимация финала: бар «поднимается» вверх, поглощая строки шагов,
 # затем экран перерисовывается начисто (заголовок + бар 100%).
 _olc_ui_collapse() {
-  local bar_line="$1" msg_lines="${2:-0}"
+  local bar_line="$1" msg_lines="${2:-0}" start_row="${3:-}"
   local term_h
   term_h="$(tput lines 2>/dev/null)" || term_h=24
   [[ "$term_h" =~ ^[0-9]+$ ]] || term_h=24
   local target=$(( _OLC_UI_HEADER_ROWS + 1 ))
   (( target < 1 )) && target=1
   local row=""
-  row="$(_olc_ui_cursor_row 2>/dev/null)" || row=""
+  if [[ "$start_row" =~ ^[0-9]+$ ]]; then
+    # Явная стартовая строка (после перерисовки экрана позиция известна точно)
+    row="$start_row"
+    (( row > term_h )) && row="$term_h"
+  else
+    row="$(_olc_ui_cursor_row 2>/dev/null)" || row=""
+  fi
   if [[ -z "$row" ]]; then
     # Fallback: заголовок + напечатанные строки журнала + строка бара
     row=$(( _OLC_UI_HEADER_ROWS + msg_lines + 1 ))
@@ -637,11 +712,30 @@ olc_ui_success_recap() {
   done <<<"$warns"
 }
 
+# После olc_ui_end: пути ко ВСЕМ логам, использованным за сессию
+# (копилка IPC/logpaths пополняется в _olc_progress_logfile).
+olc_ui_logs_recap() {
+  local lp="${_OLCRTC_PROGRESS_IPC_DIR:-}/logpaths"
+  [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -s "$lp" ]] || return 0
+  echo ""
+  if declare -f tui_log_info >/dev/null 2>&1; then
+    tui_log_info "Логи установки:"
+  else
+    echo "Логи установки:"
+  fi
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    printf '  %b→ %s%b\n' "${TUI_DIM:-}" "$line" "${TUI_RESET:-}"
+  done < "$lp"
+}
+
 # Аварийный выход из alt-screen: показать хвост журнала в основном терминале.
 _olc_ui_abort_dump() {
   local rc="$1"
   [[ "$_OLC_UI_ALT" == "1" ]] || return 0
-  printf '\033[?1049l'
+  # \033[r — сброс scroll-региона (мог остаться от подробного режима Ctrl+O)
+  printf '\033[r\033[?1049l'
   _OLC_UI_ALT=0
   local t="${_OLCRTC_PROGRESS_IPC_DIR:-}/transcript"
   {
@@ -651,6 +745,8 @@ _olc_ui_abort_dump() {
       printf '%bПоследние события:%b\n' "${TUI_DIM:-}" "${TUI_RESET:-}"
       tail -n 25 "$t" | sed 's/^/  → /'
     fi
+    # При ошибке пути к логам особенно важны
+    olc_ui_logs_recap
     echo "Продолжить с места остановки: sudo olc-update --resume"
   } >&2
 }
@@ -685,7 +781,21 @@ _olc_progress_finish() {
       msg_lines="$(wc -l < "$_OLCRTC_PROGRESS_IPC_DIR/transcript" 2>/dev/null)" || msg_lines=0
       [[ "$msg_lines" =~ ^[0-9]+$ ]] || msg_lines=0
     fi
-    _olc_ui_collapse "$bar_line" "$msg_lines"
+    if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" ]]; then
+      # Подробный режим был включён на момент финала: сброс scroll-региона +
+      # чистая перерисовка компактного экрана — анимация схлопывания стартует
+      # с ТОЧНО известной строки и гарантированно доезжает до верхней панели,
+      # не оставляя обрывков verbose-строк.
+      rm -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" 2>/dev/null || true
+      _olc_progress_print '\033[r'
+      if _olc_ui_redraw_compact; then
+        _olc_ui_collapse "$bar_line" "$msg_lines" "$(( _OLC_UI_REDRAW_ROWS + 1 ))"
+      else
+        _olc_ui_collapse "$bar_line" "$msg_lines"
+      fi
+    else
+      _olc_ui_collapse "$bar_line" "$msg_lines"
+    fi
   else
     _olc_progress_print '%s\n' "$bar_line"
   fi
