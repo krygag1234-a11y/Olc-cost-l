@@ -266,6 +266,131 @@ EOF
   return 0
 }
 
+# === Интерактивное меню обновления ===
+interactive_update_menu() {
+  # Проверка TTY перед запуском меню
+  if ! { [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; }; } 2>/dev/null; then
+    echo "[olc-core] Нет интерактивного терминала — меню недоступно" >&2
+    return 1
+  fi
+
+  echo ""
+  echo "╔═══════════════════════════════════════════════════════════╗"
+  echo "║ Интерактивное обновление Olc-cost-l                      ║"
+  echo "╚═══════════════════════════════════════════════════════════╝"
+  echo ""
+
+  # Загрузить текущий профиль установки
+  local profile_json="/var/lib/olcrtc/install-profile.json"
+  local current_tor="неизвестно"
+  local current_split="неизвестно"
+  local current_zapret="неизвестно"
+  local current_bridges="неизвестно"
+  local current_access="неизвестно"
+
+  if [[ -f "$profile_json" ]]; then
+    current_tor=$(jq -r '.components.tor // "unknown"' "$profile_json" 2>/dev/null || echo "unknown")
+    current_split=$(jq -r '.components.split // "unknown"' "$profile_json" 2>/dev/null || echo "unknown")
+    current_zapret=$(jq -r '.components.zapret // "unknown"' "$profile_json" 2>/dev/null || echo "unknown")
+    current_bridges=$(jq -r '.components.bridges // "unknown"' "$profile_json" 2>/dev/null || echo "unknown")
+    current_access=$(jq -r '.access_mode // "unknown"' "$profile_json" 2>/dev/null || echo "unknown")
+  fi
+
+  echo "📋 Текущая конфигурация:"
+  echo "  Режим доступа: $current_access"
+  echo "  Компоненты:"
+  echo "    Tor: $current_tor"
+  echo "    Мосты Tor: $current_bridges"
+  echo "    Split-routing: $current_split"
+  echo "    Zapret: $current_zapret"
+  echo ""
+
+  echo "🔧 Что вы хотите сделать?"
+  echo "  [1] Обновить существующие компоненты (рекомендуется)"
+  echo "  [2] Доустановить недостающие компоненты"
+  echo "  [3] Сменить режим доступа к панели (SSH ↔ IP)"
+  echo "  [4] Обновить версию панели (stable → latest или наоборот)"
+  echo -n "Ваш выбор (1-4) [1]: "
+  read -r update_action </dev/tty || update_action="1"
+  update_action="${update_action:-1}"
+
+  case "$update_action" in
+    1) # Обновить существующие
+      echo ""
+      echo "✓ Будут обновлены все установленные компоненты"
+      export OLC_UPDATE_MODE="incremental"
+      ;;
+    2) # Доустановить недостающие
+      echo ""
+      echo "📦 Выберите компоненты для доустановки:"
+
+      [[ "$current_tor" == "false" ]] && {
+        echo -n "  Установить Tor? (y/N): "
+        read -r ans_tor </dev/tty || ans_tor="n"
+        [[ "${ans_tor,,}" == "y" ]] && export ENABLE_TOR=1
+      }
+
+      [[ "$current_bridges" == "false" ]] && {
+        echo -n "  Установить мосты Tor? (y/N): "
+        read -r ans_bridges </dev/tty || ans_bridges="n"
+        [[ "${ans_bridges,,}" == "y" ]] && export ENABLE_BRIDGES=1
+      }
+
+      [[ "$current_split" == "false" ]] && {
+        echo -n "  Установить Split-routing? (y/N): "
+        read -r ans_split </dev/tty || ans_split="n"
+        [[ "${ans_split,,}" == "y" ]] && export ENABLE_SPLIT=1
+      }
+
+      [[ "$current_zapret" == "false" ]] && {
+        echo -n "  Установить Zapret? (y/N): "
+        read -r ans_zapret </dev/tty || ans_zapret="n"
+        [[ "${ans_zapret,,}" == "y" ]] && export OLCRTC_ENABLE_ZAPRET=1
+      }
+
+      export OLC_UPDATE_MODE="incremental"
+      ;;
+    3) # Сменить режим доступа
+      echo ""
+      echo "🔒 Выберите новый режим доступа:"
+      echo "  [1] HTTP — панель доступна по IP:8888"
+      echo "  [2] SSH  — панель только через SSH-туннель"
+      echo -n "Ваш выбор (1-2): "
+      read -r new_access </dev/tty || new_access="1"
+
+      if [[ "$new_access" == "2" ]]; then
+        export OLC_INSTALL_SSH=1
+        echo "✓ Будет включен режим SSH-туннеля"
+      else
+        export OLC_INSTALL_SSH=0
+        echo "✓ Будет включен режим HTTP (IP:8888)"
+      fi
+      ;;
+    4) # Сменить версию панели
+      echo ""
+      echo "📦 Выберите версию панели:"
+      echo "  [1] Stable fork (рекомендуется, по умолчанию)"
+      echo "  [2] Latest upstream (экспериментальная)"
+      echo -n "Ваш выбор (1-2) [1]: "
+      read -r panel_version </dev/tty || panel_version="1"
+
+      if [[ "$panel_version" == "2" ]]; then
+        export OLC_MANAGER_LATEST=1
+        echo "⚠️  ВНИМАНИЕ: Будет установлена экспериментальная версия upstream"
+      else
+        export OLC_MANAGER_STABLE=1
+        echo "✓ Будет установлена стабильная версия (stable fork)"
+      fi
+      ;;
+  esac
+
+  echo ""
+  echo "✓ Конфигурация обновления сохранена"
+  echo ""
+
+  return 0
+}
+
 # === Логирование с префиксом ===
 olc_log() {
   echo "[olc-core] $*"
