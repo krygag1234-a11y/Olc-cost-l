@@ -535,16 +535,10 @@ build_binaries() {
 }
 
 # Число подзадач зависит от реально исполняемых npm/build веток.
-# Вычисляем перед clone, используя факт существования клонированного repo на предыдущем запуске.
+# Conservative upper bound: 4 (patch) + 2 (npm) + 3 (build) = 9 для всех веток.
+# Fresh install без npm выполнит меньше, но clamp защищает от >100%.
 if declare -f _olc_substep_reset >/dev/null 2>&1; then
-  patch_substeps=4
-  if [[ -d "$MGR_REPO" && -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
-    patch_substeps=$(( patch_substeps + 2 ))
-  fi
-  if [[ "${BUILD:-1}" == "1" ]]; then
-    patch_substeps=$(( patch_substeps + 3 ))
-  fi
-  _olc_substep_reset "$patch_substeps"
+  _olc_substep_reset 9
 fi
 
 clone_repos
