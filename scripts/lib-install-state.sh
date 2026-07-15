@@ -91,20 +91,20 @@ _olc_progress_cleanup() {
 _olc_substep() {
   local substep_name="$1"
 
-  # Записать в файл для чтения анимацией
+  # Записать в файл для чтения анимацией (TTY mode) или вывода (simple mode)
   if [[ -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]]; then
     local curr total previous_name
     read curr total previous_name < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || { curr=0; total=0; }
     curr=$(( curr + 1 ))
     echo "$curr $total $substep_name" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
 
-    # Если simple mode — сразу печатать статичный прогресс
+    # Если simple mode — сразу печатать статичный прогресс через FD 3 (обход редиректа в лог)
     # Проверка через файл-флаг вместо переменной окружения
     if [[ -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" && "$total" -gt 0 ]]; then
       local percent=$(( curr * 100 / total ))
       (( percent > 100 )) && percent=100
-      # Используем FD 3 для обхода редиректа >>/var/log/olcrtc-bootstrap-patches.log 2>&1
-      if [[ -t 3 ]] 2>/dev/null; then
+      # FD 3 для обхода редиректа >>/var/log/olcrtc-bootstrap-patches.log 2>&1
+      if { true >&3; } 2>/dev/null; then
         printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent" >&3
       else
         printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent"
