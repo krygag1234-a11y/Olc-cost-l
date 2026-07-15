@@ -48,6 +48,9 @@ _olc_substep() {
     read curr total < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || { curr=0; total=0; }
     curr=$(( curr + 1 ))
     echo "$curr $total $substep_name" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
+  else
+    # Файл не существует — записать в stderr для диагностики
+    echo "[DEBUG] _olc_substep: file not found: $_OLCRTC_PROGRESS_SUBSTEP_FILE" >&2
   fi
 }
 
