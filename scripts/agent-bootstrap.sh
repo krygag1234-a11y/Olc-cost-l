@@ -169,6 +169,11 @@ fi
 
 profile_apply_env
 
+# Установить флаг UPDATE режима ДО вызова profile_apply_env
+if [[ "$UPDATE" -eq 1 ]]; then
+  export OLCRTC_UPDATE_MODE=1
+fi
+
 require_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
     tui_fatal "Скрипт должен запускаться от root" \
@@ -541,7 +546,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   export OLCRTC_UPDATE_MODE=1  # Флаг для отключения совета про olc-update
   export OLCRTC_TOTAL_STEPS=11
 
-  profile_apply_env
+  profile_apply_env  # ПОСЛЕ установки OLCRTC_UPDATE_MODE
 
   state_step_profile patches              run_patches
   state_step_profile sysctl               setup_sysctl
