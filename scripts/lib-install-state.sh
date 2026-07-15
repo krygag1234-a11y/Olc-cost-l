@@ -32,20 +32,26 @@ _OLCRTC_STEP_NUM=0
 
 # Progress bar helper — safe wrapper
 _olc_show_progress() {
+  echo "[PROGRESS-DEBUG] ENTRY" >&2
   [[ "$OLCRTC_TOTAL_STEPS" -le 0 ]] && return 0
+  echo "[PROGRESS-DEBUG] after check" >&2
   local curr="$1" total="$2"
   local percent=$(( curr * 100 / total ))
   local width=30
   local filled=$(( width * curr / total ))
   local empty=$(( width - filled ))
 
+  echo "[PROGRESS-DEBUG] building bar" >&2
   local bar=""
   local i
   for ((i=0; i<filled; i++)); do bar+="█"; done
   for ((i=0; i<empty; i++)); do bar+="░"; done
 
+  echo "[PROGRESS-DEBUG] before printf" >&2
   printf "\r[%s] %d%% (шаг %d/%d)" "$bar" "$percent" "$curr" "$total"
+  echo "[PROGRESS-DEBUG] after printf" >&2
   [[ "$curr" -eq "$total" ]] && printf "\n"
+  echo "[PROGRESS-DEBUG] EXIT" >&2
 }
 
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
