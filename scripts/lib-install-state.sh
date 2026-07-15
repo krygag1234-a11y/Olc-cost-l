@@ -150,8 +150,7 @@ _olc_progress_start() {
   _olc_progress_step_cleanup
 
   # Если не TTY или OLC_NO_SPINNER=1 → включить simple mode (статичный вывод)
-  # ВРЕМЕННО: ВСЕГДА simple mode из-за проблем с spinner в TTY
-  if true; then  # было: if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
+  if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
     _OLCRTC_PROGRESS_SIMPLE=1
     _OLCRTC_PROGRESS_ACTIVE=1
     export _OLCRTC_PROGRESS_SIMPLE
