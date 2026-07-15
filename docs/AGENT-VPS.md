@@ -29,7 +29,7 @@
 
 **Этот VPS (через Olc-cost-l):**
 - **olcrtc:** Pinned SHA `52aea2d` из `data/upstream-pins.json`
-- **olcrtc-manager:** Установлен с флагом `` → форк `local-panel-version` stable-v1
+- **olcrtc-manager:** Стабильный форк `local-panel-version` stable-v1 (по умолчанию с версии d92baf4)
 - **Преимущество:** Контролируемое обновление, стабильность production
 
 **Важно:** olcrtc-manager **НЕ хардкодит** версию olcrtc — панель запускает бинарник по пути `OLCRTC_PATH=/usr/local/bin/olcrtc`. Сборка olcrtc и manager — независимые процессы.

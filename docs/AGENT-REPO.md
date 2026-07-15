@@ -29,10 +29,8 @@
 
 **Наш подход (Olc-cost-l):**
 - **olcrtc:** Pinned SHA в `data/upstream-pins.json` (например `52aea2d`)
-- **olcrtc-manager:** Зависит от флага:
-  - `` → fork `local-panel-version` stable-v1 (рекомендуется)
-  - `--manager-latest` → upstream BigDaddy3334 HEAD
-  - Без флага → pinned SHA из `upstream-pins.json`
+- **olcrtc-manager:** Стабильный форк `local-panel-version` stable-v1 по умолчанию (с версии d92baf4)
+  - `--manager-latest` → upstream BigDaddy3334 HEAD (экспериментальная)
 - **Преимущество:** Контролируемое обновление после тестирования, стабильность production
 
 **Важно:** olcrtc-manager **НЕ хардкодит** версию olcrtc внутри себя — панель запускает бинарник по пути `OLCRTC_PATH=/usr/local/bin/olcrtc`. Сборка olcrtc и manager — независимые процессы в `apply-olcrtc-patches.sh`.

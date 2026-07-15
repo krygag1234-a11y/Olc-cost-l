@@ -58,9 +58,10 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uni
 
 ### Версии панели manager
 
-- **``** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
-- **`--manager-latest`**: HEAD из upstream (может сломаться при обновлении BigDaddy3334)
-- **без флага**: Pinned версия из `upstream-pins.json` (средний вариант)
+- **По умолчанию** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
+- **`--manager-latest`**: HEAD из upstream (экспериментальная, может сломаться при обновлении)
+
+> ℹ️ С версии `d92baf4` стабильный форк используется по умолчанию (`OLC_MANAGER_STABLE=1`).
 
 **Обновление stable fork:** Ручное через GitHub Actions или вручную применяя патчи к новому upstream
 
