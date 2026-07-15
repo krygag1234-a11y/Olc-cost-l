@@ -272,7 +272,17 @@ main() {
   bash scripts/agent-bootstrap.sh "${boot_args[@]}" || {
     local exit_code=$?
     echo "" >&2
-    tui_log_error "agent-bootstrap.sh завершился с ошибкой (код: $exit_code)"
+    case "$exit_code" in
+      130)
+        tui_log_warn "⚠ Прервано пользователем (Ctrl+C)"
+        ;;
+      143)
+        tui_log_warn "⚠ Остановлено (SIGTERM)"
+        ;;
+      *)
+        tui_log_error "agent-bootstrap.sh завершился с ошибкой (код: $exit_code)"
+        ;;
+    esac
     exit $exit_code
   }
 }
