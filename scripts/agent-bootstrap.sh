@@ -461,7 +461,7 @@ ensure_panel_jitsi_tls() {
 
 run_patches() {
   ensure_ui_build_deps
-  if ! BUILD=1 bash "$PATCH_SCRIPT" 2>&1 | tee -a /var/log/olcrtc-bootstrap-patches.log | grep -E "^(→|✓|✗|\[)" >&2; then
+  if ! BUILD=1 bash "$PATCH_SCRIPT" >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
     log "ERROR: патчи/сборка не удались — см. детали выше"
     log "Полный лог: /var/log/olcrtc-bootstrap-patches.log"
     return 1
