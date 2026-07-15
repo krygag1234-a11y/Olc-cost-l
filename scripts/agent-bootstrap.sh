@@ -171,7 +171,11 @@ fi
 profile_apply_env
 
 require_root() {
-  [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+  if [[ "$(id -u)" -ne 0 ]]; then
+    tui_fatal "Скрипт должен запускаться от root" \
+              "Текущий пользователь: $(whoami) (UID: $(id -u))" \
+              "Используйте: sudo bash $0 $*"
+  fi
 }
 
 install_deps() {

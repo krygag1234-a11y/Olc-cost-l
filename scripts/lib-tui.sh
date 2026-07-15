@@ -261,6 +261,33 @@ tui_log_error() {
   echo -e "${TUI_RED}✗${TUI_RESET} ${TUI_RED}$*${TUI_RESET}" >&2
 }
 
+# Fatal error with context and exit
+tui_fatal() {
+  local error_msg="$1"
+  local context="${2:-}"
+  local hint="${3:-}"
+
+  echo "" >&2
+  echo -e "${TUI_BG_RED}${TUI_WHITE}${TUI_BOLD} ОШИБКА ${TUI_RESET}" >&2
+  echo "" >&2
+  echo -e "${TUI_RED}✗ $error_msg${TUI_RESET}" >&2
+
+  if [[ -n "$context" ]]; then
+    echo "" >&2
+    echo -e "${TUI_YELLOW}Контекст:${TUI_RESET}" >&2
+    echo -e "  ${TUI_GRAY}$context${TUI_RESET}" >&2
+  fi
+
+  if [[ -n "$hint" ]]; then
+    echo "" >&2
+    echo -e "${TUI_CYAN}💡 Подсказка:${TUI_RESET}" >&2
+    echo -e "  ${TUI_CYAN}$hint${TUI_RESET}" >&2
+  fi
+
+  echo "" >&2
+  exit 1
+}
+
 tui_log_step() {
   echo -e "${TUI_CYAN}→${TUI_RESET} $*"
 }
@@ -352,6 +379,6 @@ export -f tui_cursor_to tui_cursor_col tui_clear tui_clear_line tui_clear_to_end
 export -f tui_term_width tui_term_height tui_spinner_start tui_spinner_stop
 export -f tui_spinner_ok tui_spinner_fail tui_progress_bar tui_menu tui_box
 export -f tui_header tui_gradient tui_loading_dots tui_log_info tui_log_success
-export -f tui_log_warning tui_log_error tui_log_step tui_log_bullet
+export -f tui_log_warning tui_log_error tui_log_step tui_log_bullet tui_fatal
 export -f tui_tail_log tui_confirm tui_input tui_banner tui_divider
 
