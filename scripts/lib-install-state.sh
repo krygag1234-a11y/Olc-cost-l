@@ -184,7 +184,8 @@ _olc_progress_cleanup() {
       "$_OLCRTC_PROGRESS_IPC_DIR"/spinner "$_OLCRTC_PROGRESS_IPC_DIR"/simple \
       "$_OLCRTC_PROGRESS_IPC_DIR"/substep "$_OLCRTC_PROGRESS_IPC_DIR"/transcript \
       "$_OLCRTC_PROGRESS_IPC_DIR"/logfile "$_OLCRTC_PROGRESS_IPC_DIR"/logfile.tmp \
-      "$_OLCRTC_PROGRESS_IPC_DIR"/verbose "$_OLCRTC_PROGRESS_IPC_DIR"/logpaths 2>/dev/null || true
+      "$_OLCRTC_PROGRESS_IPC_DIR"/verbose "$_OLCRTC_PROGRESS_IPC_DIR"/verbose_used \
+      "$_OLCRTC_PROGRESS_IPC_DIR"/logpaths 2>/dev/null || true
     rmdir "$_OLCRTC_PROGRESS_IPC_DIR" 2>/dev/null || true
   fi
   return "$rc"
@@ -460,16 +461,19 @@ _olc_progress_start() {
         else
           verbose=1
           vlog="" vlog_line=0
-          # Флаг для родителя: финал/ошибка знают, что подробный режим включён
+          # Флаг для родителя: финал/ошибка знают, что подробный режим включён.
+          # verbose_used живёт до конца сессии: финал по нему выбирает
+          # детерминированный путь (перерисовка + анимация с известной строки),
+          # даже если к финалу verbose уже выключен.
           : > "$_OLCRTC_PROGRESS_IPC_DIR/verbose" 2>/dev/null || true
+          : > "$_OLCRTC_PROGRESS_IPC_DIR/verbose_used" 2>/dev/null || true
           if [[ "${_OLC_UI_ALT:-0}" == "1" ]]; then
             # Детерминированный старт: чистая перерисовка компактного экрана,
             # затем scroll-регион ниже шапки — верхняя панель ЗАКРЕПЛЕНА и не
             # уезжает, сколько бы логов ни стримилось.
             _olc_ui_redraw_compact || true
             local vh vtop vrow
-            vh="$(tput lines 2>/dev/null)" || vh=24
-            [[ "$vh" =~ ^[0-9]+$ ]] || vh=24
+            vh="$(_olc_ui_term_rows)"
             vtop=$(( ${_OLC_UI_HEADER_ROWS:-0} + 1 ))
             (( vtop >= vh )) && vtop=1
             vrow=$(( ${_OLC_UI_REDRAW_ROWS:-0} + 1 ))
@@ -544,6 +548,15 @@ _olc_progress_stop() {
   wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null || true  # ignore exit code 137 from SIGKILL
   _OLCRTC_PROGRESS_PID=""
   _OLCRTC_PROGRESS_ACTIVE=0
+  # Спиннер мог быть убит при АКТИВНОМ verbose (ошибка шага → рестарт спиннера
+  # на следующем шаге): снять флаг «verbose сейчас включён» и сбросить
+  # scroll-регион — иначе новый спиннер стартует с verbose=0 при живом флаге
+  # и первый же Ctrl+O включает verbose вместо ожидаемого выключения
+  # (десинхронизация тоггла на поздних шагах). verbose_used НЕ трогаем.
+  if [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" ]]; then
+    rm -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" 2>/dev/null || true
+    _olc_progress_print '\033[r'
+  fi
   # Вернуть терминал в исходный режим (клавиатура Ctrl+O больше не читается)
   _olc_progress_keys_off
   # Очистить строку бара и дослать несведённые сообщения
@@ -609,10 +622,12 @@ _olc_ui_draw_header() {
 _OLC_UI_REDRAW_ROWS=0
 _olc_ui_redraw_compact() {
   [[ "${_OLC_UI_ALT:-0}" == "1" ]] || return 1
-  local term_h
-  term_h="$(tput lines 2>/dev/null)" || term_h=24
-  [[ "$term_h" =~ ^[0-9]+$ ]] || term_h=24
-  _olc_progress_print '\033[2J\033[H'
+  local term_h term_w
+  term_h="$(_olc_ui_term_rows)"
+  term_w="$(_olc_ui_term_cols)"
+  # Сброс scroll-региона (мог остаться от verbose) + полная очистка экрана,
+  # включая скроллбэк alt-screen (ESC[3J) — перерисовка стартует с чистого листа.
+  _olc_progress_print '\033[r\033[2J\033[3J\033[H'
   # Шапка рисуется в ту же цель, что и бар (stdout или /dev/tty)
   if [[ -n "${_OLCRTC_PROGRESS_OUT:-}" ]]; then
     _olc_ui_draw_header > "$_OLCRTC_PROGRESS_OUT" 2>/dev/null || _olc_ui_draw_header
@@ -621,11 +636,18 @@ _olc_ui_redraw_compact() {
   fi
   local avail=$(( term_h - ${_OLC_UI_HEADER_ROWS:-0} - 2 ))
   (( avail < 0 )) && avail=0
+  # Строки журнала обрезаются по ширине терминала: 1 строка = ровно 1 ряд.
+  # Иначе длинные строки (пути логов и т.п.) заворачиваются, перерисовка
+  # занимает больше рядов, экран прокручивается, шапка уезжает и подсчёт
+  # _OLC_UI_REDRAW_ROWS съезжает (Баг A ловился на поздних шагах, где журнал
+  # длинный и строки длинные).
+  local maxw=$(( term_w - 5 ))
+  (( maxw < 20 )) && maxw=20
   local shown=0 line
   local t="${_OLCRTC_PROGRESS_IPC_DIR:-}/transcript"
   if (( avail > 0 )) && [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -s "$t" ]]; then
     while IFS= read -r line; do
-      _olc_progress_print '  \033[2m→ %s\033[0m\n' "$line"
+      _olc_progress_print '  \033[2m→ %s\033[0m\n' "${line:0:maxw}"
       shown=$(( shown + 1 ))
     done < <(tail -n "$avail" "$t" 2>/dev/null)
   fi
@@ -642,12 +664,51 @@ olc_ui_end() {
   _OLC_UI_ALT=0
 }
 
+# Реальные размеры терминала. КРИТИЧНО: `tput lines/cols` внутри command
+# substitution и/или фонового сабшелла спиннера (stdin=/dev/null, stdout=pipe)
+# НЕ видит tty и молча отдаёт terminfo-дефолт 24/80 — из-за этого scroll-регион
+# и перерисовка считались для «терминала 24x80» на любом реальном экране
+# (Баг A: свёртка не очищала области ниже 24-й строки). stty size </dev/tty
+# работает во всех этих контекстах.
+_olc_ui_term_rows() {
+  local sz=""
+  sz="$(stty size </dev/tty 2>/dev/null)" || sz=""
+  if [[ "$sz" =~ ^([0-9]+)[[:space:]]+[0-9]+$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  sz="$(tput lines 2>/dev/null)" || sz=""
+  [[ "$sz" =~ ^[0-9]+$ ]] || sz=24
+  printf '%s\n' "$sz"
+}
+_olc_ui_term_cols() {
+  local sz=""
+  sz="$(stty size </dev/tty 2>/dev/null)" || sz=""
+  if [[ "$sz" =~ ^[0-9]+[[:space:]]+([0-9]+)$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  sz="$(tput cols 2>/dev/null)" || sz=""
+  [[ "$sz" =~ ^[0-9]+$ ]] || sz=80
+  printf '%s\n' "$sz"
+}
+
 # Текущая строка курсора через DSR-запрос к терминалу (\033[6n).
+# tty переводится в raw на время чтения ответа: в canonical-режиме (после
+# восстановления настроек юзера) ответ терминала не доходит до read без
+# newline и вдобавок эхается на экран мусором.
 _olc_ui_cursor_row() {
-  local esc="" row="" col="" fd
+  local esc="" row="" col="" fd saved=""
   { exec {fd}</dev/tty; } 2>/dev/null || return 1
-  printf '\033[6n' >/dev/tty 2>/dev/null || { exec {fd}<&- 2>/dev/null; return 1; }
-  IFS='[;' read -r -s -d R -t 0.4 esc row col <&"$fd" 2>/dev/null || { exec {fd}<&- 2>/dev/null; return 1; }
+  saved="$(stty -g </dev/tty 2>/dev/null)" || saved=""
+  [[ -n "$saved" ]] && stty -icanon -echo min 0 time 0 </dev/tty 2>/dev/null || true
+  printf '\033[6n' >/dev/tty 2>/dev/null || {
+    [[ -n "$saved" ]] && stty "$saved" </dev/tty 2>/dev/null
+    exec {fd}<&- 2>/dev/null
+    return 1
+  }
+  IFS='[;' read -r -s -d R -t 0.4 esc row col <&"$fd" 2>/dev/null || row=""
+  [[ -n "$saved" ]] && stty "$saved" </dev/tty 2>/dev/null
   exec {fd}<&- 2>/dev/null
   [[ "$row" =~ ^[0-9]+$ ]] || return 1
   printf '%s\n' "$row"
@@ -658,8 +719,9 @@ _olc_ui_cursor_row() {
 _olc_ui_collapse() {
   local bar_line="$1" msg_lines="${2:-0}" start_row="${3:-}"
   local term_h
-  term_h="$(tput lines 2>/dev/null)" || term_h=24
-  [[ "$term_h" =~ ^[0-9]+$ ]] || term_h=24
+  term_h="$(_olc_ui_term_rows)"
+  # Защита: scroll-регион не должен быть активен во время анимации
+  _olc_progress_print '\033[r'
   local target=$(( _OLC_UI_HEADER_ROWS + 1 ))
   (( target < 1 )) && target=1
   local row=""
@@ -781,12 +843,16 @@ _olc_progress_finish() {
       msg_lines="$(wc -l < "$_OLCRTC_PROGRESS_IPC_DIR/transcript" 2>/dev/null)" || msg_lines=0
       [[ "$msg_lines" =~ ^[0-9]+$ ]] || msg_lines=0
     fi
-    if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" ]]; then
-      # Подробный режим был включён на момент финала: сброс scroll-региона +
-      # чистая перерисовка компактного экрана — анимация схлопывания стартует
-      # с ТОЧНО известной строки и гарантированно доезжает до верхней панели,
-      # не оставляя обрывков verbose-строк.
-      rm -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" 2>/dev/null || true
+    if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose_used" || -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" ]]; then
+      # Подробный режим включался ХОТЯ БЫ РАЗ за сессию (даже если к финалу
+      # выключен): координаты курсора после verbose-стрима недостоверны —
+      # сброс scroll-региона + чистая перерисовка компактного экрана, анимация
+      # схлопывания стартует с ТОЧНО известной строки и гарантированно доезжает
+      # до верхней панели, не оставляя обрывков verbose-строк (Баг B: раньше
+      # этот путь включался только при активном verbose, а после тогл-off финал
+      # уходил в ненадёжные DSR-гадания и анимация не проигрывалась).
+      rm -f "$_OLCRTC_PROGRESS_IPC_DIR/verbose" \
+        "$_OLCRTC_PROGRESS_IPC_DIR/verbose_used" 2>/dev/null || true
       _olc_progress_print '\033[r'
       if _olc_ui_redraw_compact; then
         _olc_ui_collapse "$bar_line" "$msg_lines" "$(( _OLC_UI_REDRAW_ROWS + 1 ))"
