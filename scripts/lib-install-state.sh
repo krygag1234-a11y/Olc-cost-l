@@ -69,6 +69,8 @@ _olc_progress_start() {
 
   # Запустить фоновый процесс анимации
   (
+    # Игнорировать SIGTERM чтобы не ломать exit code родителя
+    trap '' TERM
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
     while true; do
