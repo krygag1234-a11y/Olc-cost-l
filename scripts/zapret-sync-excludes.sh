@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 OPT="${ZAPRET_OPT:-/opt/zapret}"
 NETROGAT="${OPT}/lists/netrogat.txt"
-HOSTS_EXCLUDE="${OPT}/ipset/zapret-hosts-user-exclude.txt}"
+HOSTS_EXCLUDE="${OPT}/ipset/zapret-hosts-user-exclude.txt"
 STAGING="${OLCRTC_STATE:-/var/lib/olcrtc}/zapret-netrogat-staging.txt"
 REPORT="${OLCRTC_STATE:-/var/lib/olcrtc}/zapret-sync-report.txt"
 
@@ -51,18 +51,18 @@ collect_sources() {
     "$REPO_ROOT/data/ru-domains-extra.txt" \
     "$REPO_ROOT/data/ru-embed-balancers.txt" \
     "$REPO_ROOT/data/ru-video-balancers-full.txt"; do
-    [[ -f "$f" ]] && grep -vE '^[[:space:]]*#' "$f" | flatten_domains
+    [[ -f "$f" ]] && grep -vE '^[[:space:]]*#' "$f" | flatten_domains || true
   done
   # Runtime split lists (main RU whitelist for direct egress)
   for f in \
     /var/lib/olcrtc/ru-direct-domains.txt \
     /var/lib/olcrtc/ru-domains-extra.txt \
     /var/lib/olcrtc/ru-player-cdn-domains.txt; do
-    [[ -f "$f" ]] && grep -vE '^[[:space:]]*#' "$f" | flatten_domains
+    [[ -f "$f" ]] && grep -vE '^[[:space:]]*#' "$f" | flatten_domains || true
   done
   # Optional user whitelist
   if [[ -n "${OLCRTC_ZAPRET_WHITELIST_EXTRA:-}" && -f "${OLCRTC_ZAPRET_WHITELIST_EXTRA}" ]]; then
-    grep -vE '^[[:space:]]*#' "${OLCRTC_ZAPRET_WHITELIST_EXTRA}" | flatten_domains
+    grep -vE '^[[:space:]]*#' "${OLCRTC_ZAPRET_WHITELIST_EXTRA}" | flatten_domains || true
   fi
   # Manager / runtime YAML (room URLs, hosts)
   if [[ -d /var/lib/olcrtc/manager-run ]]; then
@@ -212,13 +212,13 @@ build_hosts_exclude() {
     for f in \
       "$REPO_ROOT/data/zapret-netrogat-extra.txt" \
       "$REPO_ROOT/data/zapret-carrier-hosts.txt"; do
-      [[ -f "$f" ]] && grep -vE '^[[:space:]]*#' "$f" | flatten_domains
+      [[ -f "$f" ]] && grep -vE '^[[:space:]]*#' "$f" | flatten_domains || true
     done
     if [[ "${OLCRTC_ZAPRET_RU_CIDR:-0}" == "1" && -f /var/lib/olcrtc/ru-cidrs.txt ]]; then
-      grep -vE '^[[:space:]]*#' /var/lib/olcrtc/ru-cidrs.txt | grep -E '^[0-9]'
+      grep -vE '^[[:space:]]*#' /var/lib/olcrtc/ru-cidrs.txt | grep -E '^[0-9]' || true
     fi
     if [[ -n "${OLCRTC_ZAPRET_WHITELIST_EXTRA:-}" && -f "${OLCRTC_ZAPRET_WHITELIST_EXTRA}" ]]; then
-      grep -vE '^[[:space:]]*#' "${OLCRTC_ZAPRET_WHITELIST_EXTRA}"
+      grep -vE '^[[:space:]]*#' "${OLCRTC_ZAPRET_WHITELIST_EXTRA}" || true
     fi
   } | awk 'NF && !seen[$0]++' >"$tmp"
   install -m 0644 "$tmp" "$HOSTS_EXCLUDE"
@@ -229,7 +229,7 @@ build_hosts_exclude() {
 inject_carrier_ips() {
   command -v ipset >/dev/null || return 0
   ipset list nozapret &>/dev/null || return 0
-  local dom ip cidr added=0
+  local dom ip ips cidr added=0
   while IFS= read -r dom; do
     [[ -z "$dom" ]] && continue
     if [[ "$dom" =~ ^[0-9]+(\.[0-9]+){3}(/[0-9]+)?$ ]]; then
@@ -237,9 +237,15 @@ inject_carrier_ips() {
       continue
     fi
     [[ "$dom" =~ ^suffix:|^exact: ]] && continue
-    getent ahostsv4 "$dom" 2>/dev/null | awk '{print $1}' | sort -u | while read -r ip; do
+    # ВАЖНО: getent возвращает rc=2 для неразрешившегося хоста — при
+    # set -euo pipefail голый пайплайн `getent | awk | while` валил весь
+    # скрипт с rc=2 (T-2: «zapret sync excludes — ошибка rc=2» на боевом VPS,
+    # триггер — jitsi.net без A-записи). Резолв защищён.
+    ips="$(getent ahostsv4 "$dom" 2>/dev/null | awk '{print $1}' | sort -u)" || ips=""
+    while IFS= read -r ip; do
+      [[ -n "$ip" ]] || continue
       ipset add nozapret "$ip" 2>/dev/null || true
-    done
+    done <<<"$ips"
     # Jitsi/crypto VPS often one /24 — bypass iptables NFQUEUE when hostlist misses early packets
     if [[ "$dom" == *cryptopro* || "$dom" == *jitsi* ]]; then
       while read -r cidr; do
