@@ -37,6 +37,7 @@ _OLCRTC_PROGRESS_TOTAL=0
 _OLCRTC_PROGRESS_STEP_NAME=""
 _OLCRTC_PROGRESS_SUBSTEP_FILE="/tmp/olc-substep-$$"
 _OLCRTC_PROGRESS_ACTIVE=0
+_OLCRTC_PROGRESS_SIMPLE=0  # Статичный режим для не-TTY
 
 # Функция для отчёта о подзадаче (вызывается из agent-bootstrap.sh и др.)
 _olc_substep() {
@@ -48,9 +49,12 @@ _olc_substep() {
     read curr total < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || { curr=0; total=0; }
     curr=$(( curr + 1 ))
     echo "$curr $total $substep_name" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
-  else
-    # Файл не существует — записать в stderr для диагностики
-    echo "[DEBUG] _olc_substep: file not found: $_OLCRTC_PROGRESS_SUBSTEP_FILE" >&2
+
+    # Если simple mode — сразу печатать статичный прогресс
+    if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" && "$total" -gt 0 ]]; then
+      local percent=$(( curr * 100 / total ))
+      printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent"
+    fi
   fi
 }
 
@@ -84,9 +88,21 @@ _olc_progress_start() {
   local step_name="$1"
   _OLCRTC_PROGRESS_STEP_NAME="$step_name"
 
-  # Пропустить если не TTY или OLC_NO_SPINNER=1
-  [[ ! -t 1 ]] && return 0
-  [[ "${OLC_NO_SPINNER:-0}" == "1" ]] && return 0
+  # Если не TTY или OLC_NO_SPINNER=1 → включить simple mode (статичный вывод)
+  if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
+    _OLCRTC_PROGRESS_SIMPLE=1
+    _OLCRTC_PROGRESS_ACTIVE=1
+    export _OLCRTC_PROGRESS_ACTIVE
+    # Создать файл для обмена данными с подзадачами
+    echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
+    # Печатать статичный заголовок шага
+    if [[ "$OLCRTC_TOTAL_STEPS" -gt 0 ]]; then
+      printf "[%d/%d] %s\n" "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS" "$step_name"
+    else
+      printf "[шаг] %s\n" "$step_name"
+    fi
+    return 0
+  fi
 
   # Остановить предыдущую анимацию если была
   _olc_progress_stop >/dev/null 2>&1
@@ -157,6 +173,14 @@ _olc_progress_start() {
 
 # Остановка анимации (вызывается после завершения state_step)
 _olc_progress_stop() {
+  # Simple mode — только очистка
+  if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]]; then
+    _OLCRTC_PROGRESS_ACTIVE=0
+    _OLCRTC_PROGRESS_SIMPLE=0
+    rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
+    return 0
+  fi
+
   [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
   kill "$_OLCRTC_PROGRESS_PID" 2>/dev/null && wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null
   _OLCRTC_PROGRESS_PID=""
