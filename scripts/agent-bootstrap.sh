@@ -261,17 +261,19 @@ setup_tor() {
     # shellcheck disable=SC1091
     set -a; source /etc/olcrtc-manager/features.env; set +a
   fi
-  if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
-    systemctl enable tor@default.service
-    systemctl restart tor@default.service || true
-  else
-    systemctl stop tor@default.service 2>/dev/null || true
-    systemctl disable tor@default.service 2>/dev/null || true
-    log "tor: pools refreshed; service left stopped (features.env TOR=0)"
-  fi
-  systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
-    olcrtc-tor-bridge-deep.timer 2>/dev/null || true
-  bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
+  {
+    if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
+      systemctl enable tor@default.service
+      systemctl restart tor@default.service || true
+    else
+      systemctl stop tor@default.service 2>/dev/null || true
+      systemctl disable tor@default.service 2>/dev/null || true
+      log "tor: pools refreshed; service left stopped (features.env TOR=0)"
+    fi
+    systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
+      olcrtc-tor-bridge-deep.timer 2>/dev/null || true
+    bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
+  } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
 }
 
 setup_split_routing() {
