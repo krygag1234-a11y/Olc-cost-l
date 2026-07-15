@@ -104,6 +104,19 @@ olc_log_apply() {
   esac
 }
 
+# Активен ли ГЛАВНЫЙ прогресс-бар state machine (animated или simple)
+olc_main_progress_active() {
+  [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" ]] || return 1
+  [[ -f "${_OLCRTC_PROGRESS_IPC_DIR}/spinner" ]] && return 0
+  [[ -n "${_OLCRTC_PROGRESS_SIMPLE_FLAG:-}" && -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" ]] && return 0
+  return 1
+}
+
+# Активен ли именно animated spinner (бар нижней строкой)
+olc_spinner_active() {
+  [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -f "${_OLCRTC_PROGRESS_IPC_DIR}/spinner" ]]
+}
+
 # Сообщения [state] из lib-install-state.sh
 olc_state_line() {
   if [[ "${OLC_LANG}" == en ]]; then
@@ -111,6 +124,16 @@ olc_state_line() {
     return
   fi
   local line="$*"
+
+  # Animated-режим: результаты шагов уходят в очередь и печатаются НАД баром
+  # с отступом «→» — сам бар остаётся статичной нижней строкой.
+  if olc_spinner_active && declare -f olc_progress_msg >/dev/null 2>&1; then
+    line="${line/✓ patches/✓ патчи применены}"
+    line="${line/✗ patches/✗ патчи — ошибка}"
+    line="${line/skip /пропуск (уже сделано): }"
+    olc_progress_msg "$line"
+    return
+  fi
 
   # Если simple mode прогресс-бара — не добавлять [этап], уже есть [N/M]
   # Путь файла-флага передаётся всем вложенным процессам через environment.
@@ -150,6 +173,15 @@ olc_run_with_progress() {
   local interval="${OLC_PROGRESS_INTERVAL:-10}"
   local started pid rc elapsed
 
+  # Главный прогресс-бар активен → не печатать сырой вывод поверх бара:
+  # вывод команды в лог, статусы — строками под бар.
+  if [[ "${OLC_VERBOSE_INSTALL:-0}" != "1" ]] \
+     && declare -f olc_main_progress_active >/dev/null 2>&1 && olc_main_progress_active \
+     && declare -f olc_progress_msg >/dev/null 2>&1; then
+    olc_run_quiet_with_progress "$label" "${OLC_PROGRESS_FALLBACK_LOG:-/var/log/olcrtc-step-output.log}" "$@"
+    return
+  fi
+
   echo "[ожидание] ${label} — это может занять несколько минут" >&2
   started="$(date +%s)"
   "$@" &
@@ -185,6 +217,24 @@ olc_run_quiet_with_progress() {
   fi
 
   mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+
+  # Главный прогресс-бар активен → статусы уходят под бар («→ …»),
+  # свой мини-spinner не рисуем (бар уже анимируется и не дублируется).
+  if declare -f olc_main_progress_active >/dev/null 2>&1 && olc_main_progress_active \
+     && declare -f olc_progress_msg >/dev/null 2>&1; then
+    olc_progress_msg "${label} — запущено · детали: ${log_file}"
+    started="$(date +%s)"
+    rc=0
+    "$@" >>"$log_file" 2>&1 || rc=$?
+    elapsed=$(( $(date +%s) - started ))
+    if [[ "$rc" -eq 0 ]]; then
+      olc_progress_msg "✓ ${label} — готово (${elapsed}с)"
+    else
+      olc_progress_msg "✗ ${label} — ошибка rc=${rc} (${elapsed}с) · детали: ${log_file}"
+    fi
+    return "$rc"
+  fi
+
   echo "[ожидание] ${label} — запущено · детали: ${log_file}" >&2
   started="$(date +%s)"
   "$@" >>"$log_file" 2>&1 &

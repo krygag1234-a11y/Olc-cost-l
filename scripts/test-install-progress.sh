@@ -52,8 +52,10 @@ output="$(state_step patches nested_progress_step)"
 grep -Fq '→ Первая подзадача (1/2, 50%)' <<<"$output"
 grep -Fq '→ Вторая подзадача (2/2, 100%)' <<<"$output"
 grep -Fq '✓ патчи применены' <<<"$output"
+# substep удаляется после шага; simple-флаг ПЕРСИСТЕНТЕН между шагами
+# (нужен olc_state_line/olc_progress_msg — удаляется только в _olc_progress_cleanup)
 [[ ! -e "$parent_substep" ]]
-[[ ! -e "$parent_simple" ]]
+[[ -e "$parent_simple" ]]
 
 failing_progress_step() {
   _olc_substep_reset 1
@@ -69,7 +71,7 @@ set -e
 grep -Fq '→ Ошибка после прогресса (1/1, 100%)' <<<"$failure_output"
 grep -Fq '✗ failure (rc=23' <<<"$failure_output"
 [[ ! -e "$parent_substep" ]]
-[[ ! -e "$parent_simple" ]]
+[[ -e "$parent_simple" ]]
 
 ipc_dir="$_OLCRTC_PROGRESS_IPC_DIR"
 _olc_progress_cleanup 0

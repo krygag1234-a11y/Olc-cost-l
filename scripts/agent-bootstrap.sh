@@ -45,7 +45,12 @@ source "$SCRIPT_DIR/lib-tui.sh"
 # shellcheck source=lib-olc-ru.sh
 source "$SCRIPT_DIR/lib-olc-ru.sh"
 log() {
-  # Подавить вывод если прогресс-бар активен (предотвращает дублирование строк)
+  # При активном прогресс-баре сообщения уходят в очередь и печатаются
+  # под баром с отступом «→» (не накладываются и не дублируются)
+  if [[ "${_OLCRTC_PROGRESS_ACTIVE:-0}" == "1" ]] && declare -f olc_progress_msg >/dev/null 2>&1; then
+    olc_progress_msg "$*"
+    return 0
+  fi
   [[ "${_OLCRTC_PROGRESS_ACTIVE:-0}" == "1" ]] && return 0
   tui_log_step "$*"
 }
@@ -502,7 +507,11 @@ run_patches() {
   fi
   ensure_panel_jitsi_tls
 }
-run_community_lists() { bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>/dev/null || true; }
+run_community_lists() {
+  # stdout в лог — иначе вывод накладывается на прогресс-бар
+  bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" \
+    >>/var/log/olcrtc-community-lists.log 2>&1 || true
+}
 run_restart_manager() { systemctl restart olcrtc-manager; }
 run_cleanup_tmp() {
   find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
@@ -527,8 +536,10 @@ setup_zapret() {
     return 0
   fi
   log "zapret (direct egress DPI — may take several minutes on first install)"
-  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 2>/dev/null || true
-  systemctl restart tor@default 2>/dev/null || true
+  # stdout в лог — иначе вывод накладывается на прогресс-бар
+  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 \
+    >>/var/log/olcrtc-bootstrap-tor.log 2>&1 || true
+  systemctl restart tor@default >/dev/null 2>&1 || true
   export OLCRTC_ZAPRET_FULL="${OLCRTC_ZAPRET_FULL:-1}"
   olc_run_with_progress "установка/обновление zapret" bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
 }

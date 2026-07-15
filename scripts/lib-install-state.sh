@@ -30,7 +30,13 @@
 : "${OLCRTC_TOTAL_STEPS:=0}"
 _OLCRTC_STEP_NUM=0
 
-# Progress bar — динамический с анимацией
+# Progress bar — ОДИН персистентный spinner на весь процесс установки/обновления.
+# Архитектура:
+#   - spinner (фоновый процесс) рисует бар нижней строкой и живёт МЕЖДУ шагами;
+#   - шаги публикуют "curr total name" в IPC-файл progress (атомарно, через mv);
+#   - все сообщения идут в очередь IPC/messages — spinner печатает их НАД баром
+#     (бар остаётся статичной нижней строкой, ничего не накладывается);
+#   - подзадачи (IPC/substep) отображаются dim-текстом справа от имени шага.
 _OLCRTC_PROGRESS_PID=""
 _OLCRTC_PROGRESS_CURR=0
 _OLCRTC_PROGRESS_TOTAL=0
@@ -40,6 +46,7 @@ _OLCRTC_PROGRESS_STEP_NAME=""
 : "${_OLCRTC_PROGRESS_SIMPLE_FLAG:=}"
 : "${_OLCRTC_PROGRESS_ACTIVE:=0}"
 : "${_OLCRTC_PROGRESS_SIMPLE:=0}"  # Статичный режим для не-TTY
+: "${_OLCRTC_PROGRESS_OUT:=}"      # "" = stdout (TTY), иначе /dev/tty
 _OLCRTC_PROGRESS_IPC_OWNER=0
 
 # IPC создаёт только родитель state machine. Вложенный bash сохраняет пути из environment.
@@ -69,9 +76,48 @@ _olc_progress_ipc_init() {
   _OLCRTC_PROGRESS_IPC_OWNER=1
 }
 
+# Атомарная публикация "curr total name" для spinner (mv атомарен в пределах fs).
+# Фикс «100% (шаг 1/1)»: spinner никогда не видит пустой/усечённый файл.
+_olc_progress_publish() {
+  local curr="$1" total="$2" name="${3:-}"
+  [[ -n "$_OLCRTC_PROGRESS_IPC_DIR" && -d "$_OLCRTC_PROGRESS_IPC_DIR" ]] || return 0
+  printf '%s %s %s\n' "$curr" "$total" "$name" > "$_OLCRTC_PROGRESS_IPC_DIR/progress.tmp" 2>/dev/null || return 0
+  mv -f "$_OLCRTC_PROGRESS_IPC_DIR/progress.tmp" "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
+}
+
+# printf в цель отрисовки бара (stdout-TTY или /dev/tty)
+_olc_progress_print() {
+  # shellcheck disable=SC2059
+  if [[ -n "${_OLCRTC_PROGRESS_OUT:-}" ]]; then
+    printf "$@" > "$_OLCRTC_PROGRESS_OUT" 2>/dev/null || printf "$@"
+  else
+    printf "$@"
+  fi
+}
+
+# Публичная функция: сообщение «под прогресс-баром» (с отступом «→»).
+# При активном animated-баре — в очередь (spinner напечатает НАД баром,
+# бар останется нижней строкой); иначе — обычная строка с отступом.
+# Использовать вместо голых echo в подзадачах шагов.
+olc_progress_msg() {
+  local msg="$*"
+  [[ -n "$msg" ]] || return 0
+  if [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -f "${_OLCRTC_PROGRESS_IPC_DIR}/spinner" ]]; then
+    printf '%s\n' "$msg" >> "${_OLCRTC_PROGRESS_IPC_DIR}/messages" 2>/dev/null && return 0
+  fi
+  # FD 3 — обход редиректа шага в лог (как в _olc_substep)
+  if { true >&3; } 2>/dev/null; then
+    printf '  → %s\n' "$msg" >&3
+  else
+    printf '  → %s\n' "$msg"
+  fi
+}
+
 _olc_progress_step_cleanup() {
-  # НЕ удаляем substep/simple/progress файлы между шагами — spinner читает их
-  # Удаление только при полной очистке (_olc_progress_cleanup)
+  # TTY-режим: spinner живёт между шагами — флаги не сбрасывать
+  if [[ -n "$_OLCRTC_PROGRESS_PID" ]] && kill -0 "$_OLCRTC_PROGRESS_PID" 2>/dev/null; then
+    return 0
+  fi
   _OLCRTC_PROGRESS_SIMPLE=0
   _OLCRTC_PROGRESS_ACTIVE=0
 }
@@ -81,6 +127,10 @@ _olc_progress_cleanup() {
   _olc_progress_stop 2>/dev/null || true
   _olc_progress_step_cleanup
   if [[ "$_OLCRTC_PROGRESS_IPC_OWNER" == "1" && -n "$_OLCRTC_PROGRESS_IPC_DIR" ]]; then
+    rm -f "$_OLCRTC_PROGRESS_IPC_DIR"/messages "$_OLCRTC_PROGRESS_IPC_DIR"/consumed \
+      "$_OLCRTC_PROGRESS_IPC_DIR"/progress "$_OLCRTC_PROGRESS_IPC_DIR"/progress.tmp \
+      "$_OLCRTC_PROGRESS_IPC_DIR"/spinner "$_OLCRTC_PROGRESS_IPC_DIR"/simple \
+      "$_OLCRTC_PROGRESS_IPC_DIR"/substep 2>/dev/null || true
     rmdir "$_OLCRTC_PROGRESS_IPC_DIR" 2>/dev/null || true
   fi
   return "$rc"
@@ -138,17 +188,27 @@ _olc_show_progress() {
   [[ "$curr" -eq "$total" ]] && printf "\n"
 }
 
-# Запуск анимированного прогресс-бара (вызывается в начале state_step)
+# Запуск/обновление анимированного прогресс-бара (вызывается в начале state_step).
+# Spinner запускается ОДИН раз и живёт до state_finish / ошибки —
+# последующие вызовы только обновляют IPC (шаг, имя, сброс подзадач).
 _olc_progress_start() {
   local step_name="$1"
   _olc_progress_ipc_init || return 1
   _OLCRTC_PROGRESS_STEP_NAME="$step_name"
 
-  # Сбросить simple mode и IPC-файлы предыдущего шага
-  _olc_progress_step_cleanup
+  # Куда рисовать бар: stdout (если TTY), иначе /dev/tty (SSH/sudo-цепочки,
+  # где stdout не TTY, но управляющий терминал доступен). Нет ни того ни
+  # другого (CI, pipe, cron) или OLC_NO_SPINNER=1 → simple mode.
+  local out="-"
+  if [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
+    out="-"
+  elif [[ -t 1 ]]; then
+    out=""
+  elif { : >/dev/tty; } 2>/dev/null; then
+    out="/dev/tty"
+  fi
 
-  # Если не TTY или OLC_NO_SPINNER=1 → включить simple mode (статичный вывод)
-  if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
+  if [[ "$out" == "-" ]]; then
     _OLCRTC_PROGRESS_SIMPLE=1
     _OLCRTC_PROGRESS_ACTIVE=1
     export _OLCRTC_PROGRESS_SIMPLE
@@ -166,17 +226,28 @@ _olc_progress_start() {
     return 0
   fi
 
-  # Остановить предыдущую анимацию если была
-  _olc_progress_stop >/dev/null 2>&1
-
-  # Создать файл для обмена данными с подзадачами и spinner
-  echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
-  # IPC для передачи CURR/TOTAL spinner-процессу (родительские переменные не видны fork)
-  echo "$_OLCRTC_STEP_NUM $OLCRTC_TOTAL_STEPS" > "$_OLCRTC_PROGRESS_IPC_DIR/progress"
-
-  # Установить флаг что прогресс-бар активен
+  _OLCRTC_PROGRESS_OUT="$out"
+  _OLCRTC_PROGRESS_SIMPLE=0
   _OLCRTC_PROGRESS_ACTIVE=1
   export _OLCRTC_PROGRESS_ACTIVE
+  export _OLCRTC_PROGRESS_SIMPLE
+
+  # Опубликовать состояние шага ДО первого кадра spinner —
+  # фикс сброса на «100% (шаг 1/1)» между шагами.
+  echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
+  _olc_progress_publish "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS" "$step_name"
+
+  # ОДИН прогресс-бар на весь процесс: если spinner уже работает —
+  # IPC обновлён, ничего не перезапускаем (нет дублирования бара).
+  if [[ -n "$_OLCRTC_PROGRESS_PID" ]] && kill -0 "$_OLCRTC_PROGRESS_PID" 2>/dev/null; then
+    return 0
+  fi
+
+  : > "$_OLCRTC_PROGRESS_IPC_DIR/messages"
+  echo 0 > "$_OLCRTC_PROGRESS_IPC_DIR/consumed"
+  # Флаг «animated spinner работает» — по нему olc_progress_msg/olc_state_line
+  # решают, отправлять ли сообщения в очередь (виден и вложенным процессам).
+  touch "$_OLCRTC_PROGRESS_IPC_DIR/spinner"
 
   # Запустить фоновый процесс анимации
   (
@@ -184,60 +255,78 @@ _olc_progress_start() {
     trap '' TERM
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
+    # Кэш последних валидных значений — файл может быть недоступен долю секунды
+    local curr="$_OLCRTC_STEP_NUM" total="$OLCRTC_TOTAL_STEPS" name="$step_name"
+    local consumed=0
+    local msg_file="$_OLCRTC_PROGRESS_IPC_DIR/messages"
+    local out_dev="$_OLCRTC_PROGRESS_OUT"
+
+    _sp() {
+      # shellcheck disable=SC2059
+      if [[ -n "$out_dev" ]]; then printf "$@" > "$out_dev"; else printf "$@"; fi
+    }
 
     while true; do
-      # Читать актуальные CURR/TOTAL из IPC-файла (родительские переменные недоступны fork)
-      local curr=1 total=1
+      # 1) Актуальный шаг из IPC; невалидные чтения игнорируем (кэш)
+      local new_curr="" new_total="" new_name=""
       if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/progress" ]]; then
-        read curr total < "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || { curr=1; total=1; }
+        read -r new_curr new_total new_name < "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
+        if [[ "$new_curr" =~ ^[0-9]+$ && "$new_total" =~ ^[0-9]+$ ]] && (( new_total > 0 )); then
+          curr="$new_curr"
+          total="$new_total"
+          [[ -n "$new_name" ]] && name="$new_name"
+        fi
       fi
-      [[ "$total" -le 0 ]] && total=1
+      (( total > 0 )) || total=1
+      (( curr > total )) && curr="$total"
+      (( curr < 1 )) && curr=1
 
-      # Вычислить общий процент (по шагам)
-      local overall_percent=$(( curr * 100 / total ))
+      # Требование UX: прогресс = шаг/всего (9% → 18% → 27% → … → 100%)
+      local percent=$(( curr * 100 / total ))
+      (( percent > 100 )) && percent=100
 
-      # Прочитать данные о подзадачах из файла
-      local substep_curr=0 substep_total=0 substep_name=""
+      # 2) Имя текущей подзадачи (dim-текст справа от имени шага)
+      local s_curr=0 s_total=0 s_name=""
       if [[ -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]]; then
-        read substep_curr substep_total substep_name < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || true
+        read -r s_curr s_total s_name < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || true
       fi
 
-      # Вычислить процент внутри шага (по подзадачам)
-      local substep_percent=0
-      if [[ "$substep_total" -gt 0 ]]; then
-        substep_percent=$(( substep_curr * 100 / substep_total ))
-        (( substep_percent > 100 )) && substep_percent=100
+      # 3) Новые сообщения из очереди печатаем строками НАД баром —
+      #    бар всегда остаётся нижней строкой, наложений нет.
+      if [[ -f "$msg_file" ]]; then
+        local lines
+        lines=$(wc -l < "$msg_file" 2>/dev/null) || lines=0
+        [[ "$lines" =~ ^[0-9]+$ ]] || lines=0
+        if (( lines > consumed )); then
+          _sp "\r\033[K"
+          local n=0 line=""
+          while IFS= read -r line; do
+            n=$(( n + 1 ))
+            (( n <= consumed )) && continue
+            (( n > lines )) && break
+            _sp "  \033[2m→ %s\033[0m\n" "$line"
+          done < "$msg_file"
+          consumed="$lines"
+          echo "$consumed" > "$_OLCRTC_PROGRESS_IPC_DIR/consumed" 2>/dev/null || true
+        fi
       fi
 
-      # Комбинированный прогресс: базовый по шагам + вклад текущего шага через substep
-      local display_percent="$overall_percent"
-      if [[ "$substep_total" -gt 0 && "$total" -gt 0 ]]; then
-        # Прогресс = (завершённые шаги + прогресс текущего шага) / всего шагов * 100
-        # curr-1 = завершённые шаги, substep_percent/100 = прогресс текущего
-        local combined=$(( (curr - 1) * 100 + substep_percent ))
-        display_percent=$(( combined / total ))
-        (( display_percent > 100 )) && display_percent=100
-      fi
-
+      # 4) Отрисовать бар (одна строка, перерисовка на месте)
       local width=30
-      local filled=$(( width * display_percent / 100 ))
+      local filled=$(( width * percent / 100 ))
       local empty=$(( width - filled ))
-
-      # Построить прогресс-бар
       local bar=""
       local j
       for ((j=0; j<filled; j++)); do bar+="█"; done
       for ((j=0; j<empty; j++)); do bar+="░"; done
 
-      # Очистить строку и вывести: спиннер + бар + процент + шаг + название + подзадача
       local substep_display=""
-      if [[ -n "$substep_name" ]]; then
-        # Экранировать substep_name от случайных ANSI-последовательностей, применить dim стиль
-        substep_display=$( printf ' \033[2m→ %s\033[0m' "$substep_name" )
+      if [[ -n "$s_name" ]]; then
+        substep_display=$( printf ' \033[2m→ %s\033[0m' "$s_name" )
       fi
 
-      printf "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s%s" \
-        "${frames[$i]}" "$bar" "$display_percent" "$curr" "$total" "$_OLCRTC_PROGRESS_STEP_NAME" "$substep_display"
+      _sp "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s%s" \
+        "${frames[$i]}" "$bar" "$percent" "$curr" "$total" "$name" "$substep_display"
 
       i=$(( (i + 1) % ${#frames[@]} ))
       sleep 0.1
@@ -246,9 +335,27 @@ _olc_progress_start() {
   _OLCRTC_PROGRESS_PID=$!
 }
 
-# Остановка анимации (вызывается после завершения state_step)
-_olc_progress_stop() {
-  # Simple mode — только очистка
+# Дослать сообщения, которые spinner не успел напечатать (вызывать ПОСЛЕ kill)
+_olc_progress_drain_messages() {
+  local msg_file="$_OLCRTC_PROGRESS_IPC_DIR/messages"
+  [[ -f "$msg_file" ]] || return 0
+  local consumed=0
+  if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/consumed" ]]; then
+    read -r consumed < "$_OLCRTC_PROGRESS_IPC_DIR/consumed" 2>/dev/null || consumed=0
+  fi
+  [[ "$consumed" =~ ^[0-9]+$ ]] || consumed=0
+  local n=0 line=""
+  while IFS= read -r line; do
+    n=$(( n + 1 ))
+    (( n <= consumed )) && continue
+    _olc_progress_print "  \033[2m→ %s\033[0m\n" "$line"
+  done < "$msg_file"
+  : > "$msg_file"
+  echo 0 > "$_OLCRTC_PROGRESS_IPC_DIR/consumed" 2>/dev/null || true
+}
+
+# Завершение шага БЕЗ остановки spinner (TTY) / статичное закрытие (simple).
+_olc_progress_step_end() {
   if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]]; then
     _OLCRTC_PROGRESS_ACTIVE=0
     # НЕ сбрасываем _OLCRTC_PROGRESS_SIMPLE здесь — нужен для вывода результата в _state_log
@@ -256,20 +363,57 @@ _olc_progress_stop() {
     rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
     return 0
   fi
+  # TTY: spinner продолжает работать; сбросить только отображение подзадачи
+  if [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]]; then
+    echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || true
+  fi
+}
+
+# Полная остановка анимации (ошибка шага, state_finish, trap)
+_olc_progress_stop() {
+  # Simple mode — только очистка
+  if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]]; then
+    _OLCRTC_PROGRESS_ACTIVE=0
+    rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
+    return 0
+  fi
 
   [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
+  # Снять флаг ПЕРВЫМ — новые сообщения пойдут напрямую, минуя очередь
+  rm -f "$_OLCRTC_PROGRESS_IPC_DIR/spinner" 2>/dev/null
   kill -9 "$_OLCRTC_PROGRESS_PID" 2>/dev/null
   wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null || true  # ignore exit code 137 from SIGKILL
   _OLCRTC_PROGRESS_PID=""
-  # Сбросить флаг активности
   _OLCRTC_PROGRESS_ACTIVE=0
-  # Очистить строку с анимацией (ВАЖНО: делать ДО удаления файла, пока spinner ещё может быть виден)
-  if [[ -t 1 ]]; then
-    printf "\r\033[K"  # очистить строку
-    printf "\r"        # вернуть каретку в начало
-  fi
+  # Очистить строку бара и дослать несведённые сообщения
+  _olc_progress_print "\r\033[K"
+  _olc_progress_drain_messages
   # Удалить файл обмена данными
   rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
+}
+
+# Финальный аккорд: остановить spinner и напечатать закреплённый бар 100%.
+_olc_progress_finish() {
+  [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]] && return 0
+  [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
+  # Последние валидные curr/total из IPC
+  local curr="$_OLCRTC_STEP_NUM" total="$OLCRTC_TOTAL_STEPS"
+  if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/progress" ]]; then
+    local f_curr="" f_total="" f_name=""
+    read -r f_curr f_total f_name < "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
+    if [[ "$f_curr" =~ ^[0-9]+$ && "$f_total" =~ ^[0-9]+$ ]] && (( f_total > 0 )); then
+      curr="$f_curr"
+      total="$f_total"
+    fi
+  fi
+  _olc_progress_stop
+  (( total > 0 )) || total=1
+  (( curr > total )) && curr="$total"
+  local bar=""
+  local j
+  for ((j=0; j<30; j++)); do bar+="█"; done
+  _olc_progress_print "\033[32m✓\033[0m [%s] 100%% \033[2m(шаг %d/%d)\033[0m завершено\n" \
+    "$bar" "$curr" "$total"
 }
 
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
@@ -350,6 +494,8 @@ state_step() {
   local name="$1"; shift
   _OLCRTC_STEP_NUM=$(( _OLCRTC_STEP_NUM + 1 ))
   if state_already_done "$name"; then
+    # Учесть пропуск в прогрессе, чтобы шаги/проценты не съезжали
+    _olc_progress_publish "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS" "$name"
     _state_log "skip $name (already done — resume)"
     return 0
   fi
@@ -358,10 +504,8 @@ state_step() {
   _OLCRTC_PROGRESS_CURR="$_OLCRTC_STEP_NUM"
   _OLCRTC_PROGRESS_TOTAL="$OLCRTC_TOTAL_STEPS"
 
-  # Запустить прогресс и только затем экспортировать финальный IPC-контракт.
+  # Запустить/обновить прогресс и экспортировать IPC-контракт для подпроцессов.
   _olc_progress_start "$name"
-  # Обновить IPC progress-файл после запуска spinner
-  echo "$_OLCRTC_STEP_NUM $OLCRTC_TOTAL_STEPS" > "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
   export _OLCRTC_PROGRESS_IPC_DIR
   export _OLCRTC_PROGRESS_SUBSTEP_FILE
   export _OLCRTC_PROGRESS_SIMPLE_FLAG
@@ -370,21 +514,24 @@ state_step() {
   export -f _olc_progress_ipc_init 2>/dev/null || true
   export -f _olc_substep 2>/dev/null || true
   export -f _olc_substep_reset 2>/dev/null || true
+  export -f _olc_progress_publish 2>/dev/null || true
+  export -f olc_progress_msg 2>/dev/null || true
 
   local started; started=$(date +%s)
   local rc=0
   "$@" || rc=$?
   local dur=$(( $(date +%s) - started ))
 
-  # Остановить анимацию и очистить строку
-  _olc_progress_stop
-
   if [[ $rc -eq 0 ]]; then
+    # Spinner НЕ останавливаем — бар остаётся на месте, результат уходит под бар
+    _olc_progress_step_end
     _state_log "✓ $name (${dur}s)"
     _olc_progress_step_cleanup
     _state_record_ok "$name"
     return 0
   fi
+  # Ошибка: полностью остановить анимацию, чтобы сообщения не наложились на бар
+  _olc_progress_stop
   _state_log "✗ $name (rc=$rc, ${dur}s)"
   _olc_progress_step_cleanup
   _state_record_fail "$name" "$rc"
@@ -399,6 +546,8 @@ state_step() {
 }
 
 state_finish() {
+  # Закрыть прогресс-бар финальной строкой «✓ [████] 100% завершено»
+  _olc_progress_finish
   if command -v jq >/dev/null 2>&1; then
     local tmp; tmp="$(mktemp)"
     jq --arg t "$(date -u +%FT%TZ)" '.finished=$t | .failed=null' \

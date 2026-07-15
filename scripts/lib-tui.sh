@@ -301,6 +301,18 @@ tui_log_step() {
   echo -e "${TUI_CYAN}→${TUI_RESET} $*"
 }
 
+# Сообщение «под прогресс-баром» с отступом «→».
+# При активном animated-баре state machine — уходит в очередь и печатается
+# НАД баром (бар остаётся нижней строкой); без бара — обычная строка.
+# Использовать вместо голых echo внутри шагов установки/обновления.
+tui_substep() {
+  if declare -f olc_progress_msg >/dev/null 2>&1; then
+    olc_progress_msg "$*"
+  else
+    echo "  → $*"
+  fi
+}
+
 tui_log_bullet() {
   echo -e "  ${TUI_GRAY}•${TUI_RESET} $*"
 }
@@ -388,6 +400,6 @@ export -f tui_cursor_to tui_cursor_col tui_clear tui_clear_line tui_clear_to_end
 export -f tui_term_width tui_term_height tui_spinner_start tui_spinner_stop
 export -f tui_spinner_ok tui_spinner_fail tui_progress_bar tui_menu tui_box
 export -f tui_header tui_gradient tui_loading_dots tui_log_info tui_log_success
-export -f tui_log_warning tui_log_error tui_log_step tui_log_bullet tui_fatal
+export -f tui_log_warning tui_log_error tui_log_step tui_log_bullet tui_fatal tui_substep
 export -f tui_tail_log tui_confirm tui_input tui_banner tui_divider
 

@@ -10,7 +10,15 @@
 : "${OLCRTC_DEPLOY_PROFILE:=/etc/olcrtc-manager/deploy-profile.json}"
 : "${OLCRTC_PROFILES_DIR:=${OLC_REPO_ROOT:-}/data/deploy-profiles}"
 
-profile_log() { echo "[profile] $*"; }
+profile_log() {
+  # При активном animated-баре — под бар, чтобы не наложиться на спиннер
+  if declare -f olc_spinner_active >/dev/null 2>&1 && olc_spinner_active \
+     && declare -f olc_progress_msg >/dev/null 2>&1; then
+    olc_progress_msg "[profile] $*"
+    return 0
+  fi
+  echo "[profile] $*"
+}
 
 profile_ensure_dir() {
   mkdir -p "$(dirname "$OLCRTC_DEPLOY_PROFILE")"
@@ -313,7 +321,18 @@ state_step_profile() {
   local name="$1"
   shift
   if ! profile_step_enabled "$name"; then
-    echo "[state] skip $name (deploy profile)"
+    # Шаг учитывается в прогрессе, даже если отключён профилем —
+    # иначе проценты/счётчик «шаг N/M» съезжают и бар не доходит до 100%
+    _OLCRTC_STEP_NUM=$(( ${_OLCRTC_STEP_NUM:-0} + 1 ))
+    if declare -f _olc_progress_publish >/dev/null 2>&1; then
+      _olc_progress_publish "$_OLCRTC_STEP_NUM" "${OLCRTC_TOTAL_STEPS:-0}" "$name"
+    fi
+    if declare -f olc_spinner_active >/dev/null 2>&1 && olc_spinner_active \
+       && declare -f olc_progress_msg >/dev/null 2>&1; then
+      olc_progress_msg "пропуск: ${name} (отключён в профиле)"
+    else
+      echo "[state] skip $name (deploy profile)"
+    fi
     return 0
   fi
   state_step "$name" "$@"
