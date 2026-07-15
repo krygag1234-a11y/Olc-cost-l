@@ -109,8 +109,12 @@ main() {
           if [[ -f "$SCRIPT_DIR/lib-olc-core.sh" ]]; then
             source "$SCRIPT_DIR/lib-olc-core.sh"
             interactive_update_menu || {
-              echo "Ошибка при работе с интерактивным меню" >&2
-              exit 1
+              if declare -f tui_fatal >/dev/null 2>&1; then
+                tui_fatal "Ошибка при работе с интерактивным меню обновления" "Меню не смогло завершить выбор параметров" "Попробуйте с явными флагами: olc-update --manager-stable --full"
+              else
+                echo "ОШИБКА: интерактивное меню завершилось с ошибкой. Используйте флаги: olc-update --manager-stable --full" >&2
+                exit 1
+              fi
             }
           else
             echo "⚠️  lib-olc-core.sh не найден, интерактивное меню недоступно" >&2
@@ -140,8 +144,12 @@ main() {
     update_mode="--update"
   fi
   repo="$(detect_repo)" || {
-    echo "Olc-cost-l repo not found. Install first, then run: olc-update" >&2
-    exit 1
+    if declare -f tui_fatal >/dev/null 2>&1; then
+      tui_fatal "Репозиторий Olc-cost-l не найден" "olc-update требует установленный репозиторий в /opt/Olc-cost-l" "Сначала установите: curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash"
+    else
+      echo "ОШИБКА: Olc-cost-l repo not found. Install first: curl ... | sudo bash" >&2
+      exit 1
+    fi
   }
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
@@ -190,7 +198,14 @@ main() {
   # Если режим не выбран (нет TTY или нет tui_menu), default = --update
   : "${update_mode:=--update}"
 
-  olc_preflight_disk_space "olc-update" || exit 1
+  olc_preflight_disk_space "olc-update" || {
+    if declare -f tui_fatal >/dev/null 2>&1; then
+      tui_fatal "Недостаточно места на диске для обновления" "Требуется минимум 400 МБ свободного места" "Освободите диск: sudo olc-cleanup-caches"
+    else
+      echo "ОШИБКА: недостаточно места на диске. Запустите: sudo olc-cleanup-caches" >&2
+      exit 1
+    fi
+  }
   if [[ "$(df -Pm / 2>/dev/null | awk 'NR==2 {print $5+0}')" -ge 95 ]]; then
     olc_cleanup_build_caches "olc-update-pre-git" || true
   fi
@@ -209,8 +224,12 @@ main() {
     olc_git "$repo" reset --hard HEAD >/dev/null 2>&1 || true
     olc_git "$repo" clean -fd >/dev/null 2>&1 || true
     LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 olc_git "$repo" pull --quiet --ff-only origin main || {
-      tui_log_error "Ошибка git pull. Проверьте подключение к GitHub."
-      exit 1
+      if declare -f tui_fatal >/dev/null 2>&1; then
+        tui_fatal "Ошибка git pull при обновлении репозитория" "Не удалось получить изменения с GitHub origin/main" "Проверьте сеть: ping github.com && curl -I https://github.com"
+      else
+        echo "ОШИБКА: git pull failed. Проверьте подключение к GitHub." >&2
+        exit 1
+      fi
     }
     tui_log_success "Репозиторий обновлён до последней версии."
     tui_divider
