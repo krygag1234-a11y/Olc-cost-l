@@ -460,9 +460,13 @@ ensure_panel_jitsi_tls() {
 }
 
 run_patches() {
+  # Установить количество подзадач для прогресс-бара
+  _olcrtc_substep_reset 8 2>/dev/null || true
+
   ensure_ui_build_deps
-  # Отключаем TUI когда stdout/stderr редиректятся
-  if ! OLC_NO_SPINNER=1 BUILD=1 bash "$PATCH_SCRIPT" >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
+
+  # Использовать tee чтобы вывод шёл И в лог И на экран (для live-прогресса)
+  if ! BUILD=1 bash "$PATCH_SCRIPT" 2>&1 | tee -a /var/log/olcrtc-bootstrap-patches.log; then
     log "ERROR: патчи/сборка не удались — см. детали выше"
     log "Полный лог: /var/log/olcrtc-bootstrap-patches.log"
     return 1

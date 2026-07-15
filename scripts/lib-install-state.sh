@@ -35,6 +35,27 @@ _OLCRTC_PROGRESS_PID=""
 _OLCRTC_PROGRESS_CURR=0
 _OLCRTC_PROGRESS_TOTAL=0
 _OLCRTC_PROGRESS_STEP_NAME=""
+_OLCRTC_PROGRESS_SUBSTEP_CURR=0
+_OLCRTC_PROGRESS_SUBSTEP_TOTAL=0
+_OLCRTC_PROGRESS_SUBSTEP_NAME=""
+_OLCRTC_PROGRESS_PIPE=""
+
+# Функция для отчёта о подзадаче (вызывается из agent-bootstrap.sh и др.)
+_olc_substep() {
+  local substep_name="$1"
+  _OLCRTC_PROGRESS_SUBSTEP_CURR=$(( _OLCRTC_PROGRESS_SUBSTEP_CURR + 1 ))
+  _OLCRTC_PROGRESS_SUBSTEP_NAME="$substep_name"
+
+  # Записать в pipe для анимации
+  [[ -n "$_OLCRTC_PROGRESS_PIPE" ]] && echo "$substep_name" > "$_OLCRTC_PROGRESS_PIPE" 2>/dev/null || true
+}
+
+# Сбросить счётчик подзадач (вызывается в начале state_step)
+_olc_substep_reset() {
+  _OLCRTC_PROGRESS_SUBSTEP_CURR=0
+  _OLCRTC_PROGRESS_SUBSTEP_TOTAL="${1:-0}"
+  _OLCRTC_PROGRESS_SUBSTEP_NAME=""
+}
 
 _olc_show_progress() {
   [[ "$OLCRTC_TOTAL_STEPS" -le 0 ]] && return 0
@@ -67,19 +88,40 @@ _olc_progress_start() {
   # Остановить предыдущую анимацию если была
   _olc_progress_stop >/dev/null 2>&1
 
+  # Создать named pipe для получения уведомлений о подзадачах
+  _OLCRTC_PROGRESS_PIPE="/tmp/olc-progress-$$"
+  mkfifo "$_OLCRTC_PROGRESS_PIPE" 2>/dev/null || _OLCRTC_PROGRESS_PIPE=""
+
   # Запустить фоновый процесс анимации
   (
     # Игнорировать SIGTERM чтобы не ломать exit code родителя
     trap '' TERM
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
+    local last_substep=""
+
     while true; do
       local curr="$_OLCRTC_PROGRESS_CURR"
       local total="$_OLCRTC_PROGRESS_TOTAL"
       [[ "$total" -le 0 ]] && total=1
-      local percent=$(( curr * 100 / total ))
+
+      # Вычислить общий процент (по шагам)
+      local overall_percent=$(( curr * 100 / total ))
+
+      # Вычислить процент внутри шага (по подзадачам)
+      local substep_curr="$_OLCRTC_PROGRESS_SUBSTEP_CURR"
+      local substep_total="$_OLCRTC_PROGRESS_SUBSTEP_TOTAL"
+      local substep_percent=0
+      if [[ "$substep_total" -gt 0 ]]; then
+        substep_percent=$(( substep_curr * 100 / substep_total ))
+      fi
+
+      # Использовать процент подзадач если доступен, иначе общий
+      local display_percent="$overall_percent"
+      [[ "$substep_total" -gt 0 ]] && display_percent="$substep_percent"
+
       local width=30
-      local filled=$(( width * curr / total ))
+      local filled=$(( width * display_percent / 100 ))
       local empty=$(( width - filled ))
 
       # Построить прогресс-бар
@@ -88,15 +130,22 @@ _olc_progress_start() {
       for ((j=0; j<filled; j++)); do bar+="█"; done
       for ((j=0; j<empty; j++)); do bar+="░"; done
 
-      # Вывести: спиннер + бар + процент + шаг + название
-      printf "\r\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s" \
-        "${frames[$i]}" "$bar" "$percent" "$curr" "$total" "$_OLCRTC_PROGRESS_STEP_NAME"
+      # Очистить строку и вывести: спиннер + бар + процент + шаг + название
+      printf "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s" \
+        "${frames[$i]}" "$bar" "$display_percent" "$curr" "$total" "$_OLCRTC_PROGRESS_STEP_NAME"
+
+      # Вывести текущую подзадачу ниже прогресс-бара если есть
+      if [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_NAME" ]] && [[ "$_OLCRTC_PROGRESS_SUBSTEP_NAME" != "$last_substep" ]]; then
+        printf "\n\033[2m→ %s\033[0m" "$_OLCRTC_PROGRESS_SUBSTEP_NAME"
+        last_substep="$_OLCRTC_PROGRESS_SUBSTEP_NAME"
+      fi
 
       i=$(( (i + 1) % ${#frames[@]} ))
       sleep 0.1
     done
   ) &
   _OLCRTC_PROGRESS_PID=$!
+}
 }
 
 # Остановка анимации (вызывается после завершения state_step)
@@ -106,6 +155,9 @@ _olc_progress_stop() {
   _OLCRTC_PROGRESS_PID=""
   # Очистить строку с анимацией
   [[ -t 1 ]] && printf "\r\033[K"
+  # Удалить named pipe
+  [[ -n "$_OLCRTC_PROGRESS_PIPE" ]] && rm -f "$_OLCRTC_PROGRESS_PIPE" 2>/dev/null
+  _OLCRTC_PROGRESS_PIPE=""
 }
 
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
@@ -186,6 +238,12 @@ state_step() {
   # Обновить счётчик для анимации
   _OLCRTC_PROGRESS_CURR="$_OLCRTC_STEP_NUM"
   _OLCRTC_PROGRESS_TOTAL="$OLCRTC_TOTAL_STEPS"
+
+  # Сбросить счётчик подзадач (будет обновляться через _olc_substep)
+  _olc_substep_reset 0
+
+  # Экспортировать функцию _olc_substep для использования в подпроцессах
+  export -f _olc_substep 2>/dev/null || true
 
   # Запустить анимированный прогресс-бар
   _olc_progress_start "$name"
