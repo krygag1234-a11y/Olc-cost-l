@@ -103,7 +103,12 @@ _olc_substep() {
     if [[ -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" && "$total" -gt 0 ]]; then
       local percent=$(( curr * 100 / total ))
       (( percent > 100 )) && percent=100
-      printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent"
+      # Используем FD 3 для обхода редиректа >>/var/log/olcrtc-bootstrap-patches.log 2>&1
+      if [[ -t 3 ]] 2>/dev/null; then
+        printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent" >&3
+      else
+        printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent"
+      fi
     fi
   fi
 }

@@ -481,8 +481,9 @@ run_patches() {
   # Фактическое число подзадач определяет apply-olcrtc-patches.sh по runtime-веткам.
   ensure_ui_build_deps
 
-  # Редирект в лог — вывод команд не нужен, прогресс через _olc_substep()
-  if ! BUILD=1 bash "$PATCH_SCRIPT" >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
+  # Редирект в лог — вывод команд не нужен, прогресс через _olc_substep() → FD 3
+  # FD 3 → оригинальный stdout для прогресса, минуя редирект в лог
+  if ! BUILD=1 bash "$PATCH_SCRIPT" 3>&1 >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
     log "ERROR: патчи/сборка не удались — см. детали выше"
     log "Полный лог: /var/log/olcrtc-bootstrap-patches.log"
     return 1
