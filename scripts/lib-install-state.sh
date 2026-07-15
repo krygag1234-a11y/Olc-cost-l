@@ -146,7 +146,6 @@ _olc_progress_start() {
   ) &
   _OLCRTC_PROGRESS_PID=$!
 }
-}
 
 # Остановка анимации (вызывается после завершения state_step)
 _olc_progress_stop() {
