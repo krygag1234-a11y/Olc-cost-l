@@ -275,14 +275,11 @@ EOF
 
 profile_step_enabled() {
   local step="$1"
-  echo "[PROFILE-DEBUG] checking step: $step" >&2
   case "$step" in
     packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel)
-      echo "[PROFILE-DEBUG] step $step: always enabled" >&2
       return 0
       ;;
     tor|bridges)
-      echo "[PROFILE-DEBUG] step $step: checking ENABLE_TOR=${ENABLE_TOR:-1}" >&2
       [[ "${ENABLE_TOR:-1}" -eq 1 ]]
       return
       ;;
@@ -303,7 +300,6 @@ profile_step_enabled() {
       return
       ;;
     *)
-      echo "[PROFILE-DEBUG] step $step: unknown, defaulting to enabled" >&2
       return 0
       ;;
   esac
@@ -313,14 +309,11 @@ profile_step_enabled() {
 state_step_profile() {
   local name="$1"
   shift
-  echo "[PROFILE-DEBUG] state_step_profile called: name=$name, args=$*" >&2
   if ! profile_step_enabled "$name"; then
     echo "[state] skip $name (deploy profile)"
     return 0
   fi
-  echo "[PROFILE-DEBUG] calling state_step with: $name $*" >&2
   state_step "$name" "$@"
-  echo "[PROFILE-DEBUG] state_step returned: $?" >&2
 }
 
 profile_list_templates() {
