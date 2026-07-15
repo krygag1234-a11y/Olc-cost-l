@@ -260,7 +260,7 @@ _olc_progress_stop() {
   fi
 
   [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
-  kill "$_OLCRTC_PROGRESS_PID" 2>/dev/null && wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null
+  kill -9 "$_OLCRTC_PROGRESS_PID" 2>/dev/null && wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null
   _OLCRTC_PROGRESS_PID=""
   # Сбросить флаг активности
   _OLCRTC_PROGRESS_ACTIVE=0
