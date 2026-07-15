@@ -264,7 +264,11 @@ _state_log() {
 }
 
 state_init() {
-  _olc_progress_ipc_init || return 1
+  # Graceful degradation: прогресс-бар опционален, не блокирует install при mktemp failure.
+  _olc_progress_ipc_init || {
+    export _OLCRTC_PROGRESS_SIMPLE=1
+    export _OLCRTC_PROGRESS_ACTIVE=0
+  }
   mkdir -p "$OLCRTC_STATE_DIR"
   if [[ "${1:-}" == "--fresh" || "$OLCRTC_FRESH" == "1" ]]; then
     rm -f "$OLCRTC_STATE_FILE"

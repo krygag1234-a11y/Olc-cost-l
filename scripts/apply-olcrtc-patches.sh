@@ -534,15 +534,11 @@ build_binaries() {
   tui_spinner_ok
 }
 
-clone_repos
-run_quiet "apply olcrtc patches" apply_olcrtc
-run_quiet "apply manager patches + UI" apply_manager
-
 # Число подзадач зависит от реально исполняемых npm/build веток.
-# Считаем после clone, когда $MGR_REPO/package.json существует.
+# Вычисляем перед clone, используя факт существования клонированного repo на предыдущем запуске.
 if declare -f _olc_substep_reset >/dev/null 2>&1; then
   patch_substeps=4
-  if [[ -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
+  if [[ -d "$MGR_REPO" && -f "$MGR_REPO/package.json" ]] && command -v npm >/dev/null 2>&1; then
     patch_substeps=$(( patch_substeps + 2 ))
   fi
   if [[ "${BUILD:-1}" == "1" ]]; then
@@ -550,6 +546,10 @@ if declare -f _olc_substep_reset >/dev/null 2>&1; then
   fi
   _olc_substep_reset "$patch_substeps"
 fi
+
+clone_repos
+run_quiet "apply olcrtc patches" apply_olcrtc
+run_quiet "apply manager patches + UI" apply_manager
 if [[ "${BUILD:-1}" == "1" ]]; then
   bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>/dev/null || true
   build_binaries || tui_fatal "Сборка Go-бинарников (olcrtc/olcrtc-manager) завершилась с ошибкой" "Возможно: Go toolchain не установлен или GOPATH повреждён" "Проверьте: /usr/local/go/bin/go version && export GOTOOLCHAIN=auto"
