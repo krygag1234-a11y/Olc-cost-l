@@ -275,11 +275,14 @@ EOF
 
 profile_step_enabled() {
   local step="$1"
+  echo "[PROFILE-DEBUG] checking step: $step" >&2
   case "$step" in
     packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel)
+      echo "[PROFILE-DEBUG] step $step: always enabled" >&2
       return 0
       ;;
     tor|bridges)
+      echo "[PROFILE-DEBUG] step $step: checking ENABLE_TOR=${ENABLE_TOR:-1}" >&2
       [[ "${ENABLE_TOR:-1}" -eq 1 ]]
       return
       ;;
@@ -300,6 +303,7 @@ profile_step_enabled() {
       return
       ;;
     *)
+      echo "[PROFILE-DEBUG] step $step: unknown, defaulting to enabled" >&2
       return 0
       ;;
   esac
