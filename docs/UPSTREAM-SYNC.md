@@ -1,4 +1,4 @@
-# [DEV] Синхронизация с upstream
+﻿# [DEV] Синхронизация с upstream
 
 > **Этот документ для разработчиков.** Пользователям он не нужен для установки и работы.
 
@@ -15,11 +15,11 @@ Olc-cost-l — **не форк**, а набор патчей поверх:
 
 ## Версии панели
 
-- **Stable fork** (`--manager-stable`): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
+- **Stable fork** (``): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
 - **Latest** (`--manager-latest`): HEAD из upstream BigDaddy3334
 - **Pinned** (по умолчанию): SHA из `upstream-pins.json`
 
-При использовании `--manager-stable` скрипты автоматически клонируют из stable fork вместо upstream.
+При использовании `` скрипты автоматически клонируют из stable fork вместо upstream.
 
 ## Команды
 

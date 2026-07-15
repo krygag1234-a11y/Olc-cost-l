@@ -1,4 +1,4 @@
-# AGENT-VPS.MD: Runtime окружение развернутого проекта на VPS
+﻿# AGENT-VPS.MD: Runtime окружение развернутого проекта на VPS
 
 > **ИНСТРУКЦИЯ ДЛЯ ИИ-АГЕНТА:**
 > Этот документ — «Карта операционной среды» развернутого Olc-cost-l на VPS.
@@ -29,7 +29,7 @@
 
 **Этот VPS (через Olc-cost-l):**
 - **olcrtc:** Pinned SHA `52aea2d` из `data/upstream-pins.json`
-- **olcrtc-manager:** Установлен с флагом `--manager-stable` → форк `local-panel-version` stable-v1
+- **olcrtc-manager:** Установлен с флагом `` → форк `local-panel-version` stable-v1
 - **Преимущество:** Контролируемое обновление, стабильность production
 
 **Важно:** olcrtc-manager **НЕ хардкодит** версию olcrtc — панель запускает бинарник по пути `OLCRTC_PATH=/usr/local/bin/olcrtc`. Сборка olcrtc и manager — независимые процессы.
@@ -744,7 +744,7 @@ cd /opt/Olc-cost-l && git pull
 
 # 2. Запустить полную пересборку:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | \
-  sudo bash -s -- --full --manager-stable
+  sudo bash -s -- --full
 
 # 3. Проверить что патч применился:
 grep -c 'ExpectedPattern' /opt/Olc-cost-l/packaging/golden-panel/main.tsx

@@ -1,4 +1,4 @@
-# AGENT-REPO.MD: Техническая архитектура репозитория Olc-cost-l
+﻿# AGENT-REPO.MD: Техническая архитектура репозитория Olc-cost-l
 
 > **ИНСТРУКЦИЯ ДЛЯ ИИ-АГЕНТА:**
 > Этот документ является «Картой кода» проекта Git-репозитория.
@@ -18,7 +18,7 @@
 |-----------|----------|-----------------|
 | **olcrtc** | [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc) `master` | **Pinned SHA** в `data/upstream-pins.json` — контролируемое обновление для стабильности |
 | **olcrtc-manager** | [BigDaddy3334/olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) `main` | Зависит от флага установки (см. ниже) |
-| **local-panel-version** | Стабильный форк manager | [krygag1234-a11y/local-panel-version](https://github.com/krygag1234-a11y/local-panel-version) `stable-v1` | Используется при `--manager-stable` |
+| **local-panel-version** | Стабильный форк manager | [krygag1234-a11y/local-panel-version](https://github.com/krygag1234-a11y/local-panel-version) `stable-v1` | Используется при `` |
 
 ### Подход к версионированию
 
@@ -30,7 +30,7 @@
 **Наш подход (Olc-cost-l):**
 - **olcrtc:** Pinned SHA в `data/upstream-pins.json` (например `52aea2d`)
 - **olcrtc-manager:** Зависит от флага:
-  - `--manager-stable` → fork `local-panel-version` stable-v1 (рекомендуется)
+  - `` → fork `local-panel-version` stable-v1 (рекомендуется)
   - `--manager-latest` → upstream BigDaddy3334 HEAD
   - Без флага → pinned SHA из `upstream-pins.json`
 - **Преимущество:** Контролируемое обновление после тестирования, стабильность production
@@ -52,7 +52,7 @@
 
 **ВСЕГДА:**
 - Изменения через патчи в scripts/patch-*.sh
-- Пересборка с --manager-stable
+- Пересборка с
 - Проверка anchor в чистом upstream ПЕРЕД созданием патча
 - Строгий idempotency check (проверка ВСЕХ частей патча)
 - Тестирование на VPS (Linux), не на Windows
@@ -211,7 +211,7 @@ Olc-cost-l/
 
 ## 1.5 DEPLOYMENT PIPELINE (критический порядок)
 
-### Полный порядок при install.sh --full --manager-stable
+### Полный порядок при install.sh --full
 
 **ФАЗА 4: Патчи к golden-panel (КРИТИЧЕСКАЯ ТОЧКА)**
 ```bash

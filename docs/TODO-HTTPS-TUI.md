@@ -1,4 +1,4 @@
-# TODO: Флаги HTTP/HTTPS и рефакторинг TUI установщика
+﻿# TODO: Флаги HTTP/HTTPS и рефакторинг TUI установщика
 
 **Дата создания:** 2026-07-02  
 **Статус:** Backend готов, UI отложен до рефакторинга TUI
@@ -117,7 +117,7 @@ curl -fsSL ... | sudo bash -s -- --full --https
 - `--tor`, `--split`, `--zapret`, `--bridges`, `--warp`
 - `--foreign`, `--ru`
 - `--ssh`, `--ip`, `--http`, `--https`
-- `--manager-stable`, `--manager-latest`
+- ``, `--manager-latest`
 
 ### 2.5. Упростить README.md
 

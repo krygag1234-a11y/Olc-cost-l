@@ -1,4 +1,4 @@
-# Olc-cost-l — быстрый старт (для новичков)
+﻿# Olc-cost-l — быстрый старт (для новичков)
 
 Репозиторий: [Olc-cost-l](https://github.com/krygag1234-a11y/Olc-cost-l)
 
@@ -15,19 +15,19 @@
 На чистом Ubuntu/Debian VPS от root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 ```
 
 Если панель должна быть доступна только через SSH-туннель:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable --ssh
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
 ```
 
 <details>
-<summary>📖 Что означает --manager-stable?</summary>
+<summary>📖 Что означает?</summary>
 
-- **`--manager-stable`** (рекомендуется) — проверенная стабильная версия панели из нашего форка
+- **``** (рекомендуется) — проверенная стабильная версия панели из нашего форка
 - **`--manager-latest`** — самая новая версия из upstream (может сломаться)
 - **без флага** — pinned версия из репозитория (средний вариант)
 
@@ -70,20 +70,20 @@ ssh -L 8888:127.0.0.1:8888 root@IP_ВАШЕГО_VPS
 Вы можете обновить скрипты, панель и патчи короткой командой (если репозиторий уже склонирован на сервер):
 
 ```bash
-sudo olc-update --manager-stable
+sudo olc-update
 ```
 
 Если установка была сделана с `--ssh`, `olc-update` сохранит localhost-режим автоматически. Явно переключить режим можно так:
 
 ```bash
-sudo olc-update --manager-stable --ssh  # панель только через SSH-туннель
-sudo olc-update --manager-stable --ip   # обычный открытый режим на IP
+sudo olc-update --ssh  # панель только через SSH-туннель
+sudo olc-update --ip   # обычный открытый режим на IP
 ```
 
 Или через curl (если сервер свежий или команда `olc-update` недоступна):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update --manager-stable
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --update
 ```
 
 <details>
@@ -117,14 +117,14 @@ sudo olc-panel-refresh-local.sh
 
 ## 6. Режимы установки
 
-> **💡 Рекомендация:** Добавляйте `--manager-stable` ко всем командам для установки проверенной версии панели.
+> **💡 Рекомендация:** Добавляйте `` ко всем командам для установки проверенной версии панели.
 
 ### Полный список флагов
 
 | Флаг | Результат |
 |------|-----------|
 | **ВЕРСИЯ ПАНЕЛИ** | |
-| `--manager-stable` | Стабильная проверенная версия панели (рекомендуется) |
+| `` | Стабильная проверенная версия панели (рекомендуется) |
 | `--manager-latest` | Последняя версия из upstream (экспериментальная) |
 | без флага | Pinned версия из репозитория (средний вариант) |
 | **ПОЛНАЯ УСТАНОВКА** | |
@@ -149,7 +149,7 @@ sudo olc-panel-refresh-local.sh
 | **ДРУГОЕ** | |
 | `--force-sha-update` | Автообновление SHA256 checksums при несовпадении |
 
-Флаги можно комбинировать! Например: `--tor --bridges --zapret --manager-stable`
+Флаги можно комбинировать! Например: `--tor --bridges --zapret`
 
 ## 7. Если что-то сломалось
 

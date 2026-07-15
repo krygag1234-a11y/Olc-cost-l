@@ -1,4 +1,4 @@
-# [DEV] Resumable install / update
+﻿# [DEV] Resumable install / update
 
 > **Этот документ для разработчиков.** Пользователям он не нужен для установки и работы.
 
@@ -9,7 +9,7 @@
 ```bash
 # Любой запуск пишет state. Если упало:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
-  | sudo bash -s -- --resume --manager-stable
+  | sudo bash -s -- --resume
 
 # Посмотреть, на каком шаге упало:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
@@ -17,13 +17,13 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 # Локально, если репо уже клонирован:
 sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --state
-sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --manager-stable
-sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --manager-stable
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
+sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
 ```
 
 ### Флаги версии панели при resume
 
-- `--manager-stable` — продолжить с стабильной версией
+- `` — продолжить с стабильной версией
 - `--manager-latest` — продолжить с последней upstream
 - без флага — продолжить с pinned версией
 
@@ -32,7 +32,7 @@ sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --updat
 Если при обновлении `golden-panel` checksum не совпадает:
 
 ```bash
-sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --manager-stable --force-sha-update
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --force-sha-update
 ```
 
 ## Поведение по шагам
@@ -56,7 +56,7 @@ sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --updat
 ## Сброс state (полная переустановка)
 
 ```bash
-sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --fresh-state --manager-stable
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --fresh-state
 ```
 
 ## Где state

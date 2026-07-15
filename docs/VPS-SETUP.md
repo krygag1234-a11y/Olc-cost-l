@@ -1,4 +1,4 @@
-# OlcRTC VPS — полная документация
+﻿# OlcRTC VPS — полная документация
 
 **Обновлено:** 2026-06-02  
 **Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) — pin в `data/upstream-pins.json`  
@@ -14,10 +14,10 @@
 
 ```bash
 # 🎯 РЕКОМЕНДУЕМАЯ установка (стабильная панель)
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-stable
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 
 # Иностранный VPS — без Tor, split, мостов
-curl -fsSL .../install.sh | sudo bash -s -- --no-tor --manager-stable
+curl -fsSL .../install.sh | sudo bash -s -- --no-tor
 
 # Полное удаление нашего стека
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uninstall.sh | sudo bash -s -- --purge-repo
@@ -28,7 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uni
 
 ```bash
 # Стабильная версия (рекомендуется, из нашего форка)
---manager-stable
+
 
 # Последняя из upstream (может сломаться)
 --manager-latest
@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uni
 
 ### Версии панели manager
 
-- **`--manager-stable`** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
+- **``** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
 - **`--manager-latest`**: HEAD из upstream (может сломаться при обновлении BigDaddy3334)
 - **без флага**: Pinned версия из `upstream-pins.json` (средний вариант)
 
@@ -229,21 +229,21 @@ systemctl enable --now olcrtc-manager
 
 ## Режимы деплоя (гибкость)
 
-> **💡 Рекомендация:** Добавляйте `--manager-stable` ко всем командам.
+> **💡 Рекомендация:** Добавляйте `` ко всем командам.
 
 | Сценарий | Команда |
 |----------|---------|
-| RU VPS, полный стек | `install.sh --full --manager-stable` |
-| RU VPS без split (всё через Tor exit) | `install.sh --full --no-split --manager-stable` |
-| RU VPS без zapret | `install.sh --full --no-zapret --manager-stable` |
-| RU VPS без мостов (прямой Tor) | `install.sh --full --no-bridges --manager-stable` |
-| Иностранный VPS, без Tor | `install.sh --full --no-tor --manager-stable` |
-| Иностранный VPS + WARP | `install.sh --warp --manager-stable` |
-| Только Tor + панель | `install.sh --tor --manager-stable` |
-| Только zapret + панель | `install.sh --zapret --manager-stable` |
-| Только мосты + панель | `install.sh --bridges --manager-stable` |
-| Обновление на живой VPS | `olc-update --manager-stable` |
-| Доустановка компонентов | `olc-update --incremental --manager-stable` |
+| RU VPS, полный стек | `install.sh --full` |
+| RU VPS без split (всё через Tor exit) | `install.sh --full --no-split` |
+| RU VPS без zapret | `install.sh --full --no-zapret` |
+| RU VPS без мостов (прямой Tor) | `install.sh --full --no-bridges` |
+| Иностранный VPS, без Tor | `install.sh --full --no-tor` |
+| Иностранный VPS + WARP | `install.sh --warp` |
+| Только Tor + панель | `install.sh --tor` |
+| Только zapret + панель | `install.sh --zapret` |
+| Только мосты + панель | `install.sh --bridges` |
+| Обновление на живой VPS | `olc-update` |
+| Доустановка компонентов | `olc-update --incremental` |
 | Только пересборка | `agent-bootstrap.sh --rebuild-only` |
 | Панель через SSH-туннель | добавить `--ssh` к любой команде |
 
@@ -253,10 +253,10 @@ systemctl enable --now olcrtc-manager
 
 ```bash
 # Установка с SSH-туннелем:
-curl -fsSL .../install.sh | sudo bash -s -- --full --ssh --manager-stable
+curl -fsSL .../install.sh | sudo bash -s -- --full --ssh
 
 # Обновление с SSH-туннелем:
-sudo olc-update --ssh --manager-stable
+sudo olc-update --ssh
 
 # Вернуть открытый режим:
 sudo olc-update --ip
