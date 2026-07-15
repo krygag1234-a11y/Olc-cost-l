@@ -61,6 +61,7 @@ main() {
   local update_mode=""
   local repo profile_arg=()
   local has_explicit_flags=0
+  local unknown_flags=()
   local arg
   for arg in "$@"; do
     case "$arg" in
@@ -71,8 +72,36 @@ main() {
       --manager-latest) export OLC_MANAGER_LATEST=1; has_explicit_flags=1 ;;
       --incremental) update_mode="--incremental" ;;
       --update) update_mode="--update" ;;
+      --resume) ;; # handled by agent-bootstrap
+      --ssh|--localhost) ;; # handled by agent-bootstrap
+      *) unknown_flags+=("$arg") ;;
     esac
   done
+
+  # Валидация неизвестных флагов
+  if [[ "${#unknown_flags[@]}" -gt 0 ]]; then
+    echo "" >&2
+    echo "⚠️  ОШИБКА: Неизвестные флаги: ${unknown_flags[*]}" >&2
+    echo "" >&2
+    echo "Доступные флаги обновления:" >&2
+    echo "  --manager-latest     Использовать последнюю upstream версию панели" >&2
+    echo "  --force-sha-update   Принудительно обновить pinned SHA" >&2
+    echo "  --show-profile       Показать профиль установки" >&2
+    echo "  --profile            Использовать сохранённый профиль" >&2
+    echo "" >&2
+
+    if olc_update_has_tty; then
+      echo "Продолжить обновление без этих флагов? (Y/n): " >&2
+      read -r answer </dev/tty
+      if [[ "${answer,,}" == "n" ]]; then
+        echo "Обновление отменено." >&2
+        exit 1
+      fi
+      echo "✓ Продолжаю обновление с дефолтными настройками..." >&2
+    else
+      echo "Нет интерактивного терминала. Продолжаю с дефолтными настройками." >&2
+    fi
+  fi
 
   # If user specified component flags but no mode, default to --update (not interactive menu)
   if [[ -z "$update_mode" && "$has_explicit_flags" -eq 1 ]]; then

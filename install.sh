@@ -213,6 +213,17 @@ if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
   fi
 fi
 
+# Вызов интерактивного меню при необходимости
+if [[ "${FORCE_INTERACTIVE_MENU:-0}" == "1" ]] && olc_has_tty; then
+  if [[ -f "$INSTALL_DIR/scripts/lib-olc-core.sh" ]]; then
+    source "$INSTALL_DIR/scripts/lib-olc-core.sh"
+    interactive_install_menu || exit 1
+  else
+    echo "[install] lib-olc-core.sh не найден, меню недоступно" >&2
+    exit 1
+  fi
+fi
+
 if [[ "$SHOW_STATE" -eq 1 ]]; then
   if [[ -f /var/lib/olcrtc/install-state.json ]]; then
     if command -v jq >/dev/null 2>&1; then
