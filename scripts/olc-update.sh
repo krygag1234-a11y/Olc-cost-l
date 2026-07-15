@@ -274,10 +274,10 @@ main() {
     echo "" >&2
     case "$exit_code" in
       130)
-        tui_log_warn "⚠ Прервано пользователем (Ctrl+C)"
+        tui_log_warning "⚠ Прервано пользователем (Ctrl+C)"
         ;;
       143)
-        tui_log_warn "⚠ Остановлено (SIGTERM)"
+        tui_log_warning "⚠ Остановлено (SIGTERM)"
         ;;
       *)
         tui_log_error "agent-bootstrap.sh завершился с ошибкой (код: $exit_code)"
