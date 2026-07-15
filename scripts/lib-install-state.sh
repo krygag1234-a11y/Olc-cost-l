@@ -72,7 +72,8 @@ _olc_progress_ipc_init() {
 _olc_progress_step_cleanup() {
   [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]] && rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || true
   [[ -n "$_OLCRTC_PROGRESS_SIMPLE_FLAG" ]] && rm -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" 2>/dev/null || true
-  [[ -n "$_OLCRTC_PROGRESS_IPC_DIR" ]] && rm -f "$_OLCRTC_PROGRESS_IPC_DIR/progress" 2>/dev/null || true
+  # НЕ удаляем progress файл между шагами — spinner в фоне читает его каждые 0.1s
+  # Удаление только при полной очистке (_olc_progress_cleanup)
   _OLCRTC_PROGRESS_SIMPLE=0
   _OLCRTC_PROGRESS_ACTIVE=0
 }
