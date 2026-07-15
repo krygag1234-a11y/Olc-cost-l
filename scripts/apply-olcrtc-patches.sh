@@ -534,6 +534,11 @@ build_binaries() {
   tui_spinner_ok
 }
 
+# Инициализация счётчика подзадач (9 подзадач)
+if declare -f _olc_substep_reset >/dev/null 2>&1; then
+  _olc_substep_reset 9
+fi
+
 clone_repos
 run_quiet "apply olcrtc patches" apply_olcrtc
 run_quiet "apply manager patches + UI" apply_manager
