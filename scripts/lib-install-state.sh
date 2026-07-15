@@ -92,6 +92,7 @@ _olc_progress_start() {
   if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
     _OLCRTC_PROGRESS_SIMPLE=1
     _OLCRTC_PROGRESS_ACTIVE=1
+    export _OLCRTC_PROGRESS_SIMPLE
     export _OLCRTC_PROGRESS_ACTIVE
     # Создать файл для обмена данными с подзадачами
     echo "0 0" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
