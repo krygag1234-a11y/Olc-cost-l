@@ -511,8 +511,14 @@ if [[ "$UPDATE" -eq 1 ]]; then
   tui_log_info "Можно продолжить с --resume если процесс прервётся"
   tui_divider
   export OLCRTC_TOTAL_STEPS=11
+
+  echo "[UPDATE-DEBUG] before profile_apply_env" >&2
   profile_apply_env
+  echo "[UPDATE-DEBUG] after profile_apply_env" >&2
+
+  echo "[UPDATE-DEBUG] before state_step_profile patches" >&2
   state_step_profile patches              run_patches
+  echo "[UPDATE-DEBUG] after state_step_profile patches" >&2
   state_step_profile sysctl               setup_sysctl
   state_step_profile warp                 setup_warp
   state_step_profile tor                  setup_tor
