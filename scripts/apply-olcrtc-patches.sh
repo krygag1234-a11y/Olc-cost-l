@@ -17,6 +17,8 @@ source "$SCRIPT_DIR/lib-cache-cleanup.sh"
 source "$SCRIPT_DIR/lib-olc-ru.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
+# shellcheck source=lib-install-state.sh
+source "$SCRIPT_DIR/lib-install-state.sh" 2>/dev/null || true
 olc_git_safe_register "$REPO_ROOT"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
@@ -99,6 +101,7 @@ clone_manager_from_fork() {
 }
 
 clone_repos() {
+  _olc_substep "Клонирование репозиториев" 2>/dev/null || true
   if [[ -x /usr/local/go/bin/go ]]; then
     export PATH="/usr/local/go/bin:$PATH"
   fi
@@ -209,6 +212,7 @@ clone_repos() {
 }
 
 apply_olcrtc() {
+  _olc_substep "Применение патчей olcrtc" 2>/dev/null || true
   tui_spinner_start "Применение патчей для olcrtc-server (11 патчей)"
   (cd "$OLCRTC_REPO" && git checkout -f "$OLCRTC_BRANCH" 2>/dev/null || true)
   find "$OLCRTC_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
@@ -247,6 +251,7 @@ apply_olcrtc() {
 }
 
 apply_manager() {
+  _olc_substep "Применение патчей backend" 2>/dev/null || true
   tui_spinner_start "Применение патчей для olcrtc-manager (132 патча)"
   find "$MGR_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
   # Always run idempotent core patch (upstream main may already have logs API partial)
@@ -418,6 +423,7 @@ apply_manager() {
   # Phase 1: bridge sources API + init on startup + legacy migration.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-sources-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
+  _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-sync.sh" "$MGR_REPO/src/main.tsx"
   # Disable addon "Логи" button when the addon is OFF.
@@ -461,9 +467,11 @@ apply_manager() {
     if ! command -v npm >/dev/null 2>&1; then
       log "WARN: npm missing — install nodejs/npm then re-run apply-olcrtc-patches.sh (admin UI will be stale)"
     else
+      _olc_substep "npm install" 2>/dev/null || true
       log "build manager admin UI (web/dist)"
       rm -rf "$MGR_REPO/web/dist"
       run_quiet "npm install (manager UI)" bash -c 'cd "$1" && npm ci 2>/dev/null || npm install' _ "$MGR_REPO"
+      _olc_substep "npm build" 2>/dev/null || true
       run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || tui_fatal "Сборка UI панели (npm run build) завершилась с ошибкой" "Возможно: node_modules повреждены или недостаточно памяти" "Попробуйте: rm -rf $MGR_REPO/node_modules && cd $MGR_REPO && npm install && npm run build"
       if [[ -x "$SCRIPT_DIR/olc-panel-verify.sh" ]]; then
         bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
@@ -477,6 +485,7 @@ apply_manager() {
 }
 
 build_binaries() {
+  _olc_substep "Подготовка к сборке" 2>/dev/null || true
   local rc=0
   if [[ -x /usr/local/go/bin/go ]]; then
     export PATH="/usr/local/go/bin:$PATH"
@@ -497,6 +506,7 @@ build_binaries() {
       OLC_KEEP_BUILD_CLONES=1 olc_cleanup_build_caches "apply-patches-pre-build" || true
     fi
   fi
+  _olc_substep "go build olcrtc" 2>/dev/null || true
   tui_spinner_start "Сборка olcrtc ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
   olc_run_quiet_with_progress "сборка olcrtc" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc ./cmd/olcrtc' _ "$OLCRTC_REPO" || rc=$?
@@ -507,10 +517,11 @@ build_binaries() {
     return "$rc"
   fi
   tui_spinner_ok
-  
+
   install -d /var/lib/olcrtc
   date -Is > /var/lib/olcrtc/.split-routing-reload
-  
+
+  _olc_substep "go build olcrtc-manager" 2>/dev/null || true
   tui_spinner_start "Сборка olcrtc-manager"
   olc_run_quiet_with_progress "сборка olcrtc-manager" "${OLC_PATCH_LOG:-/var/log/olcrtc-apply-patches.log}" \
     bash -c 'cd "$1" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager' _ "$MGR_REPO" || rc=$?
