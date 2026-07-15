@@ -72,10 +72,24 @@ _olc_progress_start() {
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
     while true; do
-      local percent=$(( _OLCRTC_PROGRESS_CURR * 100 / _OLCRTC_PROGRESS_TOTAL ))
-      printf "\r\033[36m%s\033[0m \033[2m%s\033[0m (%d%%, шаг %d/%d)" \
-        "${frames[$i]}" "$_OLCRTC_PROGRESS_STEP_NAME" "$percent" \
-        "$_OLCRTC_PROGRESS_CURR" "$_OLCRTC_PROGRESS_TOTAL"
+      local curr="$_OLCRTC_PROGRESS_CURR"
+      local total="$_OLCRTC_PROGRESS_TOTAL"
+      [[ "$total" -le 0 ]] && total=1
+      local percent=$(( curr * 100 / total ))
+      local width=30
+      local filled=$(( width * curr / total ))
+      local empty=$(( width - filled ))
+
+      # Построить прогресс-бар
+      local bar=""
+      local j
+      for ((j=0; j<filled; j++)); do bar+="█"; done
+      for ((j=0; j<empty; j++)); do bar+="░"; done
+
+      # Вывести: спиннер + бар + процент + шаг + название
+      printf "\r\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s" \
+        "${frames[$i]}" "$bar" "$percent" "$curr" "$total" "$_OLCRTC_PROGRESS_STEP_NAME"
+
       i=$(( (i + 1) % ${#frames[@]} ))
       sleep 0.1
     done
