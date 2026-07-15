@@ -420,21 +420,21 @@ if [[ $UPDATE -eq 1 || $REBUILD_ONLY -eq 1 ]]; then
   fi
 fi
 
-# Show TUI banner
-tui_clear
-tui_banner "Olc-cost-l Bootstrap"
-if [[ $FULL -eq 1 ]]; then
-  tui_log_info "Режим: Полная установка (зависимости + сборка + сервисы)"
-elif [[ $UPDATE -eq 1 ]]; then
-  tui_log_info "Режим: Обновление (git pull + пересборка)"
-elif [[ $INCREMENTAL -eq 1 ]]; then
-  tui_log_info "Режим: Доустановка недостающих компонентов"
-elif [[ $REBUILD_ONLY -eq 1 ]]; then
-  tui_log_info "Режим: Только пересборка бинарей"
-else
-  tui_log_info "Режим: Конфигурация сервисов"
+# Show TUI banner.
+# UPDATE/INCREMENTAL рисуют ЕДИНЫЙ экран через olc_ui_begin ниже —
+# дублирующий баннер «Olc-cost-l Bootstrap» для них не показываем.
+if [[ "$UPDATE" -ne 1 && "$INCREMENTAL" -ne 1 ]]; then
+  tui_clear
+  tui_banner "Olc-cost-l Bootstrap"
+  if [[ $FULL -eq 1 ]]; then
+    tui_log_info "Режим: Полная установка (зависимости + сборка + сервисы)"
+  elif [[ $REBUILD_ONLY -eq 1 ]]; then
+    tui_log_info "Режим: Только пересборка бинарей"
+  else
+    tui_log_info "Режим: Конфигурация сервисов"
+  fi
+  tui_divider
 fi
-tui_divider
 
 olc_preflight_disk_space "agent-bootstrap" || tui_fatal "Недостаточно места на диске для установки" "Требуется минимум 500 МБ свободного места" "Освободите диск: sudo olc-cleanup-caches или удалите старые логи"
 olc_preflight_vps_backup "agent-bootstrap" || true
@@ -512,7 +512,16 @@ run_community_lists() {
   bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" \
     >>/var/log/olcrtc-community-lists.log 2>&1 || true
 }
-run_restart_manager() { systemctl restart olcrtc-manager; }
+run_restart_manager() { systemctl restart olcrtc-manager && _OLC_MANAGER_RESTARTED=1; }
+
+# Гарантия: после обновления панель ВСЕГДА перезапущена (применение UI-изменений),
+# даже если шаг restart-manager был пропущен через --resume.
+ensure_manager_restarted() {
+  [[ "${_OLC_MANAGER_RESTARTED:-0}" == "1" ]] && return 0
+  log "перезапуск olcrtc-manager (применение обновлений UI)"
+  systemctl restart olcrtc-manager >/dev/null 2>&1 && _OLC_MANAGER_RESTARTED=1 || \
+    log "WARN: не удалось перезапустить olcrtc-manager — выполните вручную: sudo systemctl restart olcrtc-manager"
+}
 run_cleanup_tmp() {
   find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
   olc_cleanup_build_caches "agent-bootstrap"
@@ -550,14 +559,18 @@ if [[ -f "$SCRIPT_DIR/lib-component-check.sh" ]]; then
 fi
 
 if [[ "$UPDATE" -eq 1 ]]; then
-  tui_banner "Обновление Olc-cost-l"
-  tui_log_info "Режим: UPDATE — обновление списков, патчей, Tor, zapret, systemd"
-  tui_log_info "Можно продолжить с --resume если процесс прервётся"
-  tui_divider
   export OLCRTC_UPDATE_MODE=1  # Флаг для отключения совета про olc-update
   export OLCRTC_TOTAL_STEPS=11
 
-  profile_apply_env  # ПОСЛЕ установки OLCRTC_UPDATE_MODE
+  OLC_PROFILE_LOG_QUIET=1 profile_apply_env  # ПОСЛЕ установки OLCRTC_UPDATE_MODE
+
+  _profile_id="$(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo custom)"
+  # Полноэкранная сессия: процесс рисуется на отдельном экране терминала,
+  # по завершении экран закрывается и остаётся только чистый финальный вывод.
+  olc_ui_begin "Обновление Olc-cost-l" \
+    "Режим: UPDATE — обновление списков, патчей, Tor, zapret, systemd" \
+    "Профиль: ${_profile_id} (tor=${ENABLE_TOR} split=${ENABLE_SPLIT} zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=${ENABLE_WARP} panel=${PANEL_ACCESS})" \
+    "Прервалось? Продолжить: sudo olc-update --resume"
 
   state_step_profile patches              run_patches
   state_step_profile sysctl               setup_sysctl
@@ -571,20 +584,24 @@ if [[ "$UPDATE" -eq 1 ]]; then
   state_step_profile cleanup-tmp          run_cleanup_tmp
   state_step_profile restart-manager      run_restart_manager
   profile_apply_runtime_toggles 2>/dev/null || true
-  state_finish
-  tui_divider
-  tui_log_success "✓ Обновление успешно завершено!"
-  tui_divider
+  ensure_manager_restarted
+  state_finish   # схлопывание строк шагов + анимация бара (в TTY)
+  olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
+  tui_log_success "Обновление успешно завершено!"
+  olc_ui_success_recap
   olc_print_finish_help 8888
   exit 0
 fi
 
 if [[ "$INCREMENTAL" -eq 1 ]]; then
-  tui_banner "Доустановка Olc-cost-l"
-  tui_log_info "Режим: INCREMENTAL — skip работающих компонентов, доустановка недостающих"
-  tui_divider
   export OLCRTC_TOTAL_STEPS=13
-  profile_apply_env
+  OLC_PROFILE_LOG_QUIET=1 profile_apply_env
+
+  _profile_id="$(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo custom)"
+  olc_ui_begin "Доустановка Olc-cost-l" \
+    "Режим: INCREMENTAL — skip работающих компонентов, доустановка недостающих" \
+    "Профиль: ${_profile_id} (tor=${ENABLE_TOR} split=${ENABLE_SPLIT} zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=${ENABLE_WARP} panel=${PANEL_ACCESS})" \
+    "Прервалось? Продолжить: sudo olc-update --resume"
   
   # Проверка и установка packages только если нужно
   if ! check_packages_installed 2>/dev/null || ! check_binaries_built 2>/dev/null; then
@@ -608,10 +625,11 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   state_step_profile cleanup-tmp          run_cleanup_tmp
   state_step_profile restart-manager      run_restart_manager
   profile_apply_runtime_toggles 2>/dev/null || true
-  state_finish
-  tui_divider
-  tui_log_success "✓ Доустановка успешно завершена!"
-  tui_divider
+  ensure_manager_restarted
+  state_finish   # схлопывание строк шагов + анимация бара (в TTY)
+  olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
+  tui_log_success "Доустановка успешно завершена!"
+  olc_ui_success_recap
   olc_print_finish_help 8888
   exit 0
 fi

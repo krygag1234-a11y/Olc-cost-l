@@ -11,6 +11,8 @@
 : "${OLCRTC_PROFILES_DIR:=${OLC_REPO_ROOT:-}/data/deploy-profiles}"
 
 profile_log() {
+  # Тихий режим: сводка профиля показывается вызывающим кодом (заголовок экрана)
+  [[ "${OLC_PROFILE_LOG_QUIET:-0}" == "1" ]] && return 0
   # При активном animated-баре — под бар, чтобы не наложиться на спиннер
   if declare -f olc_spinner_active >/dev/null 2>&1 && olc_spinner_active \
      && declare -f olc_progress_msg >/dev/null 2>&1; then

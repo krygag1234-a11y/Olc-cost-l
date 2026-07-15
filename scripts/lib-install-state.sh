@@ -126,11 +126,21 @@ _olc_progress_cleanup() {
   local rc="${1:-$?}"
   _olc_progress_stop 2>/dev/null || true
   _olc_progress_step_cleanup
+  # Аварийный выход из полноэкранной сессии: показать журнал в основном
+  # терминале (иначе ошибки исчезнут вместе с alt-screen)
+  if [[ "${_OLC_UI_ALT:-0}" == "1" ]]; then
+    if [[ "$rc" != "0" ]]; then
+      _olc_ui_abort_dump "$rc" || true
+    else
+      printf '\033[?1049l' 2>/dev/null || true
+      _OLC_UI_ALT=0
+    fi
+  fi
   if [[ "$_OLCRTC_PROGRESS_IPC_OWNER" == "1" && -n "$_OLCRTC_PROGRESS_IPC_DIR" ]]; then
     rm -f "$_OLCRTC_PROGRESS_IPC_DIR"/messages "$_OLCRTC_PROGRESS_IPC_DIR"/consumed \
       "$_OLCRTC_PROGRESS_IPC_DIR"/progress "$_OLCRTC_PROGRESS_IPC_DIR"/progress.tmp \
       "$_OLCRTC_PROGRESS_IPC_DIR"/spinner "$_OLCRTC_PROGRESS_IPC_DIR"/simple \
-      "$_OLCRTC_PROGRESS_IPC_DIR"/substep 2>/dev/null || true
+      "$_OLCRTC_PROGRESS_IPC_DIR"/substep "$_OLCRTC_PROGRESS_IPC_DIR"/transcript 2>/dev/null || true
     rmdir "$_OLCRTC_PROGRESS_IPC_DIR" 2>/dev/null || true
   fi
   return "$rc"
@@ -305,6 +315,9 @@ _olc_progress_start() {
             (( n <= consumed )) && continue
             (( n > lines )) && break
             _sp "  \033[2m→ %s\033[0m\n" "$line"
+            # transcript — полный журнал напечатанных строк (для финального
+            # схлопывания экрана и дампа при ошибке)
+            printf '%s\n' "$line" >> "$_OLCRTC_PROGRESS_IPC_DIR/transcript" 2>/dev/null || true
           done < "$msg_file"
           consumed="$lines"
           echo "$consumed" > "$_OLCRTC_PROGRESS_IPC_DIR/consumed" 2>/dev/null || true
@@ -349,6 +362,7 @@ _olc_progress_drain_messages() {
     n=$(( n + 1 ))
     (( n <= consumed )) && continue
     _olc_progress_print "  \033[2m→ %s\033[0m\n" "$line"
+    printf '%s\n' "$line" >> "$_OLCRTC_PROGRESS_IPC_DIR/transcript" 2>/dev/null || true
   done < "$msg_file"
   : > "$msg_file"
   echo 0 > "$_OLCRTC_PROGRESS_IPC_DIR/consumed" 2>/dev/null || true
@@ -392,7 +406,137 @@ _olc_progress_stop() {
   rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
 }
 
+# ============================================================================
+# ПОЛНОЭКРАННАЯ TUI-СЕССИЯ (alternate screen)
+# ============================================================================
+# Весь процесс обновления/доустановки рисуется на отдельном экране терминала
+# (как vim/htop). По завершении: строки шагов схлопываются (бар анимированно
+# «поднимается» вверх), экран закрывается — и в ОСНОВНОМ терминале остаётся
+# только чистый финальный вывод. При ошибке alt-screen закрывается и в
+# основной терминал печатается хвост журнала (ошибки не теряются).
+_OLC_UI_ALT=0
+_OLC_UI_TITLE=""
+_OLC_UI_INFO=()
+_OLC_UI_HEADER_ROWS=0
+
+olc_ui_begin() {
+  _OLC_UI_TITLE="${1:-}"
+  shift || true
+  _OLC_UI_INFO=("$@")
+  if [[ -t 1 && "${TERM:-}" != "dumb" && "${OLC_NO_SPINNER:-0}" != "1" && "${OLC_UI_NO_ALT:-0}" != "1" ]]; then
+    printf '\033[?1049h\033[H\033[2J'
+    _OLC_UI_ALT=1
+  fi
+  _olc_ui_draw_header
+}
+
+_olc_ui_draw_header() {
+  if declare -f tui_banner >/dev/null 2>&1; then
+    tui_banner "$_OLC_UI_TITLE"          # 5 строк
+    local line
+    for line in ${_OLC_UI_INFO[@]+"${_OLC_UI_INFO[@]}"}; do
+      tui_log_info "$line"
+    done
+    tui_divider
+  else
+    echo "== $_OLC_UI_TITLE =="
+    printf '%s\n' ${_OLC_UI_INFO[@]+"${_OLC_UI_INFO[@]}"}
+  fi
+  _OLC_UI_HEADER_ROWS=$(( 5 + ${#_OLC_UI_INFO[@]} + 1 ))
+}
+
+# Закрыть alt-screen (успешное завершение). После вызова печатать финальный
+# вывод — он попадёт в основной буфер терминала.
+olc_ui_end() {
+  [[ "$_OLC_UI_ALT" == "1" ]] || return 0
+  printf '\033[?1049l'
+  _OLC_UI_ALT=0
+}
+
+# Текущая строка курсора через DSR-запрос к терминалу (\033[6n).
+_olc_ui_cursor_row() {
+  local esc="" row="" col="" fd
+  { exec {fd}</dev/tty; } 2>/dev/null || return 1
+  printf '\033[6n' >/dev/tty 2>/dev/null || { exec {fd}<&- 2>/dev/null; return 1; }
+  IFS='[;' read -r -s -d R -t 0.4 esc row col <&"$fd" 2>/dev/null || { exec {fd}<&- 2>/dev/null; return 1; }
+  exec {fd}<&- 2>/dev/null
+  [[ "$row" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$row"
+}
+
+# Анимация финала: бар «поднимается» вверх, поглощая строки шагов,
+# затем экран перерисовывается начисто (заголовок + бар 100%).
+_olc_ui_collapse() {
+  local bar_line="$1" msg_lines="${2:-0}"
+  local term_h
+  term_h="$(tput lines 2>/dev/null)" || term_h=24
+  [[ "$term_h" =~ ^[0-9]+$ ]] || term_h=24
+  local target=$(( _OLC_UI_HEADER_ROWS + 1 ))
+  (( target < 1 )) && target=1
+  local row=""
+  row="$(_olc_ui_cursor_row 2>/dev/null)" || row=""
+  if [[ -z "$row" ]]; then
+    # Fallback: заголовок + напечатанные строки журнала + строка бара
+    row=$(( _OLC_UI_HEADER_ROWS + msg_lines + 1 ))
+    (( row > term_h )) && row="$term_h"
+  fi
+  local cur="$row"
+  (( cur < target )) && cur="$target"
+  local delay="${OLC_UI_COLLAPSE_DELAY:-0.03}"
+  while :; do
+    _olc_progress_print '\033[%d;1H\033[J%s' "$cur" "$bar_line"
+    (( cur <= target )) && break
+    cur=$(( cur - 1 ))
+    sleep "$delay" 2>/dev/null || true
+  done
+  sleep "${OLC_UI_FINISH_HOLD:-1.0}" 2>/dev/null || true
+  # Чистовая перерисовка: заголовок + закреплённый бар 100%
+  _olc_progress_print '\033[2J\033[H'
+  _olc_ui_draw_header
+  _olc_progress_print '%s\n' "$bar_line"
+  sleep "${OLC_UI_FINISH_HOLD2:-0.7}" 2>/dev/null || true
+}
+
+# После olc_ui_end: краткая сводка предупреждений из журнала шагов
+# (чтобы ✗/WARN не потерялись вместе с alt-screen).
+olc_ui_success_recap() {
+  local t="${_OLCRTC_PROGRESS_IPC_DIR:-}/transcript"
+  [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -f "$t" ]] || return 0
+  local warns
+  warns="$(grep -E '✗|WARN|ошибка' "$t" 2>/dev/null | head -8 || true)"
+  [[ -n "$warns" ]] || return 0
+  echo ""
+  if declare -f tui_log_warning >/dev/null 2>&1; then
+    tui_log_warning "Во время обновления были предупреждения (не критично):"
+  else
+    echo "⚠ Предупреждения:"
+  fi
+  local line
+  while IFS= read -r line; do
+    printf '  %b→ %s%b\n' "${TUI_DIM:-}" "$line" "${TUI_RESET:-}"
+  done <<<"$warns"
+}
+
+# Аварийный выход из alt-screen: показать хвост журнала в основном терминале.
+_olc_ui_abort_dump() {
+  local rc="$1"
+  [[ "$_OLC_UI_ALT" == "1" ]] || return 0
+  printf '\033[?1049l'
+  _OLC_UI_ALT=0
+  local t="${_OLCRTC_PROGRESS_IPC_DIR:-}/transcript"
+  {
+    echo ""
+    printf '%b✗ %s прервано (rc=%s)%b\n' "${TUI_RED:-}" "${_OLC_UI_TITLE:-Обновление}" "$rc" "${TUI_RESET:-}"
+    if [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -s "$t" ]]; then
+      printf '%bПоследние события:%b\n' "${TUI_DIM:-}" "${TUI_RESET:-}"
+      tail -n 25 "$t" | sed 's/^/  → /'
+    fi
+    echo "Продолжить с места остановки: sudo olc-update --resume"
+  } >&2
+}
+
 # Финальный аккорд: остановить spinner и напечатать закреплённый бар 100%.
+# В полноэкранной сессии — анимированное схлопывание строк шагов.
 _olc_progress_finish() {
   [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]] && return 0
   [[ -z "$_OLCRTC_PROGRESS_PID" ]] && return 0
@@ -412,8 +556,19 @@ _olc_progress_finish() {
   local bar=""
   local j
   for ((j=0; j<30; j++)); do bar+="█"; done
-  _olc_progress_print "\033[32m✓\033[0m [%s] 100%% \033[2m(шаг %d/%d)\033[0m завершено\n" \
-    "$bar" "$curr" "$total"
+  local bar_line
+  bar_line="$(printf '\033[32m✓\033[0m [%s] 100%% \033[2m(шаг %d/%d)\033[0m завершено' \
+    "$bar" "$curr" "$total")"
+  if [[ "$_OLC_UI_ALT" == "1" ]]; then
+    local msg_lines=0
+    if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/transcript" ]]; then
+      msg_lines="$(wc -l < "$_OLCRTC_PROGRESS_IPC_DIR/transcript" 2>/dev/null)" || msg_lines=0
+      [[ "$msg_lines" =~ ^[0-9]+$ ]] || msg_lines=0
+    fi
+    _olc_ui_collapse "$bar_line" "$msg_lines"
+  else
+    _olc_progress_print '%s\n' "$bar_line"
+  fi
 }
 
 if [[ -f "${BASH_SOURCE[0]%/*}/lib-olc-ru.sh" ]]; then
@@ -425,6 +580,13 @@ _state_log() {
     olc_state_line "$*"
   else
     echo "[state] $*"
+  fi
+  # В alt-screen сессии при неактивном spinner строка печатается напрямую и
+  # минует очередь → продублировать в transcript (для финальной сводки/дампа)
+  if [[ "${_OLC_UI_ALT:-0}" == "1" && -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" \
+        && -d "${_OLCRTC_PROGRESS_IPC_DIR:-}" \
+        && ! -f "${_OLCRTC_PROGRESS_IPC_DIR}/spinner" ]]; then
+    printf '%s\n' "$*" >> "$_OLCRTC_PROGRESS_IPC_DIR/transcript" 2>/dev/null || true
   fi
 }
 
@@ -547,12 +709,15 @@ state_step() {
 
 state_finish() {
   # Закрыть прогресс-бар финальной строкой «✓ [████] 100% завершено»
+  # (в полноэкранной сессии — с анимацией схлопывания строк шагов)
   _olc_progress_finish
   if command -v jq >/dev/null 2>&1; then
     local tmp; tmp="$(mktemp)"
     jq --arg t "$(date -u +%FT%TZ)" '.finished=$t | .failed=null' \
       "$OLCRTC_STATE_FILE" > "$tmp" && mv "$tmp" "$OLCRTC_STATE_FILE"
   fi
+  # В alt-screen сессии служебная строка не нужна — финал печатает вызывающий код
+  [[ "${_OLC_UI_ALT:-0}" == "1" ]] && return 0
   _state_log "install state OK. State: $OLCRTC_STATE_FILE"
 }
 

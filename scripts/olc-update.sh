@@ -153,24 +153,26 @@ main() {
   }
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
-  
-  echo "Проверка актуальности репозитория (ветка main)..." >&2
+
+  # Стартовые системные сообщения — эфемерной статусной строкой:
+  # каждое новое заменяет предыдущее, терминал не засоряется.
+  tui_status "Проверка актуальности репозитория (ветка main)…"
   local_sha="$(git rev-parse HEAD 2>/dev/null || true)"
   remote_sha="$(git ls-remote origin main 2>/dev/null | awk '{print $1}' || true)"
 
   local repo_uptodate=0
   if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
     repo_uptodate=1
-    echo "Репозиторий уже актуален." >&2
-    git log -1 --format="Текущая версия: %h - %s (%cd)" --date=format:"%Y-%m-%d %H:%M" >&2
+    tui_status "Репозиторий уже актуален: $(git log -1 --format='%h — %s' 2>/dev/null || echo "$local_sha")"
   else
     if [[ -n "$remote_sha" ]]; then
-      echo "Доступны обновления репозитория." >&2
+      tui_status "Доступны обновления репозитория"
     fi
   fi
 
   # TUI menu для выбора режима (ПЕРЕД git pull) — только если режим не задан флагами
   if [[ -z "$update_mode" ]] && [[ -t 0 ]] && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
+    tui_status_end  # убрать статусную строку перед интерактивным меню
     source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
     if declare -f tui_menu >/dev/null 2>&1; then
       echo ""
@@ -217,13 +219,17 @@ main() {
 
   # Git pull с русским языком (только если есть обновления)
   if [[ "$repo_uptodate" -eq 0 ]]; then
-    echo ""
-    tui_log_info "Обновление репозитория из GitHub..."
-    tui_divider
+    tui_status "Обновление репозитория из GitHub…"
     # Reset local modifications (patches may leave dirty state)
     olc_git "$repo" reset --hard HEAD >/dev/null 2>&1 || true
     olc_git "$repo" clean -fd >/dev/null 2>&1 || true
-    LANG=ru_RU.UTF-8 LC_ALL=ru_RU.UTF-8 olc_git "$repo" pull --quiet --ff-only origin main || {
+    # Локаль: не форсировать ru_RU.UTF-8 если она не сгенерирована на хосте
+    # (иначе bash печатает «warning: setlocale…» на каждый вызов)
+    local git_locale="C.UTF-8"
+    if locale -a 2>/dev/null | grep -qiE '^ru_RU\.utf-?8$'; then
+      git_locale="ru_RU.UTF-8"
+    fi
+    LANG="$git_locale" LC_ALL="$git_locale" olc_git "$repo" pull --quiet --ff-only origin main || {
       if declare -f tui_fatal >/dev/null 2>&1; then
         tui_fatal "Ошибка git pull при обновлении репозитория" "Не удалось получить изменения с GitHub origin/main" "Проверьте сеть: ping github.com && curl -I https://github.com"
       else
@@ -231,9 +237,7 @@ main() {
         exit 1
       fi
     }
-    tui_log_success "Репозиторий обновлён до последней версии."
-    tui_divider
-    echo ""
+    tui_status "Репозиторий обновлён: $(git log -1 --format='%h — %s' 2>/dev/null || echo ok)"
   fi
 
   # Загружаем TUI библиотеку для использования в agent-bootstrap.sh
@@ -265,9 +269,8 @@ main() {
     i=$((i + 1))
   done
 
-  echo "" >&2
-  tui_log_info "Запуск agent-bootstrap.sh с параметрами: ${boot_args[*]}"
-  tui_divider
+  tui_status "Запуск agent-bootstrap.sh: ${boot_args[*]}"
+  tui_status_end  # bootstrap рисует собственный экран — статусную строку убрать
 
   bash scripts/agent-bootstrap.sh "${boot_args[@]}" || {
     local exit_code=$?

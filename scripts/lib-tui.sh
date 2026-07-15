@@ -253,6 +253,61 @@ tui_loading_dots() {
   echo -ne "\r${msg}      \r"
 }
 
+# ============================================================================
+# EPHEMERAL STATUS LINE — стартовые/системные сообщения без «шума»
+# ============================================================================
+# Каждое новое сообщение ЗАМЕНЯЕТ предыдущее на той же строке (не накапливается
+# в терминале). Предыдущее сообщение гарантированно показывается не меньше
+# OLC_STATUS_MIN_SEC секунд (по умолчанию 0.9с), чтобы его успели прочитать —
+# на это время выполнение приостанавливается. tui_status_end очищает строку.
+# Не-TTY (pipe/CI): обычные строки в stderr, поведение не меняется.
+_TUI_STATUS_ACTIVE=0
+_TUI_STATUS_SHOWN_AT=""
+
+_tui_status_tty() {
+  [[ "${OLC_NO_SPINNER:-0}" == "1" ]] && return 1
+  [[ "${TERM:-}" == "dumb" ]] && return 1
+  [[ -t 2 ]]
+}
+
+_tui_status_wait_min() {
+  # Дать дочитать предыдущее сообщение (минимальное время показа)
+  local min="${OLC_STATUS_MIN_SEC:-0.9}"
+  [[ -n "$_TUI_STATUS_SHOWN_AT" ]] || return 0
+  local now="${EPOCHREALTIME:-}"
+  [[ -n "$now" ]] || return 0
+  local rest
+  rest="$(awk -v a="$now" -v b="$_TUI_STATUS_SHOWN_AT" -v m="$min" \
+    'BEGIN{d=m-(a-b); if (d<0.01) d=0; printf "%.2f", d}')" || return 0
+  [[ "$rest" == "0.00" || -z "$rest" ]] || sleep "$rest" 2>/dev/null || true
+}
+
+# tui_status "сообщение" — показать/заменить эфемерную статусную строку
+tui_status() {
+  local msg="$*"
+  if ! _tui_status_tty; then
+    echo "$msg" >&2
+    return 0
+  fi
+  _tui_status_wait_min
+  printf '\r\033[K\033[36m◌\033[0m \033[2m%s\033[0m' "$msg" >&2
+  _TUI_STATUS_ACTIVE=1
+  _TUI_STATUS_SHOWN_AT="${EPOCHREALTIME:-}"
+}
+
+# tui_status_end ["персистентное сообщение"] — убрать статусную строку;
+# опционально оставить одну финальную строку.
+tui_status_end() {
+  if [[ "${_TUI_STATUS_ACTIVE:-0}" == "1" ]]; then
+    _tui_status_wait_min
+    printf '\r\033[K' >&2
+  fi
+  _TUI_STATUS_ACTIVE=0
+  _TUI_STATUS_SHOWN_AT=""
+  [[ $# -gt 0 && -n "${1:-}" ]] && echo -e "$1" >&2
+  return 0
+}
+
 # Log functions with icons
 tui_log_info() {
   echo -e "${TUI_BLUE}ℹ${TUI_RESET} ${TUI_DIM}$*${TUI_RESET}"
@@ -402,4 +457,5 @@ export -f tui_spinner_ok tui_spinner_fail tui_progress_bar tui_menu tui_box
 export -f tui_header tui_gradient tui_loading_dots tui_log_info tui_log_success
 export -f tui_log_warning tui_log_error tui_log_step tui_log_bullet tui_fatal tui_substep
 export -f tui_tail_log tui_confirm tui_input tui_banner tui_divider
+export -f tui_status tui_status_end _tui_status_tty _tui_status_wait_min
 

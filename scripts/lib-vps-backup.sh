@@ -44,7 +44,12 @@ olc_preflight_vps_backup() {
 
   local reason="${1:-run}"
   if [[ "$reason" == "olc-update" && "${OLC_VPS_BACKUP_FORCE:-0}" != "1" && "${OLC_VPS_BACKUP_UPDATE_FULL:-0}" != "1" ]]; then
-    echo "[olc-vps-backup] skip full VPS backup for olc-update (use OLC_VPS_BACKUP_UPDATE_FULL=1 to force)" >&2
+    # При активной эфемерной статусной строке — не засорять терминал
+    if declare -f tui_status >/dev/null 2>&1 && [[ "${_TUI_STATUS_ACTIVE:-0}" == "1" ]]; then
+      tui_status "Бэкап: пропуск полного VPS-бэкапа при olc-update (OLC_VPS_BACKUP_UPDATE_FULL=1 — включить)"
+    else
+      echo "[olc-vps-backup] skip full VPS backup for olc-update (use OLC_VPS_BACKUP_UPDATE_FULL=1 to force)" >&2
+    fi
     return 0
   fi
 
