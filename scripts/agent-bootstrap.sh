@@ -506,7 +506,7 @@ run_community_lists() { bash "$SCRIPT_DIR/fetch-zapret-community-excludes.sh" 2>
 run_restart_manager() { systemctl restart olcrtc-manager; }
 run_cleanup_tmp() {
   find /tmp -maxdepth 1 -name 'olcrtc-manager-srv-*.yaml' -delete 2>/dev/null || true
-  olc_cleanup_build_caches "agent-bootstrap"
+  olc_cleanup_build_caches "agent-bootstrap" >/dev/null 2>&1
 }
 
 if [[ "$REBUILD_ONLY" -eq 1 ]]; then
