@@ -111,6 +111,23 @@ olc_state_line() {
     return
   fi
   local line="$*"
+
+  # Если simple mode прогресс-бара — не добавлять [этап], уже есть [N/M]
+  if [[ "${_OLCRTC_PROGRESS_SIMPLE:-0}" == "1" ]]; then
+    # Пропустить если это строка результата (✓/✗) — они выводятся после остановки прогресс-бара
+    case "$line" in
+      "✓ "*|"✗ "*|"пропуск "*)
+        # Применить переводы и вывести без префикса
+        line="${line/✓ patches/✓ патчи применены}"
+        line="${line/✗ patches/✗ патчи — ошибка}"
+        line="${line/skip /пропуск (уже сделано): }"
+        echo "$line"
+        return
+        ;;
+    esac
+  fi
+
+  # Стандартный режим: переводы + префикс [этап]
   line="${line/→ patches/→ патчи (olcrtc + панель manager)}"
   line="${line/→ packages/→ пакеты apt}"
   line="${line/→ go-toolchain/→ Go toolchain}"
