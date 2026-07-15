@@ -205,9 +205,15 @@ _olc_progress_start() {
         (( substep_percent > 100 )) && substep_percent=100
       fi
 
-      # Использовать процент подзадач если доступен, иначе общий
+      # Комбинированный прогресс: базовый по шагам + вклад текущего шага через substep
       local display_percent="$overall_percent"
-      [[ "$substep_total" -gt 0 ]] && display_percent="$substep_percent"
+      if [[ "$substep_total" -gt 0 && "$total" -gt 0 ]]; then
+        # Прогресс = (завершённые шаги + прогресс текущего шага) / всего шагов * 100
+        # curr-1 = завершённые шаги, substep_percent/100 = прогресс текущего
+        local combined=$(( (curr - 1) * 100 + substep_percent ))
+        display_percent=$(( combined / total ))
+        (( display_percent > 100 )) && display_percent=100
+      fi
 
       local width=30
       local filled=$(( width * display_percent / 100 ))
