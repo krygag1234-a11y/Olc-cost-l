@@ -114,12 +114,21 @@ _state_record_fail() {
 # If function returns non-zero AND step is critical, abort with helpful message.
 # If OLCRTC_SOFT_STEPS includes the step, failure is logged but continues.
 state_step() {
+  echo "[STATE-DEBUG] state_step ENTRY: name=$1" >&2
   local name="$1"; shift
+  echo "[STATE-DEBUG] after shift, args=$*" >&2
+
   _OLCRTC_STEP_NUM=$(( _OLCRTC_STEP_NUM + 1 ))
+  echo "[STATE-DEBUG] step num=$_OLCRTC_STEP_NUM" >&2
+
+  echo "[STATE-DEBUG] checking state_already_done" >&2
   if state_already_done "$name"; then
+    echo "[STATE-DEBUG] step already done, skipping" >&2
     _state_log "skip $name (already done — resume)"
     return 0
   fi
+  echo "[STATE-DEBUG] step not done, continuing" >&2
+
   # Show progress bar if OLCRTC_TOTAL_STEPS is set
   _olc_show_progress "$_OLCRTC_STEP_NUM" "$OLCRTC_TOTAL_STEPS"
 
