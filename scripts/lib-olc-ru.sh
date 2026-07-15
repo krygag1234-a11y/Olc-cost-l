@@ -223,9 +223,12 @@ olc_run_quiet_with_progress() {
   if declare -f olc_main_progress_active >/dev/null 2>&1 && olc_main_progress_active \
      && declare -f olc_progress_msg >/dev/null 2>&1; then
     olc_progress_msg "${label} — запущено · детали: ${log_file}"
+    # Опубликовать активный лог — подробный режим (Ctrl+O) стримит его хвост
+    declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "$log_file" || true
     started="$(date +%s)"
     rc=0
     "$@" >>"$log_file" 2>&1 || rc=$?
+    declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "" || true
     elapsed=$(( $(date +%s) - started ))
     if [[ "$rc" -eq 0 ]]; then
       olc_progress_msg "✓ ${label} — готово (${elapsed}с)"

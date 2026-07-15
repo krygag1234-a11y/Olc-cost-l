@@ -76,6 +76,42 @@ _olc_progress_ipc_init() {
   _OLCRTC_PROGRESS_IPC_OWNER=1
 }
 
+# Публикация пути АКТИВНОГО лога подзадачи (для подробного режима Ctrl+O).
+# Вызов с пустым аргументом — снять публикацию (подзадача завершена).
+_olc_progress_logfile() {
+  [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -d "${_OLCRTC_PROGRESS_IPC_DIR:-}" ]] || return 0
+  if [[ -n "${1:-}" ]]; then
+    printf '%s\n' "$1" > "$_OLCRTC_PROGRESS_IPC_DIR/logfile.tmp" 2>/dev/null || return 0
+    mv -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile.tmp" "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || true
+  else
+    rm -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || true
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Клавиатура во время animated-бара: Ctrl+O — показать/скрыть подробный вывод
+# (как в Claude CLI). Для посимвольного чтения /dev/tty переводится в
+# неканонический режим; -iexten обязателен — иначе терминал сам перехватывает
+# ^O как VDISCARD (flush) и байт до нас не доходит. Исходные настройки
+# сохраняются и восстанавливаются в _olc_progress_stop/_olc_progress_cleanup.
+# Отключить обработку клавиш: OLC_UI_KEYS=0.
+_OLCRTC_TTY_STTY_SAVED=""
+_olc_progress_keys_on() {
+  [[ "${OLC_UI_KEYS:-1}" == "1" ]] || return 0
+  [[ -z "$_OLCRTC_TTY_STTY_SAVED" ]] || return 0
+  local saved
+  saved="$(stty -g </dev/tty 2>/dev/null)" || return 0
+  [[ -n "$saved" ]] || return 0
+  if stty -icanon -echo -iexten min 0 time 0 </dev/tty 2>/dev/null; then
+    _OLCRTC_TTY_STTY_SAVED="$saved"
+  fi
+}
+_olc_progress_keys_off() {
+  [[ -n "$_OLCRTC_TTY_STTY_SAVED" ]] || return 0
+  stty "$_OLCRTC_TTY_STTY_SAVED" </dev/tty 2>/dev/null || true
+  _OLCRTC_TTY_STTY_SAVED=""
+}
+
 # Атомарная публикация "curr total name" для spinner (mv атомарен в пределах fs).
 # Фикс «100% (шаг 1/1)»: spinner никогда не видит пустой/усечённый файл.
 _olc_progress_publish() {
@@ -125,6 +161,7 @@ _olc_progress_step_cleanup() {
 _olc_progress_cleanup() {
   local rc="${1:-$?}"
   _olc_progress_stop 2>/dev/null || true
+  _olc_progress_keys_off 2>/dev/null || true
   _olc_progress_step_cleanup
   # Аварийный выход из полноэкранной сессии: показать журнал в основном
   # терминале (иначе ошибки исчезнут вместе с alt-screen)
@@ -140,7 +177,8 @@ _olc_progress_cleanup() {
     rm -f "$_OLCRTC_PROGRESS_IPC_DIR"/messages "$_OLCRTC_PROGRESS_IPC_DIR"/consumed \
       "$_OLCRTC_PROGRESS_IPC_DIR"/progress "$_OLCRTC_PROGRESS_IPC_DIR"/progress.tmp \
       "$_OLCRTC_PROGRESS_IPC_DIR"/spinner "$_OLCRTC_PROGRESS_IPC_DIR"/simple \
-      "$_OLCRTC_PROGRESS_IPC_DIR"/substep "$_OLCRTC_PROGRESS_IPC_DIR"/transcript 2>/dev/null || true
+      "$_OLCRTC_PROGRESS_IPC_DIR"/substep "$_OLCRTC_PROGRESS_IPC_DIR"/transcript \
+      "$_OLCRTC_PROGRESS_IPC_DIR"/logfile "$_OLCRTC_PROGRESS_IPC_DIR"/logfile.tmp 2>/dev/null || true
     rmdir "$_OLCRTC_PROGRESS_IPC_DIR" 2>/dev/null || true
   fi
   return "$rc"
@@ -259,6 +297,9 @@ _olc_progress_start() {
   # решают, отправлять ли сообщения в очередь (виден и вложенным процессам).
   touch "$_OLCRTC_PROGRESS_IPC_DIR/spinner"
 
+  # Клавиатура (Ctrl+O — подробный вывод): включить посимвольное чтение /dev/tty
+  _olc_progress_keys_on
+
   # Запустить фоновый процесс анимации
   (
     # Игнорировать SIGTERM чтобы не ломать exit code родителя
@@ -274,6 +315,23 @@ _olc_progress_start() {
     _sp() {
       # shellcheck disable=SC2059
       if [[ -n "$out_dev" ]]; then printf "$@" > "$out_dev"; else printf "$@"; fi
+    }
+
+    # Клавиатура: неблокирующее чтение /dev/tty (Ctrl+O = \x0f).
+    # Родитель уже перевёл tty в неканонический режим (_olc_progress_keys_on).
+    local kbd_fd=""
+    if [[ "${OLC_UI_KEYS:-1}" == "1" ]]; then
+      { exec {kbd_fd}</dev/tty; } 2>/dev/null || kbd_fd=""
+    fi
+    # Подробный режим (Ctrl+O): live-хвост активного лога подзадачи
+    local verbose=0 vlog="" vlog_line=0
+
+    # Печать новых строк лога (dim, префикс «·»), без попадания в transcript
+    _sp_log_lines() {
+      local vline
+      while IFS= read -r vline; do
+        _sp '  \033[2m· %s\033[0m\n' "$vline"
+      done < <(tr -d '\r' <<<"$1" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
     }
 
     while true; do
@@ -324,6 +382,35 @@ _olc_progress_start() {
         fi
       fi
 
+      # 3.5) Подробный режим (Ctrl+O): стримить новые строки активного лога
+      if (( verbose )); then
+        local vnew=""
+        if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile" ]]; then
+          IFS= read -r vnew < "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || vnew=""
+        fi
+        if [[ "$vnew" != "$vlog" ]]; then
+          vlog="$vnew"
+          vlog_line=0
+          if [[ -n "$vlog" && -f "$vlog" ]]; then
+            # Новая подзадача: стримим только СВЕЖИЕ строки (без истории файла)
+            vlog_line="$(wc -l < "$vlog" 2>/dev/null)" || vlog_line=0
+            [[ "$vlog_line" =~ ^[0-9]+$ ]] || vlog_line=0
+            _sp '\r\033[K  \033[2m── лог: %s ──\033[0m\n' "$vlog"
+          fi
+        fi
+        if [[ -n "$vlog" && -f "$vlog" ]]; then
+          local vtotal
+          vtotal="$(wc -l < "$vlog" 2>/dev/null)" || vtotal=0
+          [[ "$vtotal" =~ ^[0-9]+$ ]] || vtotal=0
+          if (( vtotal > vlog_line )); then
+            _sp '\r\033[K'
+            # не более 40 строк за кадр — терминал не «захлёбывается»
+            _sp_log_lines "$(sed -n "$((vlog_line+1)),${vtotal}p" "$vlog" 2>/dev/null | tail -n 40)"
+            vlog_line="$vtotal"
+          fi
+        fi
+      fi
+
       # 4) Отрисовать бар (одна строка, перерисовка на месте)
       local width=30
       local filled=$(( width * percent / 100 ))
@@ -342,7 +429,32 @@ _olc_progress_start() {
         "${frames[$i]}" "$bar" "$percent" "$curr" "$total" "$name" "$substep_display"
 
       i=$(( (i + 1) % ${#frames[@]} ))
-      sleep 0.1
+
+      # 5) Клавиатура: read с таймаутом = кадровая задержка (вместо sleep)
+      local key=""
+      if [[ -n "$kbd_fd" ]]; then
+        IFS= read -rsn1 -t 0.1 -u "$kbd_fd" key 2>/dev/null || key=""
+      else
+        sleep 0.1
+      fi
+      if [[ "$key" == $'\x0f' ]]; then   # Ctrl+O
+        if (( verbose )); then
+          verbose=0
+          _sp '\r\033[K  \033[2m── подробный вывод скрыт (Ctrl+O — показать) ──\033[0m\n'
+        else
+          verbose=1
+          vlog="" vlog_line=0
+          _sp '\r\033[K  \033[2m── подробный вывод (Ctrl+O — скрыть) ──\033[0m\n'
+          # Контекст: хвост уже накопленного лога текущей подзадачи
+          local vcur=""
+          if [[ -f "$_OLCRTC_PROGRESS_IPC_DIR/logfile" ]]; then
+            IFS= read -r vcur < "$_OLCRTC_PROGRESS_IPC_DIR/logfile" 2>/dev/null || vcur=""
+          fi
+          if [[ -n "$vcur" && -f "$vcur" ]]; then
+            _sp_log_lines "$(tail -n 12 "$vcur" 2>/dev/null)"
+          fi
+        fi
+      fi
     done
   ) &
   _OLCRTC_PROGRESS_PID=$!
@@ -399,6 +511,8 @@ _olc_progress_stop() {
   wait "$_OLCRTC_PROGRESS_PID" 2>/dev/null || true  # ignore exit code 137 from SIGKILL
   _OLCRTC_PROGRESS_PID=""
   _OLCRTC_PROGRESS_ACTIVE=0
+  # Вернуть терминал в исходный режим (клавиатура Ctrl+O больше не читается)
+  _olc_progress_keys_off
   # Очистить строку бара и дослать несведённые сообщения
   _olc_progress_print "\r\033[K"
   _olc_progress_drain_messages
@@ -423,6 +537,12 @@ olc_ui_begin() {
   _OLC_UI_TITLE="${1:-}"
   shift || true
   _OLC_UI_INFO=("$@")
+  # Подсказка про Ctrl+O — только если клавиатура реально будет читаться
+  # (animated-режим возможен и /dev/tty доступен на чтение)
+  if [[ "${OLC_NO_SPINNER:-0}" != "1" && "${OLC_UI_KEYS:-1}" == "1" && "${TERM:-}" != "dumb" ]] \
+     && { : </dev/tty; } 2>/dev/null; then
+    _OLC_UI_INFO+=("Ctrl+O — показать/скрыть подробный вывод")
+  fi
   if [[ -t 1 && "${TERM:-}" != "dumb" && "${OLC_NO_SPINNER:-0}" != "1" && "${OLC_UI_NO_ALT:-0}" != "1" ]]; then
     printf '\033[?1049h\033[H\033[2J'
     _OLC_UI_ALT=1
@@ -677,6 +797,7 @@ state_step() {
   export -f _olc_substep 2>/dev/null || true
   export -f _olc_substep_reset 2>/dev/null || true
   export -f _olc_progress_publish 2>/dev/null || true
+  export -f _olc_progress_logfile 2>/dev/null || true
   export -f olc_progress_msg 2>/dev/null || true
 
   local started; started=$(date +%s)

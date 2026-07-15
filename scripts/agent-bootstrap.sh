@@ -240,6 +240,9 @@ setup_warp() {
 
 setup_tor() {
   [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
+  # Опубликовать активный лог — подробный режим (Ctrl+O) стримит его хвост
+  declare -f _olc_progress_logfile >/dev/null 2>&1 && \
+    _olc_progress_logfile /var/log/olcrtc-bootstrap-tor.log || true
   # Перенаправить весь вывод в лог, чтобы не накладывался на spinner
   {
     bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
@@ -279,6 +282,7 @@ setup_tor() {
       olcrtc-tor-bridge-deep.timer 2>/dev/null || true
     bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
   } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
+  declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "" || true
 }
 
 setup_split_routing() {
@@ -498,13 +502,18 @@ run_patches() {
   # Фактическое число подзадач определяет apply-olcrtc-patches.sh по runtime-веткам.
   ensure_ui_build_deps
 
+  # Опубликовать активный лог — подробный режим (Ctrl+O) стримит его хвост
+  declare -f _olc_progress_logfile >/dev/null 2>&1 && \
+    _olc_progress_logfile /var/log/olcrtc-bootstrap-patches.log || true
   # Редирект в лог — вывод команд не нужен, прогресс через _olc_substep() → FD 3
   # FD 3 → оригинальный stdout для прогресса, минуя редирект в лог
   if ! BUILD=1 bash "$PATCH_SCRIPT" 3>&1 >>/var/log/olcrtc-bootstrap-patches.log 2>&1; then
+    declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "" || true
     log "ERROR: патчи/сборка не удались — см. детали выше"
     log "Полный лог: /var/log/olcrtc-bootstrap-patches.log"
     return 1
   fi
+  declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "" || true
   ensure_panel_jitsi_tls
 }
 run_community_lists() {
