@@ -248,9 +248,15 @@ main() {
     eval "arg=\${$i}"
     if [[ "$arg" == "--profile" ]]; then
       next=$((i + 1))
-      eval "pid=\${$next}"
-      boot_args+=(--profile "$pid")
-      i=$((i + 2))
+      if [[ $next -le $# ]]; then
+        eval "pid=\${$next}"
+        boot_args+=(--profile "$pid")
+        i=$((i + 2))
+      else
+        tui_fatal "Флаг --profile требует аргумент (profile ID)." \
+          "Получено: --profile без значения" \
+          "Используй: olc-update --show-profile (показать ID), затем olc-update --profile <ID>"
+      fi
       continue
     fi
     if [[ "$arg" != "--show-profile" ]]; then
