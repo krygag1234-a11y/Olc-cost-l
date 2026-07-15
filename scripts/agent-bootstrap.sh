@@ -462,11 +462,7 @@ ensure_panel_jitsi_tls() {
 }
 
 run_patches() {
-  # Установить количество подзадач для прогресс-бара:
-  # 1. clone repos, 2. apply olcrtc, 3. apply backend, 4. apply frontend,
-  # 5. npm install, 6. npm build, 7. go build olcrtc, 8. go build olcrtc-manager
-  declare -f _olc_substep_reset >/dev/null 2>&1 && _olc_substep_reset 8 || true
-
+  # Фактическое число подзадач определяет apply-olcrtc-patches.sh по runtime-веткам.
   ensure_ui_build_deps
 
   # Редирект в лог — вывод команд не нужен, прогресс через _olc_substep()

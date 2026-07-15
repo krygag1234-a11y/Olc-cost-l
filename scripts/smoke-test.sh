@@ -15,6 +15,12 @@ while IFS= read -r -d '' sh; do
 done < <(find "$REPO_ROOT/scripts" -maxdepth 1 -name '*.sh' -print0)
 [[ "$FAIL" -eq 0 ]] && ok "bash -n scripts/*.sh"
 
+if bash "$SCRIPT_DIR/test-install-progress.sh" >/dev/null 2>&1; then
+  ok "install progress nested IPC"
+else
+  bad "install progress nested IPC"
+fi
+
 # Required data files
 for f in \
   data/upstream-pins.json \

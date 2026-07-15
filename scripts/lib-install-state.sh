@@ -35,10 +35,56 @@ _OLCRTC_PROGRESS_PID=""
 _OLCRTC_PROGRESS_CURR=0
 _OLCRTC_PROGRESS_TOTAL=0
 _OLCRTC_PROGRESS_STEP_NAME=""
-_OLCRTC_PROGRESS_SUBSTEP_FILE="/tmp/olc-substep-$$"
-_OLCRTC_PROGRESS_SIMPLE_FLAG="/tmp/olc-progress-simple-$$"
-_OLCRTC_PROGRESS_ACTIVE=0
-_OLCRTC_PROGRESS_SIMPLE=0  # Статичный режим для не-TTY
+: "${_OLCRTC_PROGRESS_IPC_DIR:=}"
+: "${_OLCRTC_PROGRESS_SUBSTEP_FILE:=}"
+: "${_OLCRTC_PROGRESS_SIMPLE_FLAG:=}"
+: "${_OLCRTC_PROGRESS_ACTIVE:=0}"
+: "${_OLCRTC_PROGRESS_SIMPLE:=0}"  # Статичный режим для не-TTY
+_OLCRTC_PROGRESS_IPC_OWNER=0
+
+# IPC создаёт только родитель state machine. Вложенный bash сохраняет пути из environment.
+_olc_progress_ipc_init() {
+  if [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_FILE" && -n "$_OLCRTC_PROGRESS_SIMPLE_FLAG" ]]; then
+    # Унаследованные пути — валидировать, что родительский IPC-каталог содержит их.
+    if [[ -n "$_OLCRTC_PROGRESS_IPC_DIR" ]]; then
+      local resolved_substep resolved_simple
+      resolved_substep="$(cd "$(dirname "$_OLCRTC_PROGRESS_SUBSTEP_FILE")" && pwd)/$(basename "$_OLCRTC_PROGRESS_SUBSTEP_FILE")" 2>/dev/null || return 1
+      resolved_simple="$(cd "$(dirname "$_OLCRTC_PROGRESS_SIMPLE_FLAG")" && pwd)/$(basename "$_OLCRTC_PROGRESS_SIMPLE_FLAG")" 2>/dev/null || return 1
+      [[ "$resolved_substep" == "$_OLCRTC_PROGRESS_IPC_DIR"/* ]] || return 1
+      [[ "$resolved_simple" == "$_OLCRTC_PROGRESS_IPC_DIR"/* ]] || return 1
+    fi
+    return 0
+  fi
+
+  local old_umask
+  old_umask="$(umask)"
+  umask 077
+  _OLCRTC_PROGRESS_IPC_DIR="$(mktemp -d "${TMPDIR:-/tmp}/olcrtc-progress.XXXXXX")" || {
+    umask "$old_umask"
+    return 1
+  }
+  umask "$old_umask"
+  _OLCRTC_PROGRESS_SUBSTEP_FILE="$_OLCRTC_PROGRESS_IPC_DIR/substep"
+  _OLCRTC_PROGRESS_SIMPLE_FLAG="$_OLCRTC_PROGRESS_IPC_DIR/simple"
+  _OLCRTC_PROGRESS_IPC_OWNER=1
+}
+
+_olc_progress_step_cleanup() {
+  [[ -n "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]] && rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || true
+  [[ -n "$_OLCRTC_PROGRESS_SIMPLE_FLAG" ]] && rm -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" 2>/dev/null || true
+  _OLCRTC_PROGRESS_SIMPLE=0
+  _OLCRTC_PROGRESS_ACTIVE=0
+}
+
+_olc_progress_cleanup() {
+  local rc="${1:-$?}"
+  _olc_progress_stop 2>/dev/null || true
+  _olc_progress_step_cleanup
+  if [[ "$_OLCRTC_PROGRESS_IPC_OWNER" == "1" && -n "$_OLCRTC_PROGRESS_IPC_DIR" ]]; then
+    rmdir "$_OLCRTC_PROGRESS_IPC_DIR" 2>/dev/null || true
+  fi
+  return "$rc"
+}
 
 # Функция для отчёта о подзадаче (вызывается из agent-bootstrap.sh и др.)
 _olc_substep() {
@@ -46,8 +92,8 @@ _olc_substep() {
 
   # Записать в файл для чтения анимацией
   if [[ -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" ]]; then
-    local curr total
-    read curr total < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || { curr=0; total=0; }
+    local curr total previous_name
+    read curr total previous_name < "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null || { curr=0; total=0; }
     curr=$(( curr + 1 ))
     echo "$curr $total $substep_name" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
 
@@ -55,6 +101,7 @@ _olc_substep() {
     # Проверка через файл-флаг вместо переменной окружения
     if [[ -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" && "$total" -gt 0 ]]; then
       local percent=$(( curr * 100 / total ))
+      (( percent > 100 )) && percent=100
       printf "  → %s (%d/%d, %d%%)\n" "$substep_name" "$curr" "$total" "$percent"
     fi
   fi
@@ -63,6 +110,7 @@ _olc_substep() {
 # Сбросить счётчик подзадач (вызывается в начале state_step)
 _olc_substep_reset() {
   local total="${1:-0}"
+  _olc_progress_ipc_init || return 1
   echo "0 $total" > "$_OLCRTC_PROGRESS_SUBSTEP_FILE"
 }
 
@@ -88,11 +136,11 @@ _olc_show_progress() {
 # Запуск анимированного прогресс-бара (вызывается в начале state_step)
 _olc_progress_start() {
   local step_name="$1"
+  _olc_progress_ipc_init || return 1
   _OLCRTC_PROGRESS_STEP_NAME="$step_name"
 
-  # Сбросить simple mode от предыдущего шага
-  _OLCRTC_PROGRESS_SIMPLE=0
-  rm -f "$_OLCRTC_PROGRESS_SIMPLE_FLAG" 2>/dev/null
+  # Сбросить simple mode и IPC-файлы предыдущего шага
+  _olc_progress_step_cleanup
 
   # Если не TTY или OLC_NO_SPINNER=1 → включить simple mode (статичный вывод)
   if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
@@ -148,6 +196,7 @@ _olc_progress_start() {
       local substep_percent=0
       if [[ "$substep_total" -gt 0 ]]; then
         substep_percent=$(( substep_curr * 100 / substep_total ))
+        (( substep_percent > 100 )) && substep_percent=100
       fi
 
       # Использовать процент подзадач если доступен, иначе общий
@@ -215,6 +264,7 @@ _state_log() {
 }
 
 state_init() {
+  _olc_progress_ipc_init || return 1
   mkdir -p "$OLCRTC_STATE_DIR"
   if [[ "${1:-}" == "--fresh" || "$OLCRTC_FRESH" == "1" ]]; then
     rm -f "$OLCRTC_STATE_FILE"
@@ -223,8 +273,10 @@ state_init() {
     printf '{"started":"%s","last_ok":null,"history":[],"failed":null}\n' \
       "$(date -u +%FT%TZ)" > "$OLCRTC_STATE_FILE"
   fi
-  # Установить trap для очистки анимации при прерывании
-  trap '_olc_progress_stop 2>/dev/null || true' EXIT INT TERM
+  # Установить trap для очистки анимации и parent-owned IPC при прерывании
+  trap '_olc_progress_cleanup $?' EXIT
+  trap '_olc_progress_cleanup 130; exit 130' INT
+  trap '_olc_progress_cleanup 143; exit 143' TERM
 }
 
 state_already_done() {
@@ -281,16 +333,16 @@ state_step() {
   _OLCRTC_PROGRESS_CURR="$_OLCRTC_STEP_NUM"
   _OLCRTC_PROGRESS_TOTAL="$OLCRTC_TOTAL_STEPS"
 
-  # Сбросить счётчик подзадач (будет обновляться через _olc_substep)
-  _olc_substep_reset 0
-
-  # Экспортировать переменные и функции для использования в подпроцессах
+  # Запустить прогресс и только затем экспортировать финальный IPC-контракт.
+  _olc_progress_start "$name"
+  export _OLCRTC_PROGRESS_IPC_DIR
   export _OLCRTC_PROGRESS_SUBSTEP_FILE
+  export _OLCRTC_PROGRESS_SIMPLE_FLAG
+  export _OLCRTC_PROGRESS_ACTIVE
+  export _OLCRTC_PROGRESS_SIMPLE
+  export -f _olc_progress_ipc_init 2>/dev/null || true
   export -f _olc_substep 2>/dev/null || true
   export -f _olc_substep_reset 2>/dev/null || true
-
-  # Запустить анимированный прогресс-бар
-  _olc_progress_start "$name"
 
   local started; started=$(date +%s)
   local rc=0
@@ -302,10 +354,12 @@ state_step() {
 
   if [[ $rc -eq 0 ]]; then
     _state_log "✓ $name (${dur}s)"
+    _olc_progress_step_cleanup
     _state_record_ok "$name"
     return 0
   fi
   _state_log "✗ $name (rc=$rc, ${dur}s)"
+  _olc_progress_step_cleanup
   _state_record_fail "$name" "$rc"
   case ",${OLCRTC_SOFT_STEPS:-}," in
     *",$name,"*)
