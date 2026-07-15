@@ -88,6 +88,9 @@ _olc_progress_start() {
   local step_name="$1"
   _OLCRTC_PROGRESS_STEP_NAME="$step_name"
 
+  # Сбросить simple mode от предыдущего шага
+  _OLCRTC_PROGRESS_SIMPLE=0
+
   # Если не TTY или OLC_NO_SPINNER=1 → включить simple mode (статичный вывод)
   if [[ ! -t 1 ]] || [[ "${OLC_NO_SPINNER:-0}" == "1" ]]; then
     _OLCRTC_PROGRESS_SIMPLE=1
@@ -177,7 +180,7 @@ _olc_progress_stop() {
   # Simple mode — только очистка
   if [[ "$_OLCRTC_PROGRESS_SIMPLE" == "1" ]]; then
     _OLCRTC_PROGRESS_ACTIVE=0
-    _OLCRTC_PROGRESS_SIMPLE=0
+    # НЕ сбрасываем _OLCRTC_PROGRESS_SIMPLE здесь — нужен для вывода результата в _state_log
     rm -f "$_OLCRTC_PROGRESS_SUBSTEP_FILE" 2>/dev/null
     return 0
   fi
