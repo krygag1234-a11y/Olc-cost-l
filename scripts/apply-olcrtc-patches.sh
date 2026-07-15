@@ -533,14 +533,15 @@ build_binaries() {
   local manager_log="/tmp/olcrtc-manager-build-$$.log"
 
   # Флаги оптимизации: -s -w убирают debug info, ускоряют линковку
-  local build_flags="-ldflags=-s -w"
+  # ВАЖНО: кавычки вокруг переменной при использовании, чтобы -s -w парсились вместе
+  local build_flags='-ldflags=-s -w'
 
   # Запустить обе сборки параллельно
-  (cd "$OLCRTC_REPO" && go build -trimpath $build_flags -o /usr/local/bin/olcrtc ./cmd/olcrtc 2>&1 | tee "$olcrtc_log") &
+  (cd "$OLCRTC_REPO" && go build -trimpath "$build_flags" -o /usr/local/bin/olcrtc ./cmd/olcrtc 2>&1 | tee "$olcrtc_log") &
   local olcrtc_pid=$!
 
   _olc_substep "go build olcrtc-manager" 2>/dev/null || true
-  (cd "$MGR_REPO" && go build -trimpath $build_flags -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager 2>&1 | tee "$manager_log") &
+  (cd "$MGR_REPO" && go build -trimpath "$build_flags" -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager 2>&1 | tee "$manager_log") &
   local manager_pid=$!
 
   # Ждать завершения обеих сборок
