@@ -320,7 +320,12 @@ main() {
     fi
   fi
   write_report
-  [[ "$RELOAD" -eq 1 ]] && reload_zapret
+  # НЕ `[[ … ]] && reload_zapret` последней командой: при RELOAD=0 такой
+  # AND-list возвращает 1 и весь скрипт завершается с rc=1 без ошибки.
+  if [[ "$RELOAD" -eq 1 ]]; then
+    reload_zapret
+  fi
+  return 0
 }
 
 main "$@"
