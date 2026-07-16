@@ -383,8 +383,15 @@ setup_systemd() {
 EOF
   install_systemd_units
   systemctl daemon-reload
-  # Note: only olcrtc-manager.service is needed (it spawns olcrtc processes)
-  systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
+  # Note: only olcrtc-manager.service is needed (it spawns olcrtc processes).
+  # Включаем персистентно и ПРОВЕРЯЕМ (без проверки боевой баг: панель работала,
+  # но была `disabled` и не поднялась после reboot VPS). network-recovery —
+  # static (нет [Install]), enable для него — no-op, поэтому его тут НЕ трогаем.
+  systemctl enable olcrtc-manager.service >/dev/null 2>&1 || \
+    systemctl reenable olcrtc-manager.service >/dev/null 2>&1 || true
+  if [[ "$(systemctl is-enabled olcrtc-manager.service 2>/dev/null)" != "enabled" ]]; then
+    log "WARN: olcrtc-manager.service не включился в автозапуск (повтор в финале)"
+  fi
   # Таймеры обслуживания мостов: enable ЗДЕСЬ, а не только в setup_tor —
   # setup_tor выполняется ДО установки юнитов, и на чистой установке его
   # `systemctl enable …timer 2>/dev/null || true` тихо фейлился: таймеры
@@ -540,9 +547,42 @@ run_community_lists() {
 }
 run_restart_manager() { systemctl restart olcrtc-manager && _OLC_MANAGER_RESTARTED=1; }
 
+# Гарантия: критичные для загрузки юниты ВКЛЮЧЕНЫ персистентно (переживут reboot).
+# Боевой баг (найден после reboot VPS): olcrtc-manager оставался `disabled`, а
+# tor@default — `enabled-runtime` (только в /run). Причина: шаг start-manager
+# делал `enable --now … 2>/dev/null || systemctl restart` — при разовом сбое
+# enable уходил в restart (панель работает, но автозапуск НЕ включён), и это
+# молча терялось. Теперь enable вызывается отдельно, с проверкой is-enabled и
+# повтором; вызывается в конце КАЖДОГО пути установки/обновления.
+ensure_units_enabled() {
+  local u rc_all=0
+  # tor@default — static (нет [Install]); на Debian/Ubuntu автозапуск Tor даёт
+  # tor.service (wrapper, тянет tor@default). Поэтому проверяем tor.service.
+  local units=(olcrtc-manager.service)
+  [[ "${ENABLE_TOR:-1}" -eq 1 ]] && units+=(tor.service)
+  for u in "${units[@]}"; do
+    systemctl list-unit-files "$u" >/dev/null 2>&1 || continue
+    if [[ "$(systemctl is-enabled "$u" 2>/dev/null)" != "enabled" ]]; then
+      systemctl enable "$u" >/dev/null 2>&1 || systemctl reenable "$u" >/dev/null 2>&1 || true
+    fi
+    if [[ "$(systemctl is-enabled "$u" 2>/dev/null)" != "enabled" ]]; then
+      log "WARN: $u не удалось включить в автозапуск — проверьте: systemctl enable $u"
+      rc_all=1
+    fi
+  done
+  # таймеры обслуживания мостов (если Tor включён)
+  if [[ "${ENABLE_TOR:-1}" -eq 1 ]]; then
+    systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
+      olcrtc-tor-bridge-deep.timer >/dev/null 2>&1 || true
+  fi
+  return $rc_all
+}
+
 # Гарантия: после обновления панель ВСЕГДА перезапущена (применение UI-изменений),
-# даже если шаг restart-manager был пропущен через --resume.
+# даже если шаг restart-manager был пропущен через --resume. Плюс — персистентный
+# автозапуск (ensure_units_enabled).
 ensure_manager_restarted() {
+  ensure_units_enabled || true
   [[ "${_OLC_MANAGER_RESTARTED:-0}" == "1" ]] && return 0
   log "перезапуск olcrtc-manager (применение обновлений UI)"
   systemctl restart olcrtc-manager >/dev/null 2>&1 && _OLC_MANAGER_RESTARTED=1 || \
@@ -706,7 +746,7 @@ state_step_profile zapret                setup_zapret
 state_step systemd               setup_systemd
 state_step cron                  setup_cron
 state_step cleanup-tmp           run_cleanup_tmp
-state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc-manager.service'
+state_step start-manager         bash -c 'systemctl enable olcrtc-manager.service >/dev/null 2>&1 || systemctl reenable olcrtc-manager.service >/dev/null 2>&1 || true; systemctl restart olcrtc-manager.service'
 ensure_manager_restarted
 state_finish   # схлопывание строк шагов + анимация бара (в TTY)
 olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
