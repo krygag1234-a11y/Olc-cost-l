@@ -125,6 +125,9 @@ if [[ -x /opt/zapret/init.d/sysv/zapret && "$DRY_RUN" -eq 0 ]]; then
 fi
 stop_unit zapret.service
 stop_unit zapret4rocket.service 2>/dev/null || true
+# zapret'овский install_easy ставит свои юниты в /usr/lib/systemd/system
+stop_unit zapret-list-update.timer
+stop_unit zapret-list-update.service
 
 log "kill olcrtc processes"
 if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -140,8 +143,13 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 else
   rm -rf /etc/systemd/system/olcrtc-* 2>/dev/null || true
   rm -f /etc/systemd/system/zapret.service /etc/systemd/system/zapret4rocket.service 2>/dev/null || true
+  # юниты, которые кладёт сам zapret install_easy (найдено проверкой чистоты на боевом)
+  rm -f /usr/lib/systemd/system/zapret.service \
+        /usr/lib/systemd/system/zapret-list-update.service \
+        /usr/lib/systemd/system/zapret-list-update.timer 2>/dev/null || true
   rm -f /etc/systemd/system/multi-user.target.wants/olcrtc-* \
-        /etc/systemd/system/multi-user.target.wants/zapret.service 2>/dev/null || true
+        /etc/systemd/system/multi-user.target.wants/zapret.service \
+        /etc/systemd/system/timers.target.wants/zapret-list-update.timer 2>/dev/null || true
 fi
 run systemctl daemon-reload
 if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -264,6 +272,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     leftovers=$((leftovers + 1))
   done < <(
     ls -d /etc/systemd/system/olcrtc-* /etc/systemd/system/zapret.service \
+          /usr/lib/systemd/system/zapret*.service /usr/lib/systemd/system/zapret*.timer \
           /usr/local/bin/olcrtc /usr/local/bin/olcrtc-manager /usr/local/bin/olc-* \
           /usr/local/bin/webtunnel-client \
           /etc/olcrtc-manager /var/lib/olcrtc /opt/zapret \
