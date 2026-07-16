@@ -728,12 +728,95 @@ def apply_analysis(payload):
     return out
 
 
+def expand_all(force=False, only_target=None, limit=None):
+    # Phase 2E: надёжное авто-РАСШИРЕНИЕ субдоменов существующих групп discovery.
+    # sync-config создаёт группы shallow (deep=False, без cert SAN / crt.sh) ради
+    # скорости — субдомены и CDN не подтягиваются. Этот шаг проходит по группам и
+    # делает DEEP-анализ (resolve + CNAME + cert SAN + crt.sh + brand-siblings +
+    # CDN-домены), доливая найденное в domains/cidrs и авто-ВЫБИРАЯ новинки
+    # (selected_*), чтобы они попали в rebuild. Кэш-TTL (per-group expanded_at)
+    # делает операцию «стабильной»: повторный запуск не спамит сеть, пока не
+    # истёк TTL (или --force). Покрывает и Phase 2D (CDN из cert/crt.sh/brand).
+    data = load_manifest()
+    try:
+        ttl_hours = float(os.environ.get("OLC_EXPAND_TTL_HOURS", "24") or 24)
+    except Exception:
+        ttl_hours = 24.0
+    if limit is None:
+        try:
+            limit = int(os.environ.get("OLC_EXPAND_LIMIT", "20") or 20)
+        except Exception:
+            limit = 20
+    now_ts = dt.datetime.now(dt.timezone.utc)
+    expanded = added_domains = added_cidrs = processed = skipped = 0
+    for g in data.get("groups", []):
+        target = target_value(g.get("target"))
+        if only_target and target != target_value(only_target):
+            continue
+        # расширяем субдоменами только доменные цели (IP/CIDR нечего расширять)
+        if not target or is_ip(target) or is_cidr(target):
+            continue
+        # кэш-TTL: не трогать недавно расширённые (стабильность, без спама сети);
+        # только для массового прохода — точечный (only_target)/force идут всегда.
+        if not force and only_target is None:
+            exp = g.get("expanded_at")
+            if exp:
+                try:
+                    last = dt.datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    if last.tzinfo is None:
+                        last = last.replace(tzinfo=dt.timezone.utc)
+                    if (now_ts - last).total_seconds() < ttl_hours * 3600:
+                        skipped += 1
+                        continue
+                except Exception:
+                    pass
+        if processed >= limit:
+            break
+        processed += 1
+        try:
+            res = analyze(target, deep=True)
+        except Exception:
+            continue
+        new_domains = [d for d in res.get("domains", []) if d]
+        new_cidrs = [c for c in res.get("cidrs", []) if c]
+        before_d = set(g.get("domains") or [])
+        before_c = set(g.get("cidrs") or [])
+        merged_d = ordered_unique((g.get("domains") or []) + new_domains)
+        merged_c = ordered_unique((g.get("cidrs") or []) + new_cidrs)
+        gained_d = [d for d in merged_d if d not in before_d]
+        gained_c = [c for c in merged_c if c not in before_c]
+        g["domains"] = merged_d
+        g["cidrs"] = merged_c
+        # авто-выбор новинок — иначе rebuild их не подхватит
+        g["selected_domains"] = ordered_unique((g.get("selected_domains") or []) + gained_d)
+        g["selected_cidrs"] = ordered_unique((g.get("selected_cidrs") or []) + gained_c)
+        g["expanded_at"] = now()
+        g["updated_at"] = now()
+        expanded += 1
+        added_domains += len(gained_d)
+        added_cidrs += len(gained_c)
+    save_manifest(data)
+    out = rebuild()
+    out.update({
+        "status": "ok",
+        "expanded_groups": expanded,
+        "processed": processed,
+        "skipped_fresh": skipped,
+        "added_domains": added_domains,
+        "added_cidrs": added_cidrs,
+        "ttl_hours": ttl_hours,
+    })
+    return out
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("command", choices=["analyze", "sync-config", "sync-logs", "rebuild", "apply-analysis", "manifest"])
+    p.add_argument("command", choices=["analyze", "sync-config", "sync-logs", "rebuild", "apply-analysis", "manifest", "expand-all"])
     p.add_argument("target", nargs="?")
     p.add_argument("--config", default="/etc/olcrtc-manager/config.json")
     p.add_argument("--shallow", action="store_true")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--limit", type=int, default=None)
     args = p.parse_args()
     if args.command == "analyze":
         print(json.dumps(analyze(args.target or "", deep=not args.shallow), ensure_ascii=False, indent=2))
@@ -749,6 +832,8 @@ def main():
         print(json.dumps(apply_analysis(payload), ensure_ascii=False, indent=2))
     elif args.command == "manifest":
         print(json.dumps(load_manifest(), ensure_ascii=False, indent=2))
+    elif args.command == "expand-all":
+        print(json.dumps(expand_all(force=args.force, only_target=args.target, limit=args.limit), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
