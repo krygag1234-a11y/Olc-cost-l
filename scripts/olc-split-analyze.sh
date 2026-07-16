@@ -631,6 +631,14 @@ def related_runtime_log_hosts(anchors):
 
 def sync_config(path):
     data = load_manifest()
+    # Сохранить накопленное по существующим instance-группам (deep-расширение из
+    # expand-all + пользовательский выбор selected_*), чтобы sync-config не стирал
+    # субдомены/CDN и метку expanded_at. Ключ — нормализованная цель.
+    prev_instances = {
+        target_value(g.get("target")): g
+        for g in data.get("groups", [])
+        if g.get("source") == "instance" and target_value(g.get("target"))
+    }
     data["groups"] = [g for g in data.get("groups", []) if g.get("source") != "instance"]
     try:
         cfg = json.loads(read_text(Path(path)))
@@ -642,14 +650,43 @@ def sync_config(path):
     anchors = ordered_unique(instance_targets + read_rules(CUSTOM_DIRECT) + read_rules(PANEL_HOSTS) + seeded_direct_domains())
     log_hosts = ordered_unique(related_runtime_log_hosts(anchors) + service_log_hosts() + brand_sibling_domains(anchors))
     visible_hosts, visible_cidrs = list(log_hosts), []
+
+    def _merge_prev(target, domains, cidrs):
+        # долить накопленное из предыдущей instance-группы (если была)
+        prev = prev_instances.get(target_value(target))
+        dom = ordered_unique(list(domains or []) + (prev.get("domains") if prev else []))
+        cid = ordered_unique(list(cidrs or []) + (prev.get("cidrs") if prev else []))
+        return dom, cid, prev
+
+    def _restore_prev(target, prev):
+        # вернуть selected_* и expanded_at на воссозданную группу
+        if not prev:
+            return
+        gid = group_id("instance", target_value(target))
+        for g in data.get("groups", []):
+            if g.get("id") == gid:
+                if prev.get("selected_domains"):
+                    g["selected_domains"] = ordered_unique((g.get("selected_domains") or []) + prev["selected_domains"])
+                if prev.get("selected_cidrs"):
+                    g["selected_cidrs"] = ordered_unique((g.get("selected_cidrs") or []) + prev["selected_cidrs"])
+                if prev.get("expanded_at"):
+                    g["expanded_at"] = prev["expanded_at"]
+                if prev.get("created_at"):
+                    g["created_at"] = prev["created_at"]
+                break
+
     for target in instance_targets[:20]:
         res = analyze(target, deep=False)
         visible_hosts.extend(res.get("domains", []))
         visible_cidrs.extend(res.get("cidrs", []))
-        upsert_group(data, "instance", target, res.get("domains", []), res.get("cidrs", []), label=target)
+        dom, cid, prev = _merge_prev(target, res.get("domains", []), res.get("cidrs", []))
+        upsert_group(data, "instance", target, dom, cid, label=target)
+        _restore_prev(target, prev)
     for host in log_hosts:
         domains = domain_candidates(host)
-        upsert_group(data, "instance", host, domains, [], label=host)
+        dom, cid, prev = _merge_prev(host, domains, [])
+        upsert_group(data, "instance", host, dom, cid, label=host)
+        _restore_prev(host, prev)
         visible_hosts.extend(domains)
     visible_hosts = ordered_unique(visible_hosts + instance_targets + log_hosts)
     write_text(PANEL_HOSTS, "\n".join(visible_hosts) + ("\n" if visible_hosts else ""))
