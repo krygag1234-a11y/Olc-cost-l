@@ -49,34 +49,48 @@ elif route_anchor in t:
 else:
     print("[patch-access-control-api] WARN: instance-defaults anchor not found — skip routes")
 
-# --- 2. Шлюз в subscriptionHandler ---
-gate_anchor = '''		sub, ok := supervisor.SubscriptionForClient(clientID, time.Now())
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
+# --- 2. Шлюз в subscriptionHandler (после subscription-randomization он использует
+#        resolvedClientID; в golden — clientID). Пробуем оба варианта. ---
+gate_variants = [
+    ("resolvedClientID", '''\t\tsub, ok := supervisor.SubscriptionForClient(resolvedClientID, time.Now())
+\t\tif !ok {
+\t\t\thttp.NotFound(w, r)
+\t\t\treturn
+\t\t}
 
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")'''
-gate_add = '''		sub, ok := supervisor.SubscriptionForClient(clientID, time.Now())
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
+\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")'''),
+    ("clientID", '''\t\tsub, ok := supervisor.SubscriptionForClient(clientID, time.Now())
+\t\tif !ok {
+\t\t\thttp.NotFound(w, r)
+\t\t\treturn
+\t\t}
 
-		// Контроль доступа по hwid устройства (olcbox шлёт x-hwid). Записывает
-		// попытку и, в режиме enforce, блокирует неизвестные устройства (404).
-		if !olcAccessGate(w, r, clientID) {
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")'''
+\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")'''),
+]
 if 'olcAccessGate(' in t:
     print("[patch-access-control-api] gate already present")
-elif gate_anchor in t:
-    t = t.replace(gate_anchor, gate_add, 1); changed = True
-    print("[patch-access-control-api] added subscription hwid gate")
 else:
-    print("[patch-access-control-api] WARN: subscription handler anchor not found — skip gate")
+    done = False
+    for var, anchor in gate_variants:
+        if anchor in t:
+            add = anchor.replace(
+                '\n\n\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")',
+                '''
+
+\t\t// Контроль доступа по hwid устройства (olcbox шлёт x-hwid). Записывает
+\t\t// попытку и, в режиме enforce, блокирует неизвестные устройства (404).
+\t\tif !olcAccessGate(w, r, %s) {
+\t\t\treturn
+\t\t}
+
+\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")''' % var)
+            t = t.replace(anchor, add, 1)
+            changed = True
+            done = True
+            print("[patch-access-control-api] added subscription hwid gate (%s)" % var)
+            break
+    if not done:
+        print("[patch-access-control-api] WARN: subscription handler anchor not found — skip gate")
 
 # --- 3. Реализация (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
