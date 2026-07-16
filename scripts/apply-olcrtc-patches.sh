@@ -427,6 +427,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Split "expand" action: deep авто-расширение субдоменов групп discovery (Phase 2E/2D).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-split-expand-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Access control: allowlist доступа к подписке по hwid устройства + журнал попыток.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-control-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
@@ -471,6 +473,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backup-ui.sh" "$MGR_REPO/src/main.tsx"
   # Split "expand" UI: кнопка «Расширить субдомены» в discovery (Phase 2E/2D).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-expand-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Access control UI: секция «Контроль доступа» (allowlist hwid + журнал попыток).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-control-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then

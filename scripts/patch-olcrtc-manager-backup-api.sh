@@ -75,6 +75,7 @@ func backupExtraFiles(configPath string) map[string]string {
 		"deploy_profile":        filepath.Join(dir, "deploy-profile.json"),
 		"notification_settings": notificationSettingsPath,
 		"instance_defaults":     instanceDefaultsPath,
+		"access_control":        "/var/lib/olcrtc/access-control.json",
 	}
 }
 

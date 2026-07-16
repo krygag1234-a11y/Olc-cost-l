@@ -1,0 +1,97 @@
+# Контроль доступа к подписке по устройству (allowlist hwid)
+
+## Проблема со старой «рандомизацией»
+
+Рандомизация пути подписки (случайный client-id/путь) **не даёт реальной защиты**:
+путь можно узнать/поменять вручную, и любой, кто его знает, получит подписку и
+доступ к инстансам. Нужен настоящий контроль — по идентификатору устройства.
+
+## Что реально шлёт olcbox (результат исследования)
+
+Изучен код [olcbox](https://github.com/alananisimov/olcbox)
+(`sharedUI/.../data/datasource/LocationsDatasource.kt`,
+`data/identity/DeviceIdentityProvider.kt`):
+
+- При запросе подписки в режиме `Identity` (по умолчанию) olcbox отправляет HTTP-GET
+  с заголовками:
+  - **`x-hwid: install-<32 hex>`** — стабильный per-install идентификатор устройства
+    (16 случайных байт, генерируется один раз и сохраняется на устройстве);
+  - **`User-Agent: olcbox/<версия>`**.
+- Есть fallback `Compatibility` (без `x-hwid`, с «браузерным» User-Agent) — на случай,
+  если сервер не понял Identity-запрос.
+
+Значит **сервер (VPS), где лежит подписка, ВИДИТ**: `x-hwid`, `User-Agent` и IP
+запрашивающего (`r.RemoteAddr` / `X-Forwarded-For`). Этого достаточно для настоящего
+белого списка.
+
+## Что реализовано
+
+Шлюз в обработчике подписки (`subscriptionHandler`) + отдельные файлы состояния:
+
+- **`/var/lib/olcrtc/access-control.json`** — `{enabled, mode, allowed_hwids, allowed_ips}`.
+- **`/var/lib/olcrtc/access-attempts.json`** — кольцевой журнал последних 200 попыток
+  (`ts, hwid, ip, ua, client_id, path, allowed`), с дедупом повторов автообновления.
+
+Режимы (`mode`):
+- **monitor** — пускать всех, но фиксировать попытки в журнал (для сбора hwid).
+- **enforce** — неизвестное устройство получает `404` (существование пути не
+  раскрывается), известное — подписку.
+
+Если `enabled=false` — контроль полностью выключен (поведение как раньше).
+
+### Почему это покрывает и «кто может подключиться к инстансу»
+
+Чтобы подключиться к инстансу, olcbox берёт `room_id`/`key` **из подписки**. Нет
+подписки → нет реквизитов → нет подключения. Поэтому шлюз на уровне подписки
+практически ограничивает и подключение. Полноценный enforcement на самом
+WebRTC-уровне (по peer-хешу в логах olcrtc-core) потребовал бы патча
+pinned-upstream `olcrtc` — вынесено в возможные доработки.
+
+## UI
+
+Модалка **Настройки** → секция **«Контроль доступа (по устройству)»**:
+- переключатель «Включить»; режим monitor/enforce;
+- список разрешённых hwid (добавить вручную / удалить);
+- **журнал попыток** с кнопкой **«Разрешить»** у неизвестных устройств (в один клик
+  добавляет hwid в allowlist).
+
+## API (adminAuth)
+
+- `GET /api/access/settings` → `{enabled,mode,allowed_hwids,allowed_ips,updated_at}`
+- `PUT /api/access/settings` (тело — те же поля) → сохранить
+- `GET /api/access/attempts` → `{attempts:[…]}`
+- `POST /api/access/attempts/clear` → очистить журнал
+- `POST /api/access/allow` `{hwid?|ip?}` → добавить в allowlist
+- `POST /api/access/remove` `{hwid?|ip?}` → убрать
+
+Пример проверки (эмуляция olcbox):
+```bash
+# monitor: попытка фиксируется, подписка отдаётся
+curl -s -H 'x-hwid: install-testdevice' -H 'User-Agent: olcbox/1.0' \
+  http://127.0.0.1:8888/<sub-path>/<client-id>
+curl -s -u admin:ПАРОЛЬ http://127.0.0.1:8888/api/access/attempts
+```
+
+## Бэкап
+
+`access-control.json` включён в бэкап (`backupExtraFiles`), поэтому allowlist
+переносится на новый VPS вместе с остальными данными. Журнал попыток — транзиентный,
+в бэкап не входит.
+
+## ⛔ ПРАВИЛО ДЛЯ РАЗРАБОТЧИКОВ
+
+При изменении формата `access-control.json` или логики шлюза:
+1. Обновите `backupExtraFiles()` (если добавили файлы), чтобы контроль доступа
+   переносился бэкапом.
+2. Синхронизируйте UI-секцию (`patch-olcrtc-manager-panel-access-control-ui.sh`) и
+   API-обработчики (`patch-olcrtc-manager-access-control-api.sh`).
+3. Помните про Identity/Compatibility: если хотите заблокировать даже
+   Compatibility-fallback (без hwid) — в `enforce` пустой hwid всё равно не пройдёт
+   allowlist и будет отклонён (что и требуется).
+
+## Возможные доработки (по желанию)
+
+- Whitelist по IP (поле `allowed_ips` уже есть в API/файле; в UI пока только hwid).
+- Enforcement на WebRTC-уровне по peer-хешу (патч olcrtc-core, pinned upstream).
+- Кнопка-шестерёнка на карточке клиента, открывающая эту же секцию (сейчас — из общих
+  настроек; функциональность полная).
