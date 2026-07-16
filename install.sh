@@ -472,6 +472,7 @@ ln -sfn "$INSTALL_DIR/scripts/olc-panel-refresh-local.sh" /usr/local/bin/olc-pan
 ln -sfn "$INSTALL_DIR/scripts/olc-vps-snapshot.sh" /usr/local/bin/olc-vps-snapshot 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-cleanup-caches.sh" /usr/local/bin/olc-cleanup-caches 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-purge.sh" /usr/local/bin/olc-purge 2>/dev/null || true
+ln -sfn "$INSTALL_DIR/scripts/olc-backup.sh" /usr/local/bin/olc-backup 2>/dev/null || true
 
 # Передаём режим в agent-bootstrap.sh
 if [[ "$MODE" == "full" ]]; then
