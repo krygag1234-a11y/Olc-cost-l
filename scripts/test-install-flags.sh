@@ -132,8 +132,71 @@ run_upd "mode=--update"                       --update --manager-stable --ssh --
 echo ""
 if [[ "$fails" -eq 0 ]]; then
   echo "[install-flags-test] OK: все флаги установки и обновления парсятся без поломок"
-  exit 0
 else
   echo "[install-flags-test] FAIL: $fails проверок не прошли"
   exit 1
 fi
+
+# ── PTY: добор режима доступа при --full без --ssh/--ip ──────────────────────
+# Флаг покрывает только свой выбор: --full задаёт компоненты, но НЕ доступ →
+# должно всплыть меню IP/SSH; с --full --ip меню НЕ должно появляться.
+if command -v python3 >/dev/null 2>&1; then
+  echo "== PTY: добор недостающего выбора (IP/SSH) при --full =="
+  OLC_INSTALL_DIR="$REPO_ROOT" python3 - "$REPO_ROOT" <<'PY'
+import os, pty, select, time, re, sys, fcntl, termios, struct
+repo = sys.argv[1]
+fails = []
+def check(n, ok):
+    print(("  ✓ " if ok else "  ✗ ") + n)
+    if not ok: fails.append(n)
+
+def run(args, keys=None, wait=None):
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ["TERM"] = "xterm-256color"
+        os.environ["OLC_INSTALL_DIR"] = repo
+        os.environ["OLC_ASSUME_FRESH"] = "1"       # считать систему чистой → MODE=full
+        os.environ["OLC_EXIT_AFTER_PROMPT"] = "1"  # выйти сразу после добора
+        os.execvp("bash", ["bash", repo + "/install.sh"] + args)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
+    raw = b""; sent = False; t0 = time.time()
+    while time.time() - t0 < 25:
+        r,_,_ = select.select([fd], [], [], 0.2)
+        if r:
+            try: d = os.read(fd, 65536)
+            except OSError: break
+            if not d: break
+            raw += d
+        if keys and not sent and wait and re.search(wait.encode(), raw):
+            time.sleep(0.4); os.write(fd, keys); sent = True
+        try:
+            if os.waitpid(pid, os.WNOHANG) != (0,0): break
+        except ChildProcessError: break
+    for _ in range(5):
+        r,_,_ = select.select([fd],[],[],0.2)
+        if r:
+            try: raw += os.read(fd,65536)
+            except OSError: break
+    return raw.decode("utf-8","replace")
+
+# 1) --full без доступа → меню IP/SSH появляется; выбираем цифру 2 (SSH)
+s1 = run(["--full"], keys=b"2", wait=r"Режим доступа к панели")
+check("--full → меню IP/SSH показано", "Режим доступа к панели" in s1)
+check("--full + выбор SSH → boot_args содержит --ssh",
+      "--ssh" in s1 and "access_set=1" in s1)
+
+# 2) --full --ip → меню НЕ показывается, доступ уже задан
+s2 = run(["--full", "--ip"])
+check("--full --ip → меню доступа НЕ показано", "Режим доступа к панели" not in s2)
+check("--full --ip → access_set=1 без меню", "access_set=1" in s2 and "--ip" in s2)
+
+if fails:
+    print("[install-flags-test] PTY FAIL: " + "; ".join(fails)); sys.exit(1)
+print("[install-flags-test] OK: добор IP/SSH работает (флаг пропускает только свой выбор)")
+PY
+  rc=$?
+  [[ $rc -ne 0 ]] && exit 1
+else
+  echo "  (skip PTY-тест добора: нет python3)"
+fi
+exit 0

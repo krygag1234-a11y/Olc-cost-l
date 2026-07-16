@@ -48,15 +48,20 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 ### 🅱️ Без меню — «поставь и не спрашивай» (для тех, кто не хочет париться)
 
-Флаг `--full` ставит полную конфигурацию (Tor + мосты + Split + Zapret + Панель)
-**без вопросов**, но с тем же красивым TUI. Можно сразу задать доступ и прочее
-флагами (`--ssh`/`--ip`, `--no-zapret`, `--manager-latest` и т.д.):
+Флаг `--full` ставит полную конфигурацию (Tor + мосты + Split + Zapret + Панель).
+**Важно:** каждый флаг пропускает ТОЛЬКО свой выбор. `--full` задаёт набор
+компонентов, но не режим доступа — поэтому даже с `--full` установщик спросит
+IP vs SSH (одно короткое меню). Чтобы не было вообще никаких вопросов — задайте
+флагами все измерения (компоненты + доступ):
 
 ```bash
-# Полная установка без меню, панель по IP:
+# --full ещё спросит режим доступа (IP/SSH):
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 
-# То же, но панель только через SSH-туннель:
+# Полностью без вопросов — панель по IP:
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ip
+
+# Полностью без вопросов — панель через SSH-туннель:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
 ```
 

@@ -179,6 +179,7 @@ SHOW_STATE=0
 UNKNOWN_FLAGS=()
 PLAN_ONLY=0
 CHOOSE_COMPONENTS=0
+ACCESS_SET=0        # был ли режим доступа задан флагом (--ssh/--ip и алиасы)
 # Запуск БЕЗ флагов = основная интерактивная команда: меню действий (если уже
 # установлено) + меню выбора конфигурации (при полной установке).
 NO_FLAGS=0
@@ -192,7 +193,7 @@ while [[ $# -gt 0 ]]; do
     --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; BOOT_ARGS+=("$1") ;;
     --manager-stable) export OLC_MANAGER_STABLE=1; BOOT_ARGS+=("$1") ;;
     --manager-latest) export OLC_MANAGER_LATEST=1; BOOT_ARGS+=("$1") ;;
-    --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1") ;;
+    --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1"); ACCESS_SET=1 ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;
     --interactive) CHOOSE_COMPONENTS=1 ;;
@@ -270,7 +271,8 @@ if [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty;
         [[ "${OLC_NO_SPLIT:-0}" == "1" ]]   && BOOT_ARGS+=(--no-split)
         [[ "${OLC_NO_ZAPRET:-0}" == "1" ]]  && BOOT_ARGS+=(--no-zapret)
         [[ "${OLC_NO_BRIDGES:-0}" == "1" ]] && BOOT_ARGS+=(--no-bridges)
-        [[ "${OLC_INSTALL_SSH:-0}" == "1" ]] && BOOT_ARGS+=(--ssh)
+        if [[ "${OLC_INSTALL_SSH:-0}" == "1" ]]; then BOOT_ARGS+=(--ssh); else BOOT_ARGS+=(--ip); fi
+        ACCESS_SET=1  # меню компонентов уже спросило режим доступа
         # Меню = осознанный выбор полной конфигурации → форсируем режим full
         [[ -z "$FORCE_MODE" ]] && FORCE_MODE="--full"
       fi
@@ -319,6 +321,9 @@ STATE="fresh"
 if [[ -x "$DETECT" ]]; then
   STATE="$("$DETECT" 2>/dev/null || echo fresh)"
 fi
+# Тест-хук: заставить считать систему чистой (для PTY-проверки меню без реальной
+# установки). Только для тестов — на боевом не задаётся.
+[[ "${OLC_ASSUME_FRESH:-0}" == "1" ]] && STATE="fresh"
 
 if [[ "$FORCE_MODE" == "--full" || "$FORCE_MODE" == "--fresh" ]]; then
   if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
@@ -382,6 +387,32 @@ if [[ "$PLAN_ONLY" -eq 1 ]]; then
     [[ "$MODE" == "incremental" ]] && boot_mode="--incremental"
     OLC_REPO_ROOT="$INSTALL_DIR" bash "$INSTALL_DIR/scripts/agent-bootstrap.sh" "$boot_mode" "${BOOT_ARGS[@]}" --plan
   fi
+  exit 0
+fi
+
+# ── Добор недостающих измерений выбора ───────────────────────────────────────
+# Флаг пропускает ТОЛЬКО тот выбор, который он покрывает. Пример: дан --full
+# (набор компонентов), но НЕ указан --ssh/--ip → режим доступа к панели ещё не
+# определён, спрашиваем его отдельным меню. Если бы был --ssh/--ip — не спросим.
+# Так «поставь без вопросов» = дать флаги на ВСЕ измерения (--full --ip).
+# Только на новой установке (MODE=full) и при наличии терминала.
+if [[ "$MODE" == "full" && "$ACCESS_SET" -eq 0 ]] && olc_has_tty \
+   && [[ "${TUI_AVAILABLE:-0}" -eq 1 ]] && declare -f tui_menu >/dev/null 2>&1; then
+  _acc=$(tui_menu "Режим доступа к панели (флаг --ssh/--ip не задан):" \
+    "HTTP — панель доступна по IP:8888 (проще)" \
+    "SSH — панель только через SSH-туннель (безопаснее)")
+  case "$_acc" in
+    1) BOOT_ARGS+=(--ssh) ;;
+    *) BOOT_ARGS+=(--ip) ;;
+  esac
+  ACCESS_SET=1
+  unset _acc
+fi
+
+# Тест-хук: остановиться сразу после добора выбора и напечатать итоговые
+# аргументы (PTY-проверка меню доступа без реальной установки). Только тесты.
+if [[ "${OLC_EXIT_AFTER_PROMPT:-0}" == "1" ]]; then
+  echo "[install-postprompt] mode=$MODE access_set=$ACCESS_SET boot_args=[${BOOT_ARGS[*]:-}]"
   exit 0
 fi
 

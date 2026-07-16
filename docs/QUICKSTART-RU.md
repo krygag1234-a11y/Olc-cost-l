@@ -19,14 +19,19 @@
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
 ```
 
-**🅱️ Без меню (`--full`) — «поставь и не спрашивай»**, тот же TUI, но полная
-конфигурация ставится сразу без вопросов:
+**🅱️ Без меню (`--full`)** — тот же TUI. Учтите: каждый флаг пропускает только
+свой выбор, поэтому `--full` (компоненты заданы) всё равно спросит режим доступа
+IP/SSH. Полностью без вопросов — добавьте `--ip` или `--ssh`:
 
 ```bash
+# --full ещё спросит IP/SSH:
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
+
+# без вопросов совсем (панель по IP):
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ip
 ```
 
-Панель только через SSH-туннель (без меню):
+Панель только через SSH-туннель:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
