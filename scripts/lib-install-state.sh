@@ -332,6 +332,8 @@ _olc_progress_start() {
     fi
     # Подробный режим (Ctrl+O): live-хвост активного лога подзадачи
     local verbose=0 vlog="" vlog_line=0
+    # Ширина терминала (кэш, обновление раз в секунду) + таймер подзадачи
+    local bar_cols=80 bar_cols_tick=0 sub_prev="__none__" sub_t0=0
 
     # Печать новых строк лога (dim, префикс «·»), без попадания в transcript
     _sp_log_lines() {
@@ -418,7 +420,15 @@ _olc_progress_start() {
         fi
       fi
 
-      # 4) Отрисовать бар (одна строка, перерисовка на месте)
+      # 4) Отрисовать бар (одна строка, перерисовка на месте).
+      # Строка бара НЕ должна заворачиваться: перенос ломает \r\033[K-перерисовку
+      # и подсчёт рядов — всё, что не влезает по ширине, обрезается.
+      if (( bar_cols_tick <= 0 )); then
+        bar_cols="$(_olc_ui_term_cols)"
+        bar_cols_tick=10          # обновление раз в секунду (10 кадров по 0.1с)
+      fi
+      bar_cols_tick=$(( bar_cols_tick - 1 ))
+
       local width=30
       local filled=$(( width * percent / 100 ))
       local empty=$(( width - filled ))
@@ -427,13 +437,42 @@ _olc_progress_start() {
       for ((j=0; j<filled; j++)); do bar+="█"; done
       for ((j=0; j<empty; j++)); do bar+="░"; done
 
-      local substep_display=""
-      if [[ -n "$s_name" ]]; then
-        substep_display=$( printf ' \033[2m→ %s\033[0m' "$s_name" )
+      # Постоянный индикатор клавиши в строке бара (T-4): подсказка ^O всегда
+      # на виду, текст меняется по состоянию подробного режима.
+      local ind_txt=""
+      if [[ -n "$kbd_fd" ]]; then
+        if (( verbose )); then ind_txt="[^O скрыть детали]"; else ind_txt="[^O детали]"; fi
       fi
 
-      _sp "\r\033[K\033[36m%s\033[0m [%s] %d%% \033[2m(шаг %d/%d)\033[0m %s%s" \
-        "${frames[$i]}" "$bar" "$percent" "$curr" "$total" "$name" "$substep_display"
+      # Таймер подзадачи (T-4, шаг к ETA): сколько секунд крутится текущая
+      # подзадача; появляется после 5с — видно, что длинный шаг не завис.
+      if [[ "$s_name" != "$sub_prev" ]]; then
+        sub_prev="$s_name"
+        sub_t0="$SECONDS"
+      fi
+      local sub_timer=""
+      if [[ -n "$s_name" ]] && (( SECONDS - sub_t0 >= 5 )); then
+        sub_timer=" · $(( SECONDS - sub_t0 ))с"
+      fi
+
+      # Бюджет ширины: фикс. часть + имя шага + подзадача + индикатор
+      local step_txt="(шаг ${curr}/${total})" percent_txt="${percent}%"
+      local fixed=$(( 2 + width + 2 + 1 + ${#percent_txt} + 1 + ${#step_txt} + 1 ))
+      local ind_vis=0
+      [[ -n "$ind_txt" ]] && ind_vis=$(( ${#ind_txt} + 2 ))
+      local avail=$(( bar_cols - 1 - fixed - ind_vis ))
+      (( avail < 0 )) && avail=0
+      local name_disp="${name:0:avail}"
+      local substep_display=""
+      local sub_avail=$(( avail - ${#name_disp} - 3 - ${#sub_timer} ))
+      if [[ -n "$s_name" ]] && (( sub_avail >= 6 )); then
+        substep_display=$( printf ' \033[2m→ %s%s\033[0m' "${s_name:0:sub_avail}" "$sub_timer" )
+      fi
+      local ind_disp=""
+      [[ -n "$ind_txt" ]] && ind_disp=$( printf '  \033[2m%s\033[0m' "$ind_txt" )
+
+      _sp "\r\033[K\033[36m%s\033[0m [%s] %s \033[2m%s\033[0m %s%s%s" \
+        "${frames[$i]}" "$bar" "$percent_txt" "$step_txt" "$name_disp" "$substep_display" "$ind_disp"
 
       i=$(( (i + 1) % ${#frames[@]} ))
 
@@ -763,18 +802,35 @@ olc_ui_success_recap() {
   local t="${_OLCRTC_PROGRESS_IPC_DIR:-}/transcript"
   [[ -n "${_OLCRTC_PROGRESS_IPC_DIR:-}" && -f "$t" ]] || return 0
   local warns
-  warns="$(grep -E '✗|WARN|ошибка' "$t" 2>/dev/null | head -8 || true)"
+  warns="$(grep -E '✗|WARN|ошибка' "$t" 2>/dev/null || true)"
   [[ -n "$warns" ]] || return 0
+  # «Сворачиваемость» сводки (T-4): показываются первые OLC_UI_RECAP_WARNS
+  # строк (default 8), остальное схлопывается в счётчик «… и ещё N».
+  local total shown
+  total="$(wc -l <<<"$warns")"
+  [[ "$total" =~ ^[0-9]+$ ]] || total=0
+  shown="${OLC_UI_RECAP_WARNS:-8}"
+  [[ "$shown" =~ ^[0-9]+$ ]] || shown=8
   echo ""
   if declare -f tui_log_warning >/dev/null 2>&1; then
-    tui_log_warning "Во время обновления были предупреждения (не критично):"
+    tui_log_warning "Во время обновления были предупреждения (не критично): $total"
   else
-    echo "⚠ Предупреждения:"
+    echo "⚠ Предупреждения: $total"
   fi
   local line
   while IFS= read -r line; do
-    printf '  %b→ %s%b\n' "${TUI_DIM:-}" "$line" "${TUI_RESET:-}"
-  done <<<"$warns"
+    [[ -n "$line" ]] || continue
+    # Цветовая разметка (T-4): ошибки шагов — красным, WARN — жёлтым
+    if [[ "$line" == *"✗"* || "$line" == *"ошибка"* || "$line" == *"ОШИБКА"* ]]; then
+      printf '  %b→%b %b%s%b\n' "${TUI_RED:-}" "${TUI_RESET:-}" "${TUI_RED:-}" "$line" "${TUI_RESET:-}"
+    else
+      printf '  %b→%b %b%s%b\n' "${TUI_YELLOW:-}" "${TUI_RESET:-}" "${TUI_YELLOW:-}" "$line" "${TUI_RESET:-}"
+    fi
+  done <<<"$(head -n "$shown" <<<"$warns")"
+  if (( total > shown )); then
+    printf '  %b… и ещё %d предупрежд. — полный журнал в логах установки (ниже)%b\n' \
+      "${TUI_DIM:-}" "$(( total - shown ))" "${TUI_RESET:-}"
+  fi
 }
 
 # После olc_ui_end: пути ко ВСЕМ логам, использованным за сессию
