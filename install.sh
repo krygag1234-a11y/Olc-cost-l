@@ -124,6 +124,11 @@ fi
 # shellcheck source=scripts/lib-tui.sh
 if [[ -f "$SCRIPT_DIR/scripts/lib-tui.sh" ]]; then
   source "$SCRIPT_DIR/scripts/lib-tui.sh"
+elif [[ "${TUI_AVAILABLE:-0}" -eq 1 ]]; then
+  # curl | bash на установленной системе: настоящий lib-tui.sh уже загружен
+  # выше из $INSTALL_DIR — НЕ перезатирать его текстовыми стабами (иначе меню
+  # «уже установлен, выберите действие» рисуется примитивным fallback'ом).
+  :
 else
   # Fallback: define stub functions if TUI not available yet (curl | bash scenario)
   tui_log_step() { echo "→ $*"; }

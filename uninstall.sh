@@ -4,6 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uninstall.sh | sudo bash
 #   curl -fsSL .../uninstall.sh | sudo bash -s -- --purge-repo
 #   curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor
+#   curl -fsSL .../uninstall.sh | sudo bash -s -- --purge-all --yes   # без подтверждения
+# Подтверждение purge читается с /dev/tty; в неинтерактивной среде (CI/exec API)
+# обязателен флаг --yes.
 set -euo pipefail
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root" >&2; exit 1; }

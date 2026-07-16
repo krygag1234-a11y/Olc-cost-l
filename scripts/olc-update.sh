@@ -79,58 +79,41 @@ main() {
   done
 
   # Валидация неизвестных флагов
+  local force_mode_menu=0
   if [[ "${#unknown_flags[@]}" -gt 0 ]]; then
     echo "" >&2
     echo "⚠️  ПРЕДУПРЕЖДЕНИЕ: Неизвестные флаги: ${unknown_flags[*]}" >&2
     echo "" >&2
     echo "При обновлении доступны только:" >&2
-    echo "  --manager-latest     Обновиться на последнюю upstream версию панели (экспериментальная)" >&2
+    echo "  --incremental        Доустановка (быстро — skip работающих компонентов)" >&2
+    echo "  --update             Обновление (полная пересборка — patches, binaries)" >&2
+    echo "  --manager-latest     Последняя upstream версия панели (экспериментальная)" >&2
+    echo "  --manager-stable     Стабильный форк панели (по умолчанию)" >&2
     echo "  --force-sha-update   Принудительно обновить pinned SHA из upstream" >&2
-    echo "  --ssh                Переключить панель в режим SSH-туннеля" >&2
-    echo "  --ip                 Переключить панель в режим открытого IP" >&2
+    echo "  --ssh / --localhost  Переключить панель в режим SSH-туннеля" >&2
     echo "  --resume             Продолжить прерванное обновление" >&2
-    echo "" >&2
-    echo "ℹ️  Обновление НЕ переустанавливает компоненты — только обновляет уже установленные." >&2
-    echo "   Для доустановки компонентов используйте интерактивное меню." >&2
+    echo "  --profile <id>       Применить профиль установки" >&2
     echo "" >&2
 
-    if olc_update_has_tty; then
-      echo "Выберите действие:" >&2
-      echo "  [1] Показать интерактивное меню обновления" >&2
-      echo "  [2] Продолжить с дефолтными настройками (игнорировать неправильные флаги)" >&2
-      echo "  [3] Отменить обновление" >&2
-      echo -n "Ваш выбор (1-3) [2]: " >&2
-      read -r choice </dev/tty || choice="2"
-      choice="${choice:-2}"
-
-      case "$choice" in
-        1)
-          echo "" >&2
-          if [[ -f "$SCRIPT_DIR/lib-olc-core.sh" ]]; then
-            source "$SCRIPT_DIR/lib-olc-core.sh"
-            interactive_update_menu || {
-              if declare -f tui_fatal >/dev/null 2>&1; then
-                tui_fatal "Ошибка при работе с интерактивным меню обновления" "Меню не смогло завершить выбор параметров" "Попробуйте с явными флагами: olc-update --manager-stable --full"
-              else
-                echo "ОШИБКА: интерактивное меню завершилось с ошибкой. Используйте флаги: olc-update --manager-stable --full" >&2
-                exit 1
-              fi
-            }
-          else
-            echo "⚠️  lib-olc-core.sh не найден, интерактивное меню недоступно" >&2
-            echo "Продолжаю с дефолтными настройками..." >&2
-          fi
-          ;;
-        2)
-          echo "✓ Продолжаю обновление с дефолтными настройками (игнорирую неправильные флаги)..." >&2
-          ;;
-        3)
-          echo "Обновление отменено." >&2
-          exit 0
-          ;;
-        *)
-          echo "Неправильный выбор. Продолжаю с дефолтными настройками..." >&2
-          ;;
+    if olc_update_has_tty && declare -f tui_menu >/dev/null 2>&1; then
+      local bad_choice
+      bad_choice=$(tui_menu "Неизвестные флаги проигнорированы. Что делать дальше?" \
+        "Перейти к меню выбора режима (как при запуске без флагов)" \
+        "Продолжить с настройками по умолчанию (Обновление)" \
+        "Отменить обновление")
+      case "$bad_choice" in
+        2) echo "Обновление отменено." >&2; exit 0 ;;
+        1) update_mode="--update" ;;
+        *) force_mode_menu=1 ;;  # режим не задан → стандартное меню выбора ниже
+      esac
+    elif olc_update_has_tty; then
+      # Fallback без lib-tui (не должен случаться, но на всякий случай)
+      echo -n "Продолжить с настройками по умолчанию? [Y/n]: " >&2
+      local choice=""
+      read -r choice </dev/tty || choice="y"
+      case "${choice,,}" in
+        n|no|нет) echo "Обновление отменено." >&2; exit 0 ;;
+        *) ;;
       esac
     else
       echo "Нет интерактивного терминала. Продолжаю с дефолтными настройками (игнорирую неправильные флаги)." >&2
@@ -140,7 +123,8 @@ main() {
   fi
 
   # If user specified component flags but no mode, default to --update (not interactive menu)
-  if [[ -z "$update_mode" && "$has_explicit_flags" -eq 1 ]]; then
+  # (кроме случая, когда юзер явно выбрал «перейти к меню» после неверных флагов)
+  if [[ -z "$update_mode" && "$has_explicit_flags" -eq 1 && "$force_mode_menu" -eq 0 ]]; then
     update_mode="--update"
   fi
   repo="$(detect_repo)" || {
@@ -201,6 +185,13 @@ main() {
 
   # Если режим не выбран (нет TTY или нет tui_menu), default = --update
   : "${update_mode:=--update}"
+
+  # Меню стирает себя после выбора — оставить одну строку-подтверждение режима
+  if [[ "$update_mode" == "--incremental" ]]; then
+    echo "→ Режим: Доустановка (быстро — skip работающих компонентов)" >&2
+  else
+    echo "→ Режим: Обновление (полная пересборка)" >&2
+  fi
 
   olc_preflight_disk_space "olc-update" || {
     if declare -f tui_fatal >/dev/null 2>&1; then
