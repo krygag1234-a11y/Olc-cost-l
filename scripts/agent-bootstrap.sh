@@ -376,6 +376,14 @@ EOF
   systemctl daemon-reload
   # Note: only olcrtc-manager.service is needed (it spawns olcrtc processes)
   systemctl enable olcrtc-manager.service olcrtc-network-recovery.service
+  # Таймеры обслуживания мостов: enable ЗДЕСЬ, а не только в setup_tor —
+  # setup_tor выполняется ДО установки юнитов, и на чистой установке его
+  # `systemctl enable …timer 2>/dev/null || true` тихо фейлился: таймеры
+  # оставались disabled до первого olc-update (найдено боевым fresh-тестом).
+  if [[ "${ENABLE_TOR:-1}" -eq 1 && "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
+    systemctl enable --now olcrtc-tor-bridge-pool.timer \
+      olcrtc-tor-bridge-monitor.timer olcrtc-tor-bridge-deep.timer 2>/dev/null || true
+  fi
 }
 
 install_cli_symlinks() {
