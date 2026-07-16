@@ -170,8 +170,10 @@ main() {
     fi
   fi
 
-  # TUI menu для выбора режима (ПЕРЕД git pull) — только если режим не задан флагами
-  if [[ -z "$update_mode" ]] && [[ -t 0 ]] && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
+  # TUI menu для выбора режима (ПЕРЕД git pull) — только если режим не задан флагами.
+  # Гейт через olc_update_has_tty (/dev/tty), а не [[ -t 0 ]]: меню должно
+  # показываться и когда stdin — pipe (curl | sudo bash, sudo-цепочки).
+  if [[ -z "$update_mode" ]] && olc_update_has_tty && [[ -f "$repo/scripts/lib-tui.sh" ]]; then
     tui_status_end  # убрать статусную строку перед интерактивным меню
     source "$repo/scripts/lib-tui.sh" 2>/dev/null || true
     if declare -f tui_menu >/dev/null 2>&1; then

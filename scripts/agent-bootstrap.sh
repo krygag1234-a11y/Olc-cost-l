@@ -645,18 +645,39 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   exit 0
 fi
 
+# FULL/CONFIG: та же полноэкранная TUI-сессия, что и UPDATE/INCREMENTAL —
+# curl|bash --full получает закреплённую шапку, один прогресс-бар, Ctrl+O,
+# финальную анимацию схлопывания и сводки (успех/логи). Ошибки закрывает
+# общий EXIT-trap спиннера (_olc_ui_abort_dump). Non-TTY (exec API/CI) —
+# прежний simple mode, alt-screen не открывается.
 if [[ "$FULL" -eq 1 ]]; then
-  export OLCRTC_TOTAL_STEPS=9
+  # 13 шагов: packages, patches, webtunnel, sysctl + warp, tor, split,
+  # fetch-community-lists, zapret + systemd, cron, cleanup-tmp, start-manager.
+  # (Раньше стояло 9 — счётчик N/M и проценты в баре врали.)
+  export OLCRTC_TOTAL_STEPS=13
+  olc_ui_begin "Установка Olc-cost-l" \
+    "Режим: FULL — зависимости, сборка панели, все сервисы" \
+    "Компоненты: tor=${ENABLE_TOR} split=${ENABLE_SPLIT} zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=${ENABLE_WARP} bridges=${ENABLE_BRIDGES:-1} panel=${PANEL_ACCESS}" \
+    "Прервалось? Продолжить: sudo olc-update --resume"
   state_step packages       install_deps
   state_step patches        run_patches
   state_step webtunnel      build_webtunnel
   state_step sysctl         setup_sysctl
 else
   if [[ ! -x /usr/local/bin/olcrtc ]] || [[ ! -x /usr/local/bin/olcrtc-manager ]]; then
+    export OLCRTC_TOTAL_STEPS=12
+    olc_ui_begin "Конфигурация Olc-cost-l" \
+      "Режим: CONFIG — бинарники отсутствуют, сборка + конфигурация сервисов" \
+      "Прервалось? Продолжить: sudo olc-update --resume"
     log "binaries missing — building patched versions"
     state_step packages       install_deps
     state_step patches        run_patches
     state_step webtunnel      build_webtunnel
+  else
+    export OLCRTC_TOTAL_STEPS=9
+    olc_ui_begin "Конфигурация Olc-cost-l" \
+      "Режим: CONFIG — конфигурация сервисов (бинарники уже собраны)" \
+      "Прервалось? Продолжить: sudo olc-update --resume"
   fi
 fi
 
@@ -669,10 +690,14 @@ state_step systemd               setup_systemd
 state_step cron                  setup_cron
 state_step cleanup-tmp           run_cleanup_tmp
 state_step start-manager         bash -c 'systemctl enable --now olcrtc-manager.service 2>/dev/null || systemctl restart olcrtc-manager.service'
-state_finish
+ensure_manager_restarted
+state_finish   # схлопывание строк шагов + анимация бара (в TTY)
+olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
 
 tui_divider
 tui_banner "Установка завершена!"
+olc_ui_success_recap
+olc_ui_logs_recap
 echo ""
 
 tui_log_info "Документация: $DOC"

@@ -139,65 +139,87 @@ tui_progress_bar() {
 }
 
 # Interactive menu
+#
+# КРИТИЧНО: все вызовы имеют вид `mode=$(tui_menu ...)` — command substitution
+# захватывает stdout. Раньше меню рисовалось В stdout и юзер его НИКОГДА не
+# видел («интерактивный выбор не показывается»), а `read -t 1` через секунду
+# молча возвращал дефолт (пункт 0). Теперь: вся отрисовка и клавиатура — на
+# /dev/tty, в stdout уходит ТОЛЬКО индекс выбора; таймаут read не завершает
+# меню, а продолжает ждать. Дополнительно: выбор цифрой 1-N (сразу), ↑/↓ +
+# Enter. Проверка терминала — через /dev/tty (работает и при curl | bash,
+# где stdin — pipe).
 tui_menu() {
   local title="$1"
   shift
   local options=("$@")
   local selected=0
   local key=""
-  
-  [[ ! -t 0 ]] && { echo "0"; return 0; }
+  local nopts=${#options[@]}
+  local tty=/dev/tty
 
-  tui_cursor_hide
-  local _tui_old_trap
-  _tui_old_trap="$(trap -p EXIT 2>/dev/null || true)"
-  trap 'tui_cursor_show' EXIT
+  if ! { [[ -e "$tty" ]] && : <"$tty" && : >"$tty"; } 2>/dev/null; then
+    # Нет реального терминала (CI / pipe / exec API) — дефолт без интерактива
+    echo "0"
+    return 0
+  fi
 
-  # Save cursor position, draw menu below current output (no screen clear)
-  echo ""
-  local _menu_start_line
-  _menu_start_line=$(( ${#options[@]} + 3 ))
+  printf '\033[?25l' >"$tty" 2>/dev/null || true
 
+  # Кадр меню: title + пустая + N опций + строка-подсказка = N+3 рядов
+  local rows=$(( nopts + 3 ))
+  local drawn=0 i
+
+  _tui_menu_draw() {
+    {
+      # Повторные кадры рисуются поверх предыдущего (первый — с текущей строки)
+      [[ "$drawn" == "1" ]] && printf '\033[%dA' "$rows"
+      printf '\033[K%b\n' "${TUI_BOLD}${TUI_CYAN}${title}${TUI_RESET}"
+      printf '\033[K\n'
+      for i in "${!options[@]}"; do
+        if [[ "$i" -eq "$selected" ]]; then
+          printf '\033[K  %b\n' "${TUI_BG_CYAN}${TUI_BLACK} $((i+1)). ${options[$i]} ${TUI_RESET}"
+        else
+          printf '\033[K  %b\n' "${TUI_DIM} $((i+1)). ${options[$i]}${TUI_RESET}"
+        fi
+      done
+      printf '\033[K%b\n' "${TUI_DIM}  ↑/↓ или цифра 1-${nopts}, Enter — подтвердить${TUI_RESET}"
+    } >"$tty" 2>/dev/null || true
+    drawn=1
+  }
+
+  local rc
   while true; do
-    # Move cursor to menu start and redraw (don't clear entire screen)
-    tui_cursor_up "$_menu_start_line" 2>/dev/null || true
-    echo -e "\033[K${TUI_BOLD}${TUI_CYAN}${title}${TUI_RESET}"
-    echo -e "\033[K"
-    
-    for i in "${!options[@]}"; do
-      if [[ "$i" -eq "$selected" ]]; then
-        echo -e "\033[K  ${TUI_BG_CYAN}${TUI_BLACK} $((i+1)). ${options[$i]} ${TUI_RESET}"
-      else
-        echo -e "\033[K  ${TUI_DIM} $((i+1)). ${options[$i]}${TUI_RESET}"
-      fi
-    done
-    echo -e "\033[K"
-
-    IFS= read -rsn1 -t 1 key </dev/tty 2>/dev/null || {
-      # Timeout или ошибка чтения — выход с дефолтом
-      echo "$selected"
-      tui_cursor_show
-      return 0
-    }
+    _tui_menu_draw
+    key=""
+    IFS= read -rsn1 -t 60 key <"$tty" 2>/dev/null
+    rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+      # rc>128 — таймаут read: продолжаем ЖДАТЬ выбор (не выходить молча
+      # с дефолтом). Иной rc — EOF/ошибка tty: выходим с текущим выбором.
+      (( rc > 128 )) && continue
+      break
+    fi
     case "$key" in
       $'\x1b')
-        read -rsn2 -t 0.1 key </dev/tty 2>/dev/null || true
+        read -rsn2 -t 0.05 key <"$tty" 2>/dev/null || key=""
         case "$key" in
-          '[A') selected=$(( selected > 0 ? selected - 1 : ${#options[@]} - 1 )) ;;
-          '[B') selected=$(( (selected + 1) % ${#options[@]} )) ;;
+          '[A') selected=$(( selected > 0 ? selected - 1 : nopts - 1 )) ;;
+          '[B') selected=$(( (selected + 1) % nopts )) ;;
         esac
         ;;
-      '') break ;;
+      [1-9])
+        if (( key >= 1 && key <= nopts )); then
+          selected=$(( key - 1 ))
+          _tui_menu_draw
+          break
+        fi
+        ;;
+      ''|$'\n'|$'\r') break ;;
     esac
   done
 
-  tui_cursor_show
-  # Restore previous EXIT trap
-  if [[ -n "$_tui_old_trap" ]]; then
-    eval "$_tui_old_trap"
-  else
-    trap - EXIT
-  fi
+  printf '\033[?25h' >"$tty" 2>/dev/null || true
+  unset -f _tui_menu_draw 2>/dev/null || true
   echo "$selected"
 }
 
@@ -401,18 +423,22 @@ tui_tail_log() {
 tui_confirm() {
   local prompt="${1:-Continue?}"
   local default="${2:-y}"
-  
-  if [[ ! -t 0 ]]; then
+  local tty=/dev/tty
+  local response=""
+
+  # Промпт и ответ — через /dev/tty: работает и при `curl | sudo bash`
+  # (stdin — pipe) и внутри command substitution.
+  if ! { [[ -e "$tty" ]] && : <"$tty" && : >"$tty"; } 2>/dev/null; then
     [[ "$default" == "n" ]] && return 1
     return 0
   fi
-  
+
   local yn_prompt="[Y/n]"
   [[ "$default" == "n" ]] && yn_prompt="[y/N]"
-  
-  echo -ne "${TUI_YELLOW}?${TUI_RESET} ${prompt} ${TUI_DIM}${yn_prompt}${TUI_RESET} "
-  read -r response
-  
+
+  echo -ne "${TUI_YELLOW}?${TUI_RESET} ${prompt} ${TUI_DIM}${yn_prompt}${TUI_RESET} " >"$tty"
+  read -r response <"$tty" 2>/dev/null || response=""
+
   response="${response:-$default}"
   [[ "${response,,}" == "y" || "${response,,}" == "yes" || "${response,,}" == "да" ]]
 }
