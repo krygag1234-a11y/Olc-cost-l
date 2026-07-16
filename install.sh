@@ -177,6 +177,12 @@ FORCE_MODE=""
 BOOT_ARGS=()
 SHOW_STATE=0
 UNKNOWN_FLAGS=()
+PLAN_ONLY=0
+CHOOSE_COMPONENTS=0
+# Запуск БЕЗ флагов = основная интерактивная команда: меню действий (если уже
+# установлено) + меню выбора конфигурации (при полной установке).
+NO_FLAGS=0
+[[ $# -eq 0 ]] && NO_FLAGS=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full|--update|--fresh) FORCE_MODE="$1" ;;  # MODE передаётся через exec, не через BOOT_ARGS
@@ -189,7 +195,8 @@ while [[ $# -gt 0 ]]; do
     --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1") ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;
-    --interactive) FORCE_INTERACTIVE_MENU=1 ;;
+    --interactive) CHOOSE_COMPONENTS=1 ;;
+    --plan) PLAN_ONLY=1 ;;  # dry-run: напечатать план (mode+args) и выйти, ничего не меняя
     *) UNKNOWN_FLAGS+=("$1") ;;
   esac
   shift
@@ -198,44 +205,80 @@ done
 # Валидация неизвестных флагов
 if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
   echo "" >&2
-  echo "⚠️  ОШИБКА: Неизвестные флаги: ${UNKNOWN_FLAGS[*]}" >&2
+  echo "⚠️  ПРЕДУПРЕЖДЕНИЕ: Неизвестные флаги: ${UNKNOWN_FLAGS[*]}" >&2
   echo "" >&2
   echo "Доступные флаги установки:" >&2
-  echo "  --full              Полная установка (Tor + Split + Zapret + Панель)" >&2
+  echo "  (без флагов)        Интерактивная установка с меню выбора (рекомендуется)" >&2
+  echo "  --full              Полная установка без вопросов (Tor + Split + Zapret + Мосты + Панель)" >&2
   echo "  --update            Только обновление (без переустановки)" >&2
-  echo "  --tor               Только Tor + Панель" >&2
-  echo "  --split             Только Split-routing + Панель (требует --tor)" >&2
-  echo "  --zapret            Только Zapret + Панель" >&2
-  echo "  --bridges           Только мосты Tor + Панель" >&2
-  echo "  --warp              Cloudflare WARP + Панель" >&2
-  echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
-  echo "  --ssh               Панель доступна только через SSH-туннель" >&2
-  echo "  --interactive       Показать интерактивное меню выбора" >&2
+  echo "  --tor / --with-tor  Tor + Панель" >&2
+  echo "  --split             Split-routing + Панель (требует --tor)" >&2
+  echo "  --zapret            Zapret + Панель" >&2
+  echo "  --bridges           Мосты Tor + Панель (требует --tor)" >&2
+  echo "  --warp / --with-warp  Cloudflare WARP + Панель (зарубежный VPS, без Tor)" >&2
+  echo "  --no-tor / --foreign  Без Tor/Split/мостов (зарубежный VPS)" >&2
+  echo "  --no-split / --no-zapret / --no-bridges  Отключить компонент" >&2
+  echo "  --manager-stable / --manager-latest  Версия панели (default stable)" >&2
+  echo "  --ssh / --ip        Доступ к панели: SSH-туннель или открытый IP" >&2
+  echo "  --interactive       Меню выбора компонентов даже вместе с --full" >&2
+  echo "  --resume            Продолжить прерванную установку" >&2
+  echo "  --state             Показать состояние установки" >&2
   echo "" >&2
 
-  if olc_has_tty; then
-    echo "Продолжить установку с интерактивным меню? (y/N): " >&2
-    read -r answer </dev/tty
+  if olc_has_tty && [[ "${TUI_AVAILABLE:-0}" -eq 1 ]] && declare -f tui_menu >/dev/null 2>&1; then
+    bad_choice=$(tui_menu "Неизвестные флаги проигнорированы. Что делать?" \
+      "Интерактивная установка (меню выбора компонентов)" \
+      "Продолжить с настройками по умолчанию" \
+      "Отменить установку")
+    case "$bad_choice" in
+      2) echo "Установка отменена." >&2; exit 1 ;;
+      1) ;;  # дефолт (авто-детект режима ниже)
+      *) CHOOSE_COMPONENTS=1 ;;
+    esac
+  elif olc_has_tty; then
+    echo -n "Продолжить установку с интерактивным меню? (y/N): " >&2
+    read -r answer </dev/tty || answer="n"
     if [[ "${answer,,}" == "y" ]]; then
-      FORCE_INTERACTIVE_MENU=1
+      CHOOSE_COMPONENTS=1
     else
       echo "Установка отменена." >&2
       exit 1
     fi
   else
-    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Нет интерактивного терминала для меню" "Конфликтующие флаги требуют выбора через меню" "Используйте правильные флаги: --no-tor, --with-warp, --full, --update" || \
-      fatal_early "Нет интерактивного терминала" "Конфликтующие флаги требуют меню" "Используйте правильные флаги установки"
+    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Нет интерактивного терминала для меню" "Неизвестные флаги требуют выбора через меню" "Используйте правильные флаги: --full, --no-tor, --with-warp, --update" || \
+      fatal_early "Нет интерактивного терминала" "Неизвестные флаги требуют меню" "Используйте правильные флаги установки"
   fi
 fi
 
-# Вызов интерактивного меню при необходимости
-if [[ "${FORCE_INTERACTIVE_MENU:-0}" == "1" ]] && olc_has_tty; then
+# ── Основная интерактивная команда (без флагов, свежая система) ──────────────
+# Запуск без флагов на чистой системе → предложить меню выбора конфигурации.
+# С --full и прочими флагами это меню НЕ показывается (TUI-прогресс всё равно
+# будет). --interactive форсирует меню даже вместе с флагами.
+if [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty; }; then
   if [[ -f "$INSTALL_DIR/scripts/lib-olc-core.sh" ]]; then
-    source "$INSTALL_DIR/scripts/lib-olc-core.sh"
-    interactive_install_menu || exit 1
+    # На свежей системе (нет detect) меню выбора компонентов; если уже
+    # установлено — этим займётся меню «выберите действие» ниже (auto-detect).
+    _pre_detect="fresh"
+    [[ -x "$INSTALL_DIR/scripts/olc-detect-install.sh" ]] && \
+      _pre_detect="$("$INSTALL_DIR/scripts/olc-detect-install.sh" 2>/dev/null || echo fresh)"
+    if [[ "$CHOOSE_COMPONENTS" -eq 1 || "$_pre_detect" == "fresh" ]]; then
+      source "$INSTALL_DIR/scripts/lib-olc-core.sh"
+      if declare -f interactive_install_menu >/dev/null 2>&1; then
+        interactive_install_menu || { echo "Установка отменена." >&2; exit 1; }
+        # Перенести выбор меню (OLC_NO_* / OLC_INSTALL_SSH) в BOOT_ARGS
+        [[ "${OLC_NO_TOR:-0}" == "1" ]]     && BOOT_ARGS+=(--no-tor)
+        [[ "${OLC_NO_SPLIT:-0}" == "1" ]]   && BOOT_ARGS+=(--no-split)
+        [[ "${OLC_NO_ZAPRET:-0}" == "1" ]]  && BOOT_ARGS+=(--no-zapret)
+        [[ "${OLC_NO_BRIDGES:-0}" == "1" ]] && BOOT_ARGS+=(--no-bridges)
+        [[ "${OLC_INSTALL_SSH:-0}" == "1" ]] && BOOT_ARGS+=(--ssh)
+        # Меню = осознанный выбор полной конфигурации → форсируем режим full
+        [[ -z "$FORCE_MODE" ]] && FORCE_MODE="--full"
+      fi
+    fi
+    unset _pre_detect
   else
-    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "lib-olc-core.sh не найден" "Интерактивное меню недоступно" "Переклонируйте репозиторий: rm -rf $INSTALL_DIR && curl ... | sudo bash" || \
-      fatal_early "lib-olc-core.sh не найден" "Меню недоступно" "Переклонируйте репозиторий"
+    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_warning "lib-olc-core.sh не найден — меню выбора недоступно, ставим полную конфигурацию" || \
+      echo "[install] lib-olc-core.sh не найден — меню выбора недоступно" >&2
   fi
 fi
 
@@ -327,6 +370,20 @@ else
 fi
 
 tui_log_step "Обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
+
+# --plan: dry-run — вывести разобранный план и выйти БЕЗ клонирования/сборки.
+# Используется scripts/test-install-flags.sh для проверки, что явные флаги не
+# ломают парсинг install.sh и корректно транслируются в agent-bootstrap.
+if [[ "$PLAN_ONLY" -eq 1 ]]; then
+  echo "[install-plan] state=$STATE mode=$MODE boot_args=[${BOOT_ARGS[*]:-}] force_mode=${FORCE_MODE:-none}"
+  if [[ -x "$INSTALL_DIR/scripts/agent-bootstrap.sh" ]]; then
+    boot_mode="--full"
+    [[ "$MODE" == "update" ]] && boot_mode="--update"
+    [[ "$MODE" == "incremental" ]] && boot_mode="--incremental"
+    OLC_REPO_ROOT="$INSTALL_DIR" bash "$INSTALL_DIR/scripts/agent-bootstrap.sh" "$boot_mode" "${BOOT_ARGS[@]}" --plan
+  fi
+  exit 0
+fi
 
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_step "Клонирование репозитория..."

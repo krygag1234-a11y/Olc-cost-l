@@ -36,6 +36,7 @@ PANEL_ACCESS="${OLCRTC_PANEL_ACCESS:-ip}"
 PANEL_TLS="${OLCRTC_PANEL_TLS:-0}"
 PANEL_LISTEN_ADDR="${OLCRTC_MANAGER_ADDR:-0.0.0.0}"
 PANEL_ACCESS_EXPLICIT=0
+PLAN_ONLY=0
 REBUILD_ONLY=0
 UPDATE=0
 PROFILE_ID=""
@@ -114,7 +115,7 @@ while [[ $# -gt 0 ]]; do
       ENABLE_WARP=0
       ENABLE_BRIDGES=1
       ;;
-    --tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
+    --tor|--with-tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
     --split) ENABLE_SPLIT=1; RU_VPS=1; FULL=1 ;;
     --zapret) export OLCRTC_ENABLE_ZAPRET=1; RU_VPS=1; FULL=1 ;;
     --warp|--with-warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; FULL=1 ;;
@@ -131,6 +132,7 @@ while [[ $# -gt 0 ]]; do
     --update) UPDATE=1 ;;
     --incremental) INCREMENTAL=1 ;;
     --resume) export OLCRTC_RESUME=1 ;;
+    --plan) PLAN_ONLY=1 ;;
     --fresh-state) export OLCRTC_FRESH=1 ;;
     --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
     --manager-stable) export OLC_MANAGER_STABLE=1 ;;
@@ -158,6 +160,13 @@ if [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
 fi
 if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
   tui_fatal "Tor bridges требуют Tor" "Флаг --bridges используется без --tor" "Добавьте --tor для использования obfs4/webtunnel мостов"
+fi
+
+# --plan: dry-run проверка парсинга/валидации флагов — печать плана и выход,
+# БЕЗ каких-либо изменений на хосте (используется scripts/test-install-flags.sh)
+if [[ "$PLAN_ONLY" -eq 1 ]]; then
+  echo "[plan] full=$FULL update=$UPDATE incremental=$INCREMENTAL rebuild_only=$REBUILD_ONLY tor=${ENABLE_TOR:-0} split=${ENABLE_SPLIT:-0} zapret=${OLCRTC_ENABLE_ZAPRET:-1} bridges=${ENABLE_BRIDGES:-1} warp=${ENABLE_WARP:-0} ru=$RU_VPS access=$PANEL_ACCESS profile=${PROFILE_ID:-none}"
+  exit 0
 fi
 
 if [[ -n "$PROFILE_ID" ]]; then

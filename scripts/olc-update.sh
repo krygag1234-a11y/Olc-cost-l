@@ -57,7 +57,7 @@ olc_update_has_tty() {
 }
 
 main() {
-  need_root "$@"
+  local plan_only=0
   local update_mode=""
   local repo profile_arg=()
   local has_explicit_flags=0
@@ -65,17 +65,34 @@ main() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      --show-profile) profile_show; exit 0 ;;
+      --plan) plan_only=1 ;;  # dry-run парсинга флагов (без root/сети); ДО need_root
+      --show-profile) ;;      # обрабатывается ниже после need_root
       --profile) profile_arg=(--profile) ;;
-      --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
+      --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; has_explicit_flags=1 ;;
       --manager-stable) export OLC_MANAGER_STABLE=1; has_explicit_flags=1 ;;
       --manager-latest) export OLC_MANAGER_LATEST=1; has_explicit_flags=1 ;;
-      --incremental) update_mode="--incremental" ;;
-      --update) update_mode="--update" ;;
+      --incremental) update_mode="--incremental"; has_explicit_flags=1 ;;
+      --update) update_mode="--update"; has_explicit_flags=1 ;;
       --resume) ;; # handled by agent-bootstrap
-      --ssh|--localhost) ;; # handled by agent-bootstrap
+      --ssh|--localhost|--ip|--public-panel) has_explicit_flags=1 ;; # handled by agent-bootstrap
+      --profile-id|--foreign) ;; # tolerate
       *) unknown_flags+=("$arg") ;;
     esac
+  done
+
+  # --plan: напечатать разобранный режим и выйти БЕЗ каких-либо действий.
+  # Должно идти ДО need_root, чтобы тесты можно было гонять без sudo.
+  if [[ "$plan_only" -eq 1 ]]; then
+    local pm="${update_mode:-<menu/default>}"
+    [[ -z "$update_mode" && "$has_explicit_flags" -eq 1 ]] && pm="--update(default-with-flags)"
+    echo "[update-plan] mode=$pm explicit_flags=$has_explicit_flags unknown=[${unknown_flags[*]:-}]"
+    exit 0
+  fi
+
+  need_root "$@"
+  # --show-profile обрабатываем после получения root (нужен доступ к state)
+  for arg in "$@"; do
+    [[ "$arg" == "--show-profile" ]] && { profile_show; exit 0; }
   done
 
   # Валидация неизвестных флагов

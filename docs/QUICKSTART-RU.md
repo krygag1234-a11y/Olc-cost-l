@@ -8,19 +8,31 @@
 - Туннель **olcrtc** к Jitsi / Telemost / WB Stream
 - На RU VPS: **Tor**, **split** (RU direct), **zapret**, **мосты**
 
-## 1. Установка (одна команда)
+## 1. Установка (два способа, оба с красивым TUI)
 
-На чистом Ubuntu/Debian VPS от root:
+На чистом Ubuntu/Debian VPS от root.
+
+**🅰️ С интерактивным меню (основная команда, без флагов)** — установщик спросит
+конфигурацию (доступ к панели, компоненты), затем покажет полноэкранный TUI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+```
+
+**🅱️ Без меню (`--full`) — «поставь и не спрашивай»**, тот же TUI, но полная
+конфигурация ставится сразу без вопросов:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
 ```
 
-Если панель должна быть доступна только через SSH-туннель:
+Панель только через SSH-туннель (без меню):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --ssh
 ```
+
+> Нужно меню выбора компонентов даже с флагами — добавьте `--interactive`.
 
 <details>
 <summary>📖 О версиях панели</summary>
