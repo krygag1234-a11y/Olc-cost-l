@@ -35,6 +35,8 @@ function AccessControlSection() {
   const [devices, setDevices] = useState<Array<{ hwid: string; label?: string; enabled: boolean }>>([]);
   const [ban, setBan] = useState<Array<{ hwid: string; label?: string; enabled: boolean }>>([]);
   const [banNoHwid, setBanNoHwid] = useState(false);
+  const [allowedIps, setAllowedIps] = useState<string[]>([]);
+  const [newIp, setNewIp] = useState("");
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [autolog, setAutolog] = useState(true);
@@ -54,6 +56,7 @@ function AccessControlSection() {
       setDevices(Array.isArray(sb.devices) ? sb.devices : []);
       setBan(Array.isArray(sb.ban) ? sb.ban : []);
       setBanNoHwid(!!sb.ban_no_hwid);
+      setAllowedIps(Array.isArray(sb.allowed_ips) ? sb.allowed_ips : []);
     } catch { /* ignore */ }
     try {
       const l = await fetch("/api/settings/logs", { cache: "no-store" });
@@ -160,6 +163,26 @@ function AccessControlSection() {
       setBan(Array.isArray(b.ban) ? b.ban : ban);
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
+  // IP-allowlist: backend уже энфорсит allowed_ips (olcAccessAllowed), UI лишь
+  // управляет списком через те же /api/access/{allow,remove} с телом {ip}.
+  const allowIp = async (ip: string) => {
+    const v = (ip || "").trim(); if (!v) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/access/allow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip: v }) });
+      const b = await res.json();
+      setAllowedIps(Array.isArray(b.allowed_ips) ? b.allowed_ips : []);
+      setNewIp("");
+    } catch { /* ignore */ } finally { setBusy(false); }
+  };
+  const removeIp = async (ip: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/access/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip }) });
+      const b = await res.json();
+      setAllowedIps(Array.isArray(b.allowed_ips) ? b.allowed_ips : []);
+    } catch { /* ignore */ } finally { setBusy(false); }
+  };
   const isKnown = (hwid: string) => devices.some((d) => (d.hwid || "").toLowerCase() === hwid.toLowerCase());
 
   return (
@@ -213,6 +236,24 @@ function AccessControlSection() {
             <input className="h-8 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
               placeholder="install-… (hwid устройства)" value={newHwid} onChange={(e) => setNewHwid(e.target.value)} />
             <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={busy || !newHwid.trim()} onClick={() => void allow(newHwid.trim())}>Добавить</button>
+          </div>
+
+          <div className="text-xs font-medium text-foreground">Разрешённые IP <span className="font-normal text-muted-foreground">(доступ по адресу без hwid — напр. свой сервер/скрипт)</span></div>
+          {allowedIps.length === 0 && <div className="text-xs text-muted-foreground">Пусто. Обычно достаточно hwid устройств; IP — для доступа без приложения.</div>}
+          {allowedIps.length > 0 && (
+            <div className="grid max-h-32 gap-1 overflow-y-auto">
+              {allowedIps.map((ip) => (
+                <div key={ip} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
+                  <span className="min-w-0 flex-1 truncate font-mono text-foreground">{ip}</span>
+                  <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => void removeIp(ip)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input className="h-8 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
+              placeholder="IP-адрес (напр. 203.0.113.7)" value={newIp} onChange={(e) => setNewIp(e.target.value)} />
+            <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={busy || !newIp.trim()} onClick={() => void allowIp(newIp.trim())}>Добавить IP</button>
           </div>
 
           <div className="text-xs font-medium text-red-400">🚫 Забаненные устройства (глобально)</div>
