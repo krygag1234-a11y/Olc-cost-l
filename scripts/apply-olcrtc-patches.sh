@@ -459,6 +459,9 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-sources-ui.sh" "$MGR_REPO/src/main.tsx"
   # Phase 1: fix delete dead bridge + better profiles UI (card-based with radio buttons).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-fix-final.sh" "$MGR_REPO/src/main.tsx"
+  # Восстановить контролы системного профиля мостов (Типы/Автообновление/Обновить),
+  # которые bridge-fix-final выкинул при переходе на карточки (регрессия).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-system-controls.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2A Step 1: transform custom_direct_domains textarea → card-based list with add/remove.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2a-step1.sh" "$MGR_REPO/src/main.tsx"
   # Phase 2A Step 2: collapse discovery.groups by default, add summary.
