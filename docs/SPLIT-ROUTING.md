@@ -73,6 +73,29 @@ CDN /32 снова: `OLCRTC_INCLUDE_CDN_IPS=1 setup-split-ru.sh` — может 
 
 `--no-tor` / `--foreign` — split-скрипты **не запускаются**.
 
+## Авто-расширение discovery (субдомены + CDN)
+
+`sync-config` создаёт группы discovery **shallow** (без cert SAN / crt.sh) ради
+скорости. Глубокое расширение (субдомены + CDN) — команда:
+
+```bash
+sudo olc-split-analyze expand-all            # все группы (уважает кэш-TTL)
+sudo olc-split-analyze expand-all --force    # игнорировать TTL
+sudo olc-split-analyze expand-all vk.com     # одну группу
+```
+
+Что делает: resolve + CNAME + **cert SAN** + **crt.sh** + brand-siblings + CDN-домены;
+доливает найденное в группы и авто-выбирает новинки (`selected_*`), чтобы они попали
+в `rebuild`. Кэш-TTL (`OLC_EXPAND_TTL_HOURS`, default 24ч; `OLC_EXPAND_LIMIT`, default 20
+групп за проход) не даёт спамить сеть.
+
+**Фоновый прогон:** `olcrtc-split-expand.timer` (устанавливается при включённом split;
+`OnBootSec=15m`, `OnUnitActiveSec=12h`) периодически запускает `expand-all`. Лог:
+`/var/log/olcrtc-split-expand.log`. В UI split — кнопка «Расширить субдомены».
+
+**whois** входит в базовые пакеты (`agent-bootstrap` deps) — `analyze`/`expand-all`
+используют `whois` (OrgName/OriginAS/NetName) для точной классификации CDN/origin.
+
 ## Ссылки
 
 - [GrimbirdUsers/ru-routing-dat](https://github.com/GrimbirdUsers/ru-routing-dat) — geosite/geoip (скрипт `fetch-geosite-ru-domains.sh`)
