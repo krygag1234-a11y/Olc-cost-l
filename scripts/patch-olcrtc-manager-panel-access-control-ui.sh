@@ -47,6 +47,10 @@ function AccessControlSection() {
   const listRef = useRef<HTMLDivElement | null>(null);
   const followRef = useRef(true);
   const resumeRef = useRef<number | null>(null);
+  const connListRef = useRef<HTMLDivElement | null>(null);
+  const connFollowRef = useRef(true);
+  const connResumeRef = useRef<number | null>(null);
+  const [connClearedAt, setConnClearedAt] = useState<string>("");
 
   const loadSettings = async () => {
     try {
@@ -93,6 +97,11 @@ function AccessControlSection() {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [attempts]);
+  useEffect(() => {
+    if (connFollowRef.current && connListRef.current) {
+      connListRef.current.scrollTop = connListRef.current.scrollHeight;
+    }
+  }, [connections]);
 
   const onScroll = () => {
     const el = listRef.current;
@@ -106,6 +115,19 @@ function AccessControlSection() {
       if (resumeRef.current) { window.clearTimeout(resumeRef.current); resumeRef.current = null; }
     }
   };
+  const onConnScroll = () => {
+    const el = connListRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    if (nearBottom) {
+      if (connResumeRef.current) window.clearTimeout(connResumeRef.current);
+      connResumeRef.current = window.setTimeout(() => { connFollowRef.current = true; }, 1500);
+    } else {
+      connFollowRef.current = false;
+      if (connResumeRef.current) { window.clearTimeout(connResumeRef.current); connResumeRef.current = null; }
+    }
+  };
+  const clearConnections = () => { setConnClearedAt(new Date().toISOString()); };
 
   const saveSettings = async (next: { enabled?: boolean; mode?: string; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean }) => {
     setBusy(true); setMsg(null);
@@ -353,13 +375,21 @@ function AccessControlSection() {
           <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold text-foreground">🔌 Подключения к инстансам</div>
-              <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>
+              <div className="flex items-center gap-2">
+                {autolog ? (
+                  <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+                ) : (
+                  <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>
+                )}
+                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={clearConnections}>Очистить</button>
+              </div>
             </div>
             <div className="text-[11px] text-muted-foreground">Устройства (device), реально подключавшиеся к инстансам — тот же идентификатор, что hwid подписки. Показывает, к какой подписке и инстансу шло подключение.</div>
-            {connections.length === 0 && <div className="text-xs text-muted-foreground">Подключений пока не зафиксировано.</div>}
-            {connections.length > 0 && (
-              <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
-                {connections.map((c, i) => {
+            {(() => { const shown = connClearedAt ? connections.filter((c) => String(c.last || "") > connClearedAt) : connections; return (<>
+            {shown.length === 0 && <div className="text-xs text-muted-foreground">Подключений пока не зафиксировано.</div>}
+            {shown.length > 0 && (
+              <div ref={connListRef} onScroll={onConnScroll} className="grid max-h-56 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+                {shown.map((c, i) => {
                   const dev = String(c.device || "");
                   const known = isKnown(dev);
                   const count = Number(c.count || 1);
@@ -383,6 +413,7 @@ function AccessControlSection() {
                 })}
               </div>
             )}
+            </>); })()}
           </div>
         </>
       )}

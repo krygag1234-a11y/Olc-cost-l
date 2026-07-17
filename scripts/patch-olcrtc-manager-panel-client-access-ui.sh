@@ -28,6 +28,14 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [allow, setAllow] = useState<Dev[]>([]);
   const [ban, setBan] = useState<Dev[]>([]);
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
+  const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
+  const [connClearedAt, setConnClearedAt] = useState<string>("");
+  const aListRef = useRef<HTMLDivElement | null>(null);
+  const aFollowRef = useRef(true);
+  const aResumeRef = useRef<number | null>(null);
+  const kListRef = useRef<HTMLDivElement | null>(null);
+  const kFollowRef = useRef(true);
+  const kResumeRef = useRef<number | null>(null);
   const [newAllow, setNewAllow] = useState("");
   const [newBan, setNewBan] = useState("");
   const [autolog, setAutolog] = useState(true);
@@ -74,6 +82,11 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       const ab = await a.json();
       setAttempts((Array.isArray(ab.attempts) ? ab.attempts : []).filter((x: any) => String(x.client_id) === clientId));
     } catch { /* ignore */ }
+    try {
+      const c = await fetch("/api/access/connections", { cache: "no-store" });
+      const cb = await c.json();
+      setConnections((Array.isArray(cb.connections) ? cb.connections : []).filter((x: any) => String(x.client_id) === clientId));
+    } catch { /* ignore */ }
   };
   useEffect(() => { void load(); }, [clientId]);
   useEffect(() => {
@@ -81,6 +94,17 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     const id = window.setInterval(() => { void loadAttempts(); }, 2500);
     return () => window.clearInterval(id);
   }, [autolog, clientId]);
+  useEffect(() => { if (aFollowRef.current && aListRef.current) aListRef.current.scrollTop = aListRef.current.scrollHeight; }, [attempts]);
+  useEffect(() => { if (kFollowRef.current && kListRef.current) kListRef.current.scrollTop = kListRef.current.scrollHeight; }, [connections]);
+  const mkOnScroll = (elRef: any, followRef: any, resumeRef: any) => () => {
+    const el = elRef.current; if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    if (nearBottom) { if (resumeRef.current) window.clearTimeout(resumeRef.current); resumeRef.current = window.setTimeout(() => { followRef.current = true; }, 1500); }
+    else { followRef.current = false; if (resumeRef.current) { window.clearTimeout(resumeRef.current); resumeRef.current = null; } }
+  };
+  const onAScroll = mkOnScroll(aListRef, aFollowRef, aResumeRef);
+  const onKScroll = mkOnScroll(kListRef, kFollowRef, kResumeRef);
+  const clearConnections = () => { setConnClearedAt(new Date().toISOString()); };
   const clearLog = async () => {
     setBusy(true); setMsg(null);
     try {
@@ -233,7 +257,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           </div>
           {attempts.length === 0 && <div className="text-xs text-muted-foreground">Пока нет.</div>}
           {attempts.length > 0 && (
-          <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+          <div ref={aListRef} onScroll={onAScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
             {attempts.map((a, i) => {
               const hwid = String(a.hwid || "");
               const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
@@ -256,6 +280,45 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
             })}
           </div>
           )}
+        </div>
+
+        <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-foreground">🔌 Подключения (эта подписка)</div>
+            <div className="flex items-center gap-2">
+              {autolog
+                ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+                : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
+              <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={clearConnections}>Очистить</button>
+            </div>
+          </div>
+          {(() => { const shown = connClearedAt ? connections.filter((c) => String(c.last || "") > connClearedAt) : connections; return (<>
+          {shown.length === 0 && <div className="text-xs text-muted-foreground">Подключений пока нет.</div>}
+          {shown.length > 0 && (
+          <div ref={kListRef} onScroll={onKScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+            {shown.map((c, i) => {
+              const dev = String(c.device || "");
+              const known = allow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+              const banned = ban.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+              const loc = String(c.location_name || "");
+              return (
+                <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
+                  <div className="min-w-0">
+                    <div className="truncate font-mono">{dev} {known && <span className="text-emerald-400">✓</span>}{Number(c.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}</div>
+                    <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}</div>
+                  </div>
+                  {dev && (
+                    <div className="flex shrink-0 gap-1">
+                      {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(dev)}>Разрешить</button>}
+                      {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(dev)}>Бан</button>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
+          </>); })()}
         </div>
         {msg && <div className="text-xs text-red-500 whitespace-pre-wrap">{msg}</div>}
       </div>
