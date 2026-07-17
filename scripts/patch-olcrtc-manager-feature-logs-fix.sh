@@ -41,8 +41,8 @@ paths_new = '''func featureLogPaths(name string) []string {
 	switch name {
 	case "zapret":
 		return []string{
-			"/var/log/olcrtc-zapret-install.log",
 			"/var/log/olcrtc-zapret-sync.log",
+			"/var/log/olcrtc-zapret-install.log",
 			"/var/log/olcrtc-component-zapret-install.log",
 			"/var/log/olcrtc-component-zapret-uninstall.log",
 		}
