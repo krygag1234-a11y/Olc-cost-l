@@ -203,7 +203,10 @@ install_deps() {
   apt-get update -qq >>"$apt_log" 2>&1
 
   tui_log_info "Установка базовых пакетов..."
-  apt-get install -y -qq git curl build-essential golang-go jq ca-certificates >>"$apt_log" 2>&1 || true
+  # whois — для точной классификации CDN/origin в split-discovery (whois_summary
+  # в olc-split-analyze.sh: OrgName/OriginAS/NetName). Без него analyze/expand-all
+  # работают, но классификация CDN беднее (только cert SAN/crt.sh/brand).
+  apt-get install -y -qq git curl build-essential golang-go jq ca-certificates whois >>"$apt_log" 2>&1 || true
 
   tui_log_info "Установка Node.js и npm..."
   apt-get install -y -qq patch nodejs npm >>"$apt_log" 2>&1 || true
@@ -365,6 +368,17 @@ install_systemd_units() {
       "/etc/systemd/system/${u}.timer"
   done
 
+  # Split-discovery: фоновый авто-expand групп (субдомены + CDN). Ставим юниты,
+  # если включён split-routing. Сам expand-all уважает кэш-TTL, так что таймер
+  # безопасен для сети. Enable — в setup_systemd (после daemon-reload).
+  if [[ "${ENABLE_SPLIT:-0}" -eq 1 && -f "$REPO_ROOT/packaging/systemd/olcrtc-split-expand.service" ]]; then
+    sed "s|@OLC_SCRIPTS@|${scripts}|g" \
+      "$REPO_ROOT/packaging/systemd/olcrtc-split-expand.service" \
+      >/etc/systemd/system/olcrtc-split-expand.service
+    install -m 0644 "$REPO_ROOT/packaging/systemd/olcrtc-split-expand.timer" \
+      "/etc/systemd/system/olcrtc-split-expand.timer"
+  fi
+
   cat >/etc/systemd/system/olcrtc-network-recovery.service <<EOF
 [Unit]
 Description=OlcRTC network recovery
@@ -399,6 +413,11 @@ EOF
   if [[ "${ENABLE_TOR:-1}" -eq 1 && "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
     systemctl enable --now olcrtc-tor-bridge-pool.timer \
       olcrtc-tor-bridge-monitor.timer olcrtc-tor-bridge-deep.timer 2>/dev/null || true
+  fi
+  # Фоновый авто-expand split-discovery (субдомены + CDN). enable --now только
+  # если split включён и юнит установлен. Кэш-TTL защищает от спама сети.
+  if [[ "${ENABLE_SPLIT:-0}" -eq 1 && -f /etc/systemd/system/olcrtc-split-expand.timer ]]; then
+    systemctl enable --now olcrtc-split-expand.timer 2>/dev/null || true
   fi
 }
 

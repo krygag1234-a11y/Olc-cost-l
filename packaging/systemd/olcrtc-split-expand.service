@@ -1,0 +1,16 @@
+[Unit]
+Description=OlcRTC split-routing: periodic deep auto-expand of discovery groups (subdomains + CDN)
+After=network-online.target olcrtc-manager.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# expand-all уважает per-group кэш-TTL (OLC_EXPAND_TTL_HOURS, default 24ч) — фоновый
+# прогон НЕ спамит сеть: расширяет только группы, у которых истёк TTL. Ошибки в сети
+# (crt.sh/резолв) не должны валить таймер — потому || true.
+ExecStart=/bin/bash -c '@OLC_SCRIPTS@/olc-split-analyze.sh expand-all >/var/log/olcrtc-split-expand.log 2>&1 || true'
+Nice=15
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

@@ -115,7 +115,7 @@ stop_unit() {
 log "stop services"
 stop_unit olcrtc-manager.service
 stop_unit olcrtc-network-recovery.service
-for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
+for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep olcrtc-split-expand; do
   stop_unit "${u}.timer"
   stop_unit "${u}.service"
 done
