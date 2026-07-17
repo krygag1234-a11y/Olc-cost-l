@@ -33,6 +33,8 @@ function AccessControlSection() {
   const [enabled, setEnabled] = useState(false);
   const [mode, setMode] = useState<"monitor" | "enforce">("monitor");
   const [devices, setDevices] = useState<Array<{ hwid: string; label?: string; enabled: boolean }>>([]);
+  const [ban, setBan] = useState<Array<{ hwid: string; label?: string; enabled: boolean }>>([]);
+  const [banNoHwid, setBanNoHwid] = useState(false);
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [autolog, setAutolog] = useState(true);
@@ -50,6 +52,8 @@ function AccessControlSection() {
       setEnabled(!!sb.enabled);
       setMode(sb.mode === "enforce" ? "enforce" : "monitor");
       setDevices(Array.isArray(sb.devices) ? sb.devices : []);
+      setBan(Array.isArray(sb.ban) ? sb.ban : []);
+      setBanNoHwid(!!sb.ban_no_hwid);
     } catch { /* ignore */ }
     try {
       const l = await fetch("/api/settings/logs", { cache: "no-store" });
@@ -98,10 +102,10 @@ function AccessControlSection() {
     }
   };
 
-  const saveSettings = async (next: { enabled?: boolean; mode?: string }) => {
+  const saveSettings = async (next: { enabled?: boolean; mode?: string; ban?: any[]; ban_no_hwid?: boolean }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { enabled, mode, devices, ...next };
+      const body = { enabled, mode, devices, ban, ban_no_hwid: banNoHwid, ...next };
       const res = await fetch("/api/access/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
@@ -109,8 +113,13 @@ function AccessControlSection() {
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
       setEnabled(!!b.enabled); setMode(b.mode === "enforce" ? "enforce" : "monitor");
       setDevices(Array.isArray(b.devices) ? b.devices : []);
+      setBan(Array.isArray(b.ban) ? b.ban : []);
+      setBanNoHwid(!!b.ban_no_hwid);
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
+  const banDevice = (hwid: string) => { const h = (hwid || "").trim(); if (!h) return; const nx = [...ban, { hwid: h, enabled: true }]; setBan(nx); void saveSettings({ ban: nx }); };
+  const removeBan = (hwid: string) => { const nx = ban.filter((d) => d.hwid !== hwid); setBan(nx); void saveSettings({ ban: nx }); };
+  const toggleBan = (hwid: string, en: boolean) => { const nx = ban.map((d) => d.hwid === hwid ? { ...d, enabled: en } : d); setBan(nx); void saveSettings({ ban: nx }); };
   const allow = async (hwid: string) => {
     if (!hwid) return;
     setBusy(true); setMsg(null);
@@ -119,6 +128,7 @@ function AccessControlSection() {
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
       setDevices(Array.isArray(b.devices) ? b.devices : []);
+      setBan(Array.isArray(b.ban) ? b.ban : ban);
       setNewHwid("");
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
@@ -129,6 +139,7 @@ function AccessControlSection() {
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
       setDevices(Array.isArray(b.devices) ? b.devices : []);
+      setBan(Array.isArray(b.ban) ? b.ban : ban);
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const clearAttempts = async () => {
@@ -146,6 +157,7 @@ function AccessControlSection() {
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
       setDevices(Array.isArray(b.devices) ? b.devices : []);
+      setBan(Array.isArray(b.ban) ? b.ban : ban);
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const isKnown = (hwid: string) => devices.some((d) => (d.hwid || "").toLowerCase() === hwid.toLowerCase());
@@ -203,15 +215,33 @@ function AccessControlSection() {
             <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={busy || !newHwid.trim()} onClick={() => void allow(newHwid.trim())}>Добавить</button>
           </div>
 
+          <div className="text-xs font-medium text-red-400">🚫 Забаненные устройства (глобально)</div>
+          {ban.length === 0 && <div className="text-xs text-muted-foreground">Пусто.</div>}
+          {ban.length > 0 && (
+            <div className="grid max-h-32 gap-1 overflow-y-auto">
+              {ban.map((d) => (
+                <div key={d.hwid} className="flex items-center gap-2 rounded border border-red-500/30 bg-red-500/5 px-2 py-1 text-xs">
+                  <input type="checkbox" title="Вкл/выкл бан" checked={d.enabled !== false} disabled={busy} onChange={(e) => toggleBan(d.hwid, e.target.checked)} />
+                  <span className={`min-w-0 flex-1 truncate font-mono ${d.enabled === false ? "text-muted-foreground line-through" : "text-red-300"}`}>{d.hwid}</span>
+                  <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => removeBan(d.hwid)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <input type="checkbox" checked={banNoHwid} disabled={busy} onChange={(e) => { setBanNoHwid(e.target.checked); void saveSettings({ ban_no_hwid: e.target.checked }); }} />
+            Блокировать запросы без hwid (Compatibility-фолбэк olcbox — «поймать всё устройство»)
+          </label>
+
           <div className="flex items-center justify-between">
-            <div className="text-xs font-medium text-foreground">Журнал попыток</div>
+            <div className="text-xs font-medium text-foreground">📋 Журнал попыток</div>
             <div className="flex items-center gap-2">
               {autolog ? (
-                <span className="rounded border border-emerald-700 px-2 py-1 text-[11px] text-emerald-400">● автологи</span>
+                <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
               ) : (
-                <button type="button" className="rounded border border-border px-2 py-1 text-[11px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>
+                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>
               )}
-              <button type="button" className="rounded border border-border px-2 py-1 text-[11px] hover:bg-muted" disabled={busy} onClick={() => void clearAttempts()}>Очистить</button>
+              <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearAttempts()}>Очистить</button>
             </div>
           </div>
           {attempts.length === 0 && <div className="text-xs text-muted-foreground">Попыток пока не зафиксировано.</div>}
@@ -230,8 +260,11 @@ function AccessControlSection() {
                       </div>
                       <div className="truncate text-muted-foreground">{String(a.ip || "")} · {String(a.client_id || "")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
                     </div>
-                    {!known && hwid && (
-                      <button type="button" className="shrink-0 rounded border border-primary px-2 py-1 text-primary" disabled={busy} onClick={() => void allow(hwid)}>Разрешить</button>
+                    {hwid && (
+                      <div className="flex shrink-0 gap-1">
+                        {!known && <button type="button" className="rounded border border-primary px-2 py-1 text-primary" disabled={busy} onClick={() => void allow(hwid)}>Разрешить</button>}
+                        {!ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase()) && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400" disabled={busy} onClick={() => banDevice(hwid)}>Бан</button>}
+                      </div>
                     )}
                   </div>
                 );

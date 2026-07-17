@@ -30,6 +30,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [newAllow, setNewAllow] = useState("");
   const [newBan, setNewBan] = useState("");
+  const [autolog, setAutolog] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -42,12 +43,32 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setBan(Array.isArray(b.ban) ? b.ban : []);
     } catch { /* ignore */ }
     try {
+      const l = await fetch("/api/settings/logs", { cache: "no-store" });
+      const lb = await l.json();
+      setAutolog(lb.auto_refresh !== false);
+    } catch { setAutolog(true); }
+    await loadAttempts();
+  };
+  const loadAttempts = async () => {
+    try {
       const a = await fetch("/api/access/attempts", { cache: "no-store" });
       const ab = await a.json();
       setAttempts((Array.isArray(ab.attempts) ? ab.attempts : []).filter((x: any) => String(x.client_id) === clientId));
     } catch { /* ignore */ }
   };
   useEffect(() => { void load(); }, [clientId]);
+  useEffect(() => {
+    if (!autolog) return;
+    const id = window.setInterval(() => { void loadAttempts(); }, 2500);
+    return () => window.clearInterval(id);
+  }, [autolog, clientId]);
+  const clearLog = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await fetch(`/api/access/attempts/clear?client_id=${encodeURIComponent(clientId)}`, { method: "POST" });
+      await loadAttempts();
+    } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
+  };
 
   const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[] }) => {
     setBusy(true); setMsg(null);
@@ -68,6 +89,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const rmAllow = (h: string) => void save({ allow: allow.filter((d) => d.hwid !== h) });
   const rmBan = (h: string) => void save({ ban: ban.filter((d) => d.hwid !== h) });
   const toggleAllow = (h: string, en: boolean) => void save({ allow: allow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
+  const toggleBan = (h: string, en: boolean) => void save({ ban: ban.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
 
   const devRow = (d: Dev, onToggle: ((en: boolean) => void) | null, onRemove: () => void) => (
     <div key={d.hwid} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-[11px]">
@@ -96,7 +118,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           </select>
         </label>
 
-        <div className="text-xs font-medium text-foreground">Разрешённые (только для этой подписки)</div>
+        <div className="text-xs font-medium text-emerald-400">✅ Разрешённые (только для этой подписки)</div>
         {allow.length === 0 && <div className="text-xs text-muted-foreground">Пусто — используется глобальный список.</div>}
         <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid)))}</div>
         <div className="flex gap-2">
@@ -104,15 +126,23 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={busy || !newAllow.trim()} onClick={() => addAllow(newAllow)}>Разрешить</button>
         </div>
 
-        <div className="text-xs font-medium text-foreground">Забаненные (только для этой подписки)</div>
+        <div className="text-xs font-medium text-red-400">🚫 Забаненные (только для этой подписки)</div>
         {ban.length === 0 && <div className="text-xs text-muted-foreground">Пусто.</div>}
-        <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, null, () => rmBan(d.hwid)))}</div>
+        <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid)))}</div>
         <div className="flex gap-2">
           <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
-          <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
+          <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
         </div>
 
-        <div className="text-xs font-medium text-foreground">Попытки по этой подписке</div>
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-medium text-foreground">📋 Попытки по этой подписке</div>
+          <div className="flex items-center gap-2">
+            {autolog
+              ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+              : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
+            <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearLog()}>Очистить</button>
+          </div>
+        </div>
         {attempts.length === 0 && <div className="text-xs text-muted-foreground">Пока нет.</div>}
         <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-card/40 p-2">
           {attempts.map((a, i) => {

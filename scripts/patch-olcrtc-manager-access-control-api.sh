@@ -117,6 +117,8 @@ type olcAccessControl struct {
 	Enabled      bool                        `json:"enabled"`
 	Mode         string                      `json:"mode"` // "monitor" | "enforce"
 	Devices      []olcAllowedDevice          `json:"devices"`
+	Ban          []olcAllowedDevice          `json:"ban"`               // глобальный бан (по hwid)
+	BanNoHwid    bool                        `json:"ban_no_hwid"`       // блокировать запросы без hwid (Compatibility)
 	Clients      map[string]*olcClientAccess `json:"clients,omitempty"` // per-подписка
 	AllowedHWIDs []string                    `json:"allowed_hwids,omitempty"` // legacy, мигрируется
 	AllowedIPs   []string                    `json:"allowed_ips,omitempty"`
@@ -145,6 +147,9 @@ func olcAccessLoad() olcAccessControl {
 	}
 	if ac.Devices == nil {
 		ac.Devices = []olcAllowedDevice{}
+	}
+	if ac.Ban == nil {
+		ac.Ban = []olcAllowedDevice{}
 	}
 	// миграция legacy allowed_hwids -> devices (каждый включён)
 	if len(ac.Devices) == 0 && len(ac.AllowedHWIDs) > 0 {
@@ -263,9 +268,20 @@ func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active b
 	if !active {
 		return false, true, false, mode
 	}
+	hw := strings.TrimSpace(hwid)
+	// Блокировка запросов без hwid (Compatibility-фолбэк olcbox) — если включено.
+	if ac.BanNoHwid && hw == "" {
+		return true, false, true, mode
+	}
+	// Глобальный бан (по hwid) — жёсткий блок для всех подписок.
+	for _, b := range ac.Ban {
+		if b.Enabled && b.HWID != "" && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
+			return true, false, true, mode
+		}
+	}
 	if cc != nil {
 		for _, b := range cc.Ban {
-			if b.Enabled && strings.EqualFold(strings.TrimSpace(b.HWID), strings.TrimSpace(hwid)) {
+			if b.Enabled && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
 				return true, false, true, mode
 			}
 		}
@@ -329,6 +345,10 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		if in.Devices != nil {
 			cur.Devices = olcAccessNormalizeDevices(in.Devices)
 		}
+		if in.Ban != nil {
+			cur.Ban = olcAccessNormalizeDevices(in.Ban)
+		}
+		cur.BanNoHwid = in.BanNoHwid
 		if in.AllowedIPs != nil {
 			cur.AllowedIPs = olcAccessDedup(in.AllowedIPs)
 		}
@@ -348,7 +368,19 @@ func accessAttemptsHandler(w http.ResponseWriter, r *http.Request) {
 
 func accessAttemptsClearHandler(w http.ResponseWriter, r *http.Request) {
 	olcAccessMu.Lock()
-	_olcAccessWriteAttempts([]olcAccessAttempt{})
+	cid := strings.TrimSpace(r.URL.Query().Get("client_id"))
+	if cid != "" {
+		// очистить только записи конкретной подписки
+		kept := []olcAccessAttempt{}
+		for _, a := range olcAccessLoadAttempts() {
+			if a.ClientID != cid {
+				kept = append(kept, a)
+			}
+		}
+		_olcAccessWriteAttempts(kept)
+	} else {
+		_olcAccessWriteAttempts([]olcAccessAttempt{})
+	}
 	olcAccessMu.Unlock()
 	writeJSON(w, map[string]any{"status": "ok"})
 }
