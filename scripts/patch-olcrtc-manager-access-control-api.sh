@@ -33,6 +33,7 @@ route_add = route_anchor + '''
 	handler.Handle("/api/access/attempts/clear", adminAuth(http.HandlerFunc(accessAttemptsClearHandler)))
 	handler.Handle("/api/access/allow", adminAuth(http.HandlerFunc(accessAllowHandler)))
 	handler.Handle("/api/access/device", adminAuth(http.HandlerFunc(accessDeviceHandler)))
+	handler.Handle("/api/access/client", adminAuth(http.HandlerFunc(accessClientHandler)))
 	handler.Handle("/api/access/remove", adminAuth(http.HandlerFunc(accessRemoveHandler)))'''
 if '/api/access/settings' in t:
     print("[patch-access-control-api] routes already present")
@@ -48,25 +49,25 @@ res_anchor = '''		resolvedClientID, err := resolveClientID(requestedID, cfg)
 			http.NotFound(w, r)
 			return
 		}'''
-res_add = '''		// Контроль доступа по hwid устройства (olcbox шлёт x-hwid при запросе подписки).
-		// Фиксируем попытку ДАЖЕ при включённой рандомизации; в enforce блокируем чужих.
+res_add = '''		// Контроль доступа по hwid устройства (глобальный + per-client). Фиксируем
+		// попытку ДАЖЕ при включённой рандомизации; в enforce/ban блокируем чужих.
 		olcAC := olcAccessLoad()
 		olcHwid := strings.TrimSpace(r.Header.Get("x-hwid"))
 		olcIP := remoteHost(r)
-		olcAllowedDev := olcAccessAllowed(olcAC, olcHwid, olcIP)
-		if olcAC.Enabled {
+		olcActive, olcAllowedDev, olcDeny, olcMode := olcAccessDecision(olcAC, requestedID, olcHwid, olcIP)
+		if olcActive {
 			olcAccessRecordAttempt(olcAccessAttempt{
 				TS: time.Now().UTC().Format(time.RFC3339), HWID: olcHwid, IP: olcIP,
-				UA: r.Header.Get("User-Agent"), ClientID: requestedID, Path: r.URL.Path, Allowed: olcAllowedDev,
+				UA: r.Header.Get("User-Agent"), ClientID: requestedID, Path: r.URL.Path, Allowed: olcAllowedDev && !olcDeny,
 			})
-			if olcAC.Mode == "enforce" && !olcAllowedDev {
+			if olcDeny || (olcMode == "enforce" && !olcAllowedDev) {
 				http.NotFound(w, r)
 				return
 			}
 		}
 		// Разрешённое устройство может брать подписку по ОРИГИНАЛЬНОМУ client-id даже
 		// при включённой рандомизации; остальным — только рандомизированный id.
-		resolvedClientID, err := olcResolveClientIDWithAccess(requestedID, cfg, olcAC.Enabled && olcAllowedDev)
+		resolvedClientID, err := olcResolveClientIDWithAccess(requestedID, cfg, olcActive && olcAllowedDev && !olcDeny)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -103,13 +104,23 @@ type olcAllowedDevice struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// olcClientAccess: индивидуальный контроль доступа для ОДНОЙ подписки (клиента).
+// Mode: "inherit" (как глобально) | "off" | "monitor" | "enforce". Allow — доп.
+// разрешённые для этой подписки; Ban — забаненные (блок независимо от allow).
+type olcClientAccess struct {
+	Mode  string             `json:"mode"`
+	Allow []olcAllowedDevice `json:"allow"`
+	Ban   []olcAllowedDevice `json:"ban"`
+}
+
 type olcAccessControl struct {
-	Enabled      bool               `json:"enabled"`
-	Mode         string             `json:"mode"` // "monitor" (лог, пускать) | "enforce" (блокировать чужих)
-	Devices      []olcAllowedDevice `json:"devices"`
-	AllowedHWIDs []string           `json:"allowed_hwids,omitempty"` // legacy, мигрируется в Devices
-	AllowedIPs   []string           `json:"allowed_ips,omitempty"`
-	UpdatedAt    string             `json:"updated_at,omitempty"`
+	Enabled      bool                        `json:"enabled"`
+	Mode         string                      `json:"mode"` // "monitor" | "enforce"
+	Devices      []olcAllowedDevice          `json:"devices"`
+	Clients      map[string]*olcClientAccess `json:"clients,omitempty"` // per-подписка
+	AllowedHWIDs []string                    `json:"allowed_hwids,omitempty"` // legacy, мигрируется
+	AllowedIPs   []string                    `json:"allowed_ips,omitempty"`
+	UpdatedAt    string                      `json:"updated_at,omitempty"`
 }
 
 type olcAccessAttempt struct {
@@ -146,6 +157,9 @@ func olcAccessLoad() olcAccessControl {
 	ac.AllowedHWIDs = nil
 	if ac.AllowedIPs == nil {
 		ac.AllowedIPs = []string{}
+	}
+	if ac.Clients == nil {
+		ac.Clients = map[string]*olcClientAccess{}
 	}
 	return ac
 }
@@ -221,6 +235,52 @@ func _olcAccessWriteAttempts(list []olcAccessAttempt) {
 	if os.WriteFile(tmp, append(data, '\n'), 0o600) == nil {
 		_ = os.Rename(tmp, olcAccessAttemptsPath)
 	}
+}
+
+// olcAccessDecision: сводит глобальный + per-client контроль в решение для запроса
+// подписки клиента clientID устройством hwid/ip.
+//   active — контроль вообще применяется к этому клиенту;
+//   allowed — устройство разрешено (глоб. devices / per-client allow / IP);
+//   deny — жёсткий бан (per-client ban) — блокировать независимо от режима;
+//   mode — эффективный режим ("monitor"|"enforce").
+func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active bool, allowed bool, deny bool, mode string) {
+	mode = ac.Mode
+	active = ac.Enabled
+	var cc *olcClientAccess
+	if ac.Clients != nil {
+		cc = ac.Clients[clientID]
+	}
+	if cc != nil && cc.Mode != "" && cc.Mode != "inherit" {
+		switch cc.Mode {
+		case "off":
+			active = false
+		case "monitor":
+			active, mode = true, "monitor"
+		case "enforce":
+			active, mode = true, "enforce"
+		}
+	}
+	if !active {
+		return false, true, false, mode
+	}
+	if cc != nil {
+		for _, b := range cc.Ban {
+			if b.Enabled && strings.EqualFold(strings.TrimSpace(b.HWID), strings.TrimSpace(hwid)) {
+				return true, false, true, mode
+			}
+		}
+	}
+	if olcAccessAllowed(ac, hwid, ip) {
+		return true, true, false, mode
+	}
+	if cc != nil {
+		for _, a := range cc.Allow {
+			if a.Enabled && strings.EqualFold(strings.TrimSpace(a.HWID), strings.TrimSpace(hwid)) {
+				return true, true, false, mode
+			}
+		}
+	}
+	return true, false, false, mode
 }
 
 func olcAccessAllowed(ac olcAccessControl, hwid, ip string) bool {
@@ -354,6 +414,59 @@ func accessDeviceHandler(w http.ResponseWriter, r *http.Request) {
 			d.Enabled = *body.Enabled
 		}
 		ac.Devices = append(ac.Devices, d)
+	}
+	if err := olcAccessSave(ac); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, ac)
+}
+
+// accessClientHandler: индивидуальный контроль доступа для подписки.
+//   GET  /api/access/client?client_id=ID → текущая per-client конфигурация;
+//   POST /api/access/client {client_id, mode?, allow?[], ban?[]} → сохранить;
+//     mode="inherit" (или пустой allow+ban) удаляет per-client override.
+func accessClientHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		id := strings.TrimSpace(r.URL.Query().Get("client_id"))
+		ac := olcAccessLoad()
+		if cc, ok := ac.Clients[id]; ok && cc != nil {
+			writeJSON(w, cc)
+			return
+		}
+		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}})
+		return
+	}
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		ClientID string             `json:"client_id"`
+		Mode     string             `json:"mode"`
+		Allow    []olcAllowedDevice `json:"allow"`
+		Ban      []olcAllowedDevice `json:"ban"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	id := strings.TrimSpace(body.ClientID)
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "client_id required"})
+		return
+	}
+	ac := olcAccessLoad()
+	mode := body.Mode
+	if mode != "off" && mode != "monitor" && mode != "enforce" {
+		mode = "inherit"
+	}
+	allow := olcAccessNormalizeDevices(body.Allow)
+	ban := olcAccessNormalizeDevices(body.Ban)
+	if mode == "inherit" && len(allow) == 0 && len(ban) == 0 {
+		delete(ac.Clients, id) // нет override — убрать запись
+	} else {
+		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban}
 	}
 	if err := olcAccessSave(ac); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

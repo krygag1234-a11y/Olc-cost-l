@@ -482,6 +482,9 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-expand-ui.sh" "$MGR_REPO/src/main.tsx"
   # Access control UI: секция «Контроль доступа» (allowlist hwid + журнал попыток).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-control-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Per-client контроль доступа: шестерёнка у 🎲 на карточке клиента → модалка доступа
+  # для этой подписки (allow/ban устройств, режим). Требует randomization-ui (🎲).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
