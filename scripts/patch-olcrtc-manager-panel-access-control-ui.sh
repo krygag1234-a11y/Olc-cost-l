@@ -339,6 +339,7 @@ function AccessControlSection() {
                         <div className="flex shrink-0 gap-1">
                           {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => void allow(hwid)}>Разрешить</button>}
                           {!ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase()) && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => banDevice(hwid)}>Бан</button>}
+                          {String(a.ip || "") && !allowedIps.includes(String(a.ip)) && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
                         </div>
                       )}
                     </div>

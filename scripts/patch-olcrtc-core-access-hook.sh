@@ -33,10 +33,15 @@ package session
 
 // Olc-cost-l: enforcement контроля доступа на УРОВНЕ ПОДКЛЮЧЕНИЯ (AuthHook).
 // Читает /var/lib/olcrtc/access-control.json (тот же файл, что шлюз подписки).
-// SAFE-BY-DEFAULT: активен ТОЛЬКО при enabled && enforce_connections; любая
-// ошибка или пустой allowlist → пускаем (fail-open), чтобы не рвать туннели.
+// SAFE-BY-DEFAULT: любая ошибка/пустой allowlist → пускаем (fail-open), чтобы не
+// рвать туннели. Два независимых источника энфорса на подключении:
+//   1) ГЛОБАЛЬНЫЙ: enabled && enforce_connections — на ВСЕ инстансы;
+//   2) ВЫБОРОЧНЫЙ per-client: clients[cid].conn_enforce (действует ТОЛЬКО когда
+//      глобальный enforce_connections ВЫКЛЮЧЕН) — scope "all"|"selective" (по
+//      room_id из conn_instances). cid/room берутся из env OLCRTC_CLIENT_ID/
+//      OLCRTC_ROOM_ID, которые менеджер прокидывает в процесс инстанса.
 // ⛔ ПРАВИЛО РАЗРАБОТЧИКУ: при изменении формата access-control.json —
-// синхронизируйте структуры ниже и панельный olcAccessControl (patch-…-access-control-api).
+// синхронизируйте структуры ниже и панельный olcAccessControl/olcClientAccess.
 
 import (
 	"encoding/json"
@@ -56,15 +61,70 @@ type olcAccDevice struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type olcAccClient struct {
+	Mode          string         `json:"mode"`
+	Allow         []olcAccDevice `json:"allow"`
+	Ban           []olcAccDevice `json:"ban"`
+	ConnEnforce   bool           `json:"conn_enforce"`
+	ConnScope     string         `json:"conn_scope"`
+	ConnInstances []string       `json:"conn_instances"`
+}
+
 type olcAccControl struct {
-	Enabled      bool           `json:"enabled"`
-	EnforceConns bool           `json:"enforce_connections"`
-	BanNoHwid    bool           `json:"ban_no_hwid"`
-	Devices      []olcAccDevice `json:"devices"`
-	Ban          []olcAccDevice `json:"ban"`
+	Enabled      bool                     `json:"enabled"`
+	EnforceConns bool                     `json:"enforce_connections"`
+	BanNoHwid    bool                     `json:"ban_no_hwid"`
+	Devices      []olcAccDevice           `json:"devices"`
+	Ban          []olcAccDevice           `json:"ban"`
+	Clients      map[string]*olcAccClient `json:"clients"`
 }
 
 var olcAccWarnOnce sync.Once
+
+func olcAccMatch(list []olcAccDevice, dev string) bool {
+	for _, d := range list {
+		if d.Enabled && strings.TrimSpace(d.HWID) != "" && strings.EqualFold(strings.TrimSpace(d.HWID), dev) {
+			return true
+		}
+	}
+	return false
+}
+
+func olcAccCount(lists ...[]olcAccDevice) int {
+	n := 0
+	for _, l := range lists {
+		for _, d := range l {
+			if d.Enabled && strings.TrimSpace(d.HWID) != "" {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// olcAccDecide — общее решение: dev против списков allow/ban (уже собранных).
+func olcAccDecide(dev string, banNoHwid bool, allow []olcAccDevice, ban []olcAccDevice, extraAllow []olcAccDevice, extraBan []olcAccDevice) (string, error) {
+	admit := func() (string, error) { return uuid.NewString(), nil }
+	if olcAccMatch(ban, dev) || olcAccMatch(extraBan, dev) {
+		return "", errors.New("device banned")
+	}
+	if dev == "" {
+		if banNoHwid {
+			return "", errors.New("no device id")
+		}
+		return admit()
+	}
+	if olcAccMatch(allow, dev) || olcAccMatch(extraAllow, dev) {
+		return admit()
+	}
+	if olcAccCount(allow, extraAllow) == 0 {
+		olcAccWarnOnce.Do(func() {
+			logger.Infof("olc-access: энфорс подключения включён, но allowlist пуст — пускаю всех (fail-open)")
+		})
+		return admit()
+	}
+	return "", errors.New("device not allowed")
+}
 
 func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, error) {
 	admit := func() (string, error) { return uuid.NewString(), nil }
@@ -76,37 +136,35 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 	if json.Unmarshal(data, &ac) != nil {
 		return admit()
 	}
-	if !ac.Enabled || !ac.EnforceConns {
+	if !ac.Enabled {
 		return admit()
 	}
 	dev := strings.TrimSpace(deviceID)
-	for _, b := range ac.Ban {
-		if b.Enabled && dev != "" && strings.EqualFold(strings.TrimSpace(b.HWID), dev) {
-			return "", errors.New("device banned")
-		}
+	// 1) Глобальный энфорс подключения — приоритетнее, действует на все инстансы.
+	if ac.EnforceConns {
+		return olcAccDecide(dev, ac.BanNoHwid, ac.Devices, ac.Ban, nil, nil)
 	}
-	if dev == "" {
-		if ac.BanNoHwid {
-			return "", errors.New("no device id")
-		}
-		return admit()
-	}
-	allowed := 0
-	for _, d := range ac.Devices {
-		if d.Enabled && strings.TrimSpace(d.HWID) != "" {
-			allowed++
-			if strings.EqualFold(strings.TrimSpace(d.HWID), dev) {
-				return admit()
+	// 2) Выборочный per-client (только когда глобальный выключен).
+	cid := strings.TrimSpace(os.Getenv("OLCRTC_CLIENT_ID"))
+	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
+	if cid != "" && ac.Clients != nil {
+		if cc, ok := ac.Clients[cid]; ok && cc != nil && cc.ConnEnforce {
+			enforced := true
+			if cc.ConnScope == "selective" {
+				enforced = false
+				for _, r := range cc.ConnInstances {
+					if strings.TrimSpace(r) == room && room != "" {
+						enforced = true
+						break
+					}
+				}
+			}
+			if enforced {
+				return olcAccDecide(dev, ac.BanNoHwid, ac.Devices, ac.Ban, cc.Allow, cc.Ban)
 			}
 		}
 	}
-	if allowed == 0 {
-		olcAccWarnOnce.Do(func() {
-			logger.Infof("olc-access: enforce_connections включён, но allowlist пуст — пускаю всех (fail-open)")
-		})
-		return admit()
-	}
-	return "", errors.New("device not allowed")
+	return admit()
 }
 GO
 echo "[patch-olcrtc-core-access-hook] wrote $HOOK_GO"

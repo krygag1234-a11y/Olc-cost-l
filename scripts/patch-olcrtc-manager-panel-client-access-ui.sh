@@ -33,6 +33,11 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [autolog, setAutolog] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [connEnforce, setConnEnforce] = useState(false);
+  const [connScope, setConnScope] = useState<"all" | "selective">("all");
+  const [connInstances, setConnInstances] = useState<string[]>([]);
+  const [globalEnforceConns, setGlobalEnforceConns] = useState(false);
+  const [instances, setInstances] = useState<Array<{ room_id: string; name: string }>>([]);
 
   const load = async () => {
     try {
@@ -41,6 +46,20 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setMode(b.mode || "inherit");
       setAllow(Array.isArray(b.allow) ? b.allow : []);
       setBan(Array.isArray(b.ban) ? b.ban : []);
+      setConnEnforce(!!b.conn_enforce);
+      setConnScope(b.conn_scope === "selective" ? "selective" : "all");
+      setConnInstances(Array.isArray(b.conn_instances) ? b.conn_instances : []);
+    } catch { /* ignore */ }
+    try {
+      const s = await fetch("/api/access/settings", { cache: "no-store" });
+      const sb = await s.json();
+      setGlobalEnforceConns(!!sb.enforce_connections);
+    } catch { /* ignore */ }
+    try {
+      const st = await fetch("/api/state", { cache: "no-store" });
+      const stb = await st.json();
+      const cl = (stb.clients || []).find((c: any) => String(c.client_id) === clientId);
+      setInstances((cl?.locations || []).map((l: any) => ({ room_id: String(l.room_id || ""), name: String(l.name || l.room_id || "") })));
     } catch { /* ignore */ }
     try {
       const l = await fetch("/api/settings/logs", { cache: "no-store" });
@@ -70,10 +89,10 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
 
-  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[] }) => {
+  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { client_id: clientId, mode, allow, ban, ...next };
+      const body = { client_id: clientId, mode, allow, ban, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
       const r = await fetch("/api/access/client", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
@@ -81,8 +100,21 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setMode(cc.mode || "inherit");
       setAllow(Array.isArray(cc.allow) ? cc.allow : []);
       setBan(Array.isArray(cc.ban) ? cc.ban : []);
+      setConnEnforce(!!cc.conn_enforce);
+      setConnScope(cc.conn_scope === "selective" ? "selective" : "all");
+      setConnInstances(Array.isArray(cc.conn_instances) ? cc.conn_instances : []);
       await load();
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
+  };
+  const toggleInstance = (room: string, on: boolean) => {
+    const nx = on ? [...connInstances, room] : connInstances.filter((r) => r !== room);
+    setConnInstances(nx); void save({ conn_instances: nx });
+  };
+  const allowIp = async (ip: string) => {
+    const v = (ip || "").trim(); if (!v) return;
+    setBusy(true); setMsg(null);
+    try { const r = await fetch("/api/access/allow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip: v }) }); if (!r.ok) throw new Error("HTTP " + r.status); setMsg("IP " + v + " добавлен в разрешённые (глобально)"); }
+    catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const addAllow = (h: string) => { h = h.trim(); if (!h) return; void save({ allow: [...allow, { hwid: h, enabled: true }] }); setNewAllow(""); };
   const addBan = (h: string) => { h = h.trim(); if (!h) return; void save({ ban: [...ban, { hwid: h, enabled: true }] }); setNewBan(""); };
@@ -118,6 +150,56 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
             <option value="enforce">Блокировать неизвестные</option>
           </select>
         </label>
+
+        <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
+          <div className="text-xs font-semibold text-sky-400">🔌 Контроль подключений (для этой подписки)</div>
+          {globalEnforceConns ? (
+            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-2 text-[11px] text-amber-500">
+              Действует <b>глобальный</b> контроль подключений (общие настройки → «Уровни защиты»).
+              Выборочный контроль для подписки недоступен, пока он включён. Выключите глобальный —
+              и сохранённые здесь настройки вернутся.
+            </div>
+          ) : (
+            <>
+              <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
+                <input type="checkbox" className="mt-0.5" checked={connEnforce} disabled={busy}
+                  onChange={(e) => { setConnEnforce(e.target.checked); void save({ conn_enforce: e.target.checked }); }} />
+                <span>Ограничить, кто может <b className="text-foreground">подключаться</b> к инстансам этой подписки
+                  (только разрешённые устройства). Пустой список разрешённых = не блокирует (fail-open).</span>
+              </label>
+              {connEnforce && (
+                <div className="grid gap-2 pl-5">
+                  <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                    <label className="flex items-center gap-1">
+                      <input type="radio" name={`olc-conn-scope-${clientId}`} checked={connScope === "all"} disabled={busy}
+                        onChange={() => { setConnScope("all"); void save({ conn_scope: "all" }); }} />
+                      Все инстансы подписки
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input type="radio" name={`olc-conn-scope-${clientId}`} checked={connScope === "selective"} disabled={busy}
+                        onChange={() => { setConnScope("selective"); void save({ conn_scope: "selective" }); }} />
+                      Только выбранные
+                    </label>
+                  </div>
+                  {connScope === "selective" && (
+                    <div className="grid gap-1">
+                      {instances.length === 0 && <div className="text-[11px] text-muted-foreground">Инстансы подписки не найдены (панель ещё не подняла процессы?).</div>}
+                      {instances.map((it) => (
+                        <label key={it.room_id} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-[11px]">
+                          <input type="checkbox" checked={connInstances.includes(it.room_id)} disabled={busy}
+                            onChange={(e) => toggleInstance(it.room_id, e.target.checked)} />
+                          <span className="min-w-0 flex-1 truncate">{it.name}</span>
+                          <span className="shrink-0 font-mono text-muted-foreground">{it.room_id}</span>
+                        </label>
+                      ))}
+                      <div className="text-[10px] text-muted-foreground">Контроль применяется только к отмеченным инстансам; остальные — как обычно.</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
         <div className="grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-3">
           <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые (для этой подписки)</div>
@@ -166,6 +248,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                     <div className="flex shrink-0 gap-1">
                       {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>}
                       {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(hwid)}>Бан</button>}
+                      {String(a.ip || "") && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP (глобально)" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
                     </div>
                   )}
                 </div>

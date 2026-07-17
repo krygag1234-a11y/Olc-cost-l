@@ -107,10 +107,16 @@ type olcAllowedDevice struct {
 // olcClientAccess: индивидуальный контроль доступа для ОДНОЙ подписки (клиента).
 // Mode: "inherit" (как глобально) | "off" | "monitor" | "enforce". Allow — доп.
 // разрешённые для этой подписки; Ban — забаненные (блок независимо от allow).
+// ConnEnforce/ConnScope/ConnInstances — ВЫБОРОЧНЫЙ контроль ПОДКЛЮЧЕНИЯ этой
+// подписки (действует, только когда глобальный enforce_connections ВЫКЛЮЧЕН):
+// ConnScope "all" (все инстансы) | "selective" (только room_id из ConnInstances).
 type olcClientAccess struct {
-	Mode  string             `json:"mode"`
-	Allow []olcAllowedDevice `json:"allow"`
-	Ban   []olcAllowedDevice `json:"ban"`
+	Mode          string             `json:"mode"`
+	Allow         []olcAllowedDevice `json:"allow"`
+	Ban           []olcAllowedDevice `json:"ban"`
+	ConnEnforce   bool               `json:"conn_enforce"`
+	ConnScope     string             `json:"conn_scope"`             // "all" | "selective"
+	ConnInstances []string           `json:"conn_instances,omitempty"` // room_id инстансов при selective
 }
 
 type olcAccessControl struct {
@@ -468,7 +474,7 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, cc)
 			return
 		}
-		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}})
+		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}})
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
@@ -476,10 +482,13 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ClientID string             `json:"client_id"`
-		Mode     string             `json:"mode"`
-		Allow    []olcAllowedDevice `json:"allow"`
-		Ban      []olcAllowedDevice `json:"ban"`
+		ClientID      string             `json:"client_id"`
+		Mode          string             `json:"mode"`
+		Allow         []olcAllowedDevice `json:"allow"`
+		Ban           []olcAllowedDevice `json:"ban"`
+		ConnEnforce   bool               `json:"conn_enforce"`
+		ConnScope     string             `json:"conn_scope"`
+		ConnInstances []string           `json:"conn_instances"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -497,10 +506,19 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	allow := olcAccessNormalizeDevices(body.Allow)
 	ban := olcAccessNormalizeDevices(body.Ban)
-	if mode == "inherit" && len(allow) == 0 && len(ban) == 0 {
+	scope := body.ConnScope
+	if scope != "selective" {
+		scope = "all"
+	}
+	insts := olcAccessDedup(body.ConnInstances)
+	if insts == nil {
+		insts = []string{}
+	}
+	hasConn := body.ConnEnforce || (scope == "selective" && len(insts) > 0)
+	if mode == "inherit" && len(allow) == 0 && len(ban) == 0 && !hasConn {
 		delete(ac.Clients, id) // нет override — убрать запись
 	} else {
-		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban}
+		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban, ConnEnforce: body.ConnEnforce, ConnScope: scope, ConnInstances: insts}
 	}
 	if err := olcAccessSave(ac); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
