@@ -1,26 +1,18 @@
 #!/usr/bin/env bash
-# Olc-cost-l backend: контроль доступа к подписке по hwid (устройству).
+# Olc-cost-l backend: контроль доступа к подписке по hwid устройства (v2).
 #
-# olcbox при запросе подписки шлёт заголовок `x-hwid: install-<32hex>` (стабильный
-# per-install идентификатор устройства) + `User-Agent: olcbox/<version>`. Это
-# позволяет реально ограничить доступ (в отличие от «рандомизации пути», которую
-# можно обойти, просто зная путь):
-#   - allowlist разрешённых hwid: известное устройство получает подписку, чужое — 404;
-#   - журнал попыток неизвестных hwid (для быстрого добавления в allowlist);
-#   - режимы off / monitor (только лог, пускать всех) / enforce (блокировать чужих).
+# olcbox при запросе подписки шлёт `x-hwid: install-<32hex>` + `User-Agent`.
+# Реализовано:
+#   - allowlist разрешённых hwid; журнал попыток с ГРУППИРОВКОЙ (Count) вместо спама;
+#   - режимы off/monitor/enforce;
+#   - ВАЖНО: попытки фиксируются ДАЖЕ при включённой рандомизации, и разрешённое
+#     устройство может запрашивать подписку по ОРИГИНАЛЬНОМУ client-id при вкл.
+#     рандомизации (для остальных — только рандомизированный id).
 #
-# Хранение — отдельные файлы (без правки patched-структур), попадают в бэкап:
-#   /var/lib/olcrtc/access-control.json   — {enabled,mode,allowed_hwids,allowed_ips}
-#   /var/lib/olcrtc/access-attempts.json  — кольцевой журнал последних попыток
-#
+# Хранение: /var/lib/olcrtc/access-control.json + access-attempts.json (в бэкапе).
 # API (adminAuth): GET/PUT /api/access/settings; GET /api/access/attempts;
-#   POST /api/access/allow {hwid}; POST /api/access/remove {hwid};
-#   POST /api/access/attempts/clear.
-#
-# ВАЖНО: доступ к ПОДКЛЮЧЕНИЮ к инстансу практически покрывается этим же шлюзом —
-# без подписки клиент не получает room_id/key, значит не подключится. Enforcement
-# на самом WebRTC-уровне потребовал бы патча pinned-upstream olcrtc-core.
-# Idempotent. Target: manager main.go. Run after golden-panel copy.
+#   POST /api/access/attempts/clear; POST /api/access/allow|remove {hwid|ip}.
+# Idempotent. Target: manager main.go. Run after subscription-randomization.
 set -euo pipefail
 
 MAIN_GO="${1:?usage: $0 <path-to-main.go>}"
@@ -32,7 +24,7 @@ f = pathlib.Path(sys.argv[1])
 t = f.read_text()
 changed = False
 
-# --- 1. Роуты (после /api/instance-defaults; backup-патч мог добавить свои рядом) ---
+# --- 1. Роуты (после /api/instance-defaults) ---
 route_anchor = '\thandler.Handle("/api/instance-defaults", adminAuth(http.HandlerFunc(instanceDefaultsHandler)))'
 route_add = route_anchor + '''
 	// Olc-cost-l: контроль доступа к подписке по hwid устройства (allowlist + журнал).
@@ -49,57 +41,51 @@ elif route_anchor in t:
 else:
     print("[patch-access-control-api] WARN: instance-defaults anchor not found — skip routes")
 
-# --- 2. Шлюз в subscriptionHandler (после subscription-randomization он использует
-#        resolvedClientID; в golden — clientID). Пробуем оба варианта. ---
-gate_variants = [
-    ("resolvedClientID", '''\t\tsub, ok := supervisor.SubscriptionForClient(resolvedClientID, time.Now())
-\t\tif !ok {
-\t\t\thttp.NotFound(w, r)
-\t\t\treturn
-\t\t}
-
-\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")'''),
-    ("clientID", '''\t\tsub, ok := supervisor.SubscriptionForClient(clientID, time.Now())
-\t\tif !ok {
-\t\t\thttp.NotFound(w, r)
-\t\t\treturn
-\t\t}
-
-\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")'''),
-]
-if 'olcAccessGate(' in t:
-    print("[patch-access-control-api] gate already present")
+# --- 2. Интеграция контроля доступа в subscriptionHandler (post-randomization) ---
+res_anchor = '''		resolvedClientID, err := resolveClientID(requestedID, cfg)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}'''
+res_add = '''		// Контроль доступа по hwid устройства (olcbox шлёт x-hwid при запросе подписки).
+		// Фиксируем попытку ДАЖЕ при включённой рандомизации; в enforce блокируем чужих.
+		olcAC := olcAccessLoad()
+		olcHwid := strings.TrimSpace(r.Header.Get("x-hwid"))
+		olcIP := remoteHost(r)
+		olcAllowedDev := olcAccessAllowed(olcAC, olcHwid, olcIP)
+		if olcAC.Enabled {
+			olcAccessRecordAttempt(olcAccessAttempt{
+				TS: time.Now().UTC().Format(time.RFC3339), HWID: olcHwid, IP: olcIP,
+				UA: r.Header.Get("User-Agent"), ClientID: requestedID, Path: r.URL.Path, Allowed: olcAllowedDev,
+			})
+			if olcAC.Mode == "enforce" && !olcAllowedDev {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		// Разрешённое устройство может брать подписку по ОРИГИНАЛЬНОМУ client-id даже
+		// при включённой рандомизации; остальным — только рандомизированный id.
+		resolvedClientID, err := olcResolveClientIDWithAccess(requestedID, cfg, olcAC.Enabled && olcAllowedDev)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}'''
+if 'olcResolveClientIDWithAccess(' in t:
+    print("[patch-access-control-api] handler integration already present")
+elif res_anchor in t:
+    t = t.replace(res_anchor, res_add, 1); changed = True
+    print("[patch-access-control-api] integrated access control into subscriptionHandler")
 else:
-    done = False
-    for var, anchor in gate_variants:
-        if anchor in t:
-            add = anchor.replace(
-                '\n\n\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")',
-                '''
-
-\t\t// Контроль доступа по hwid устройства (olcbox шлёт x-hwid). Записывает
-\t\t// попытку и, в режиме enforce, блокирует неизвестные устройства (404).
-\t\tif !olcAccessGate(w, r, %s) {
-\t\t\treturn
-\t\t}
-
-\t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")''' % var)
-            t = t.replace(anchor, add, 1)
-            changed = True
-            done = True
-            print("[patch-access-control-api] added subscription hwid gate (%s)" % var)
-            break
-    if not done:
-        print("[patch-access-control-api] WARN: subscription handler anchor not found — skip gate")
+    print("[patch-access-control-api] WARN: resolveClientID anchor not found — skip handler (нужен subscription-randomization)")
 
 # --- 3. Реализация (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
 fn_block = r'''// ============================================================================
 // Olc-cost-l: контроль доступа к подписке по hwid устройства.
-// olcbox шлёт заголовок x-hwid (стабильный per-install id) + User-Agent при
-// запросе подписки. allowlist разрешённых hwid + журнал попыток неизвестных.
-// Хранение — отдельные JSON-файлы (в бэкапе). См. docs/ACCESS-CONTROL.md.
-// !!! ПРИ ИЗМЕНЕНИИ формата — учтите бэкап (backupExtraFiles) и UI.
+// olcbox шлёт x-hwid (стабильный per-install id) + User-Agent при запросе подписки.
+// allowlist разрешённых hwid + журнал попыток (с группировкой/Count). Хранение —
+// отдельные JSON-файлы (в бэкапе). См. docs/ACCESS-CONTROL.md.
+// !!! ПРИ ИЗМЕНЕНИИ формата — учтите бэкап (backupExtraFiles), UI и API.
 // ============================================================================
 
 const olcAccessControlPath = "/var/lib/olcrtc/access-control.json"
@@ -117,13 +103,15 @@ type olcAccessControl struct {
 }
 
 type olcAccessAttempt struct {
-	TS       string `json:"ts"`
+	TS       string `json:"ts"`       // последняя попытка
+	FirstTS  string `json:"first_ts"` // первая попытка (для группировки)
 	HWID     string `json:"hwid"`
 	IP       string `json:"ip"`
 	UA       string `json:"ua"`
 	ClientID string `json:"client_id"`
 	Path     string `json:"path"`
 	Allowed  bool   `json:"allowed"`
+	Count    int    `json:"count"` // сколько раз это устройство запрашивало (без спама)
 }
 
 func olcAccessLoad() olcAccessControl {
@@ -172,22 +160,31 @@ func olcAccessLoadAttempts() []olcAccessAttempt {
 	return out.Attempts
 }
 
+// olcAccessRecordAttempt: группирует по (hwid, client_id) — не спамит журнал
+// повторами, а увеличивает Count и обновляет время последней попытки.
 func olcAccessRecordAttempt(a olcAccessAttempt) {
 	olcAccessMu.Lock()
 	defer olcAccessMu.Unlock()
 	list := olcAccessLoadAttempts()
-	// дедуп: если самая свежая запись — тот же hwid+client и та же «разрешённость»,
-	// просто обновим время (не засоряем журнал повторами автообновлений подписки).
-	if len(list) > 0 {
-		last := list[len(list)-1]
-		if last.HWID == a.HWID && last.ClientID == a.ClientID && last.Allowed == a.Allowed {
-			list[len(list)-1].TS = a.TS
-			list[len(list)-1].IP = a.IP
-			list[len(list)-1].UA = a.UA
+	key := strings.ToLower(a.HWID) + "|" + a.ClientID
+	for i := range list {
+		if strings.ToLower(list[i].HWID)+"|"+list[i].ClientID == key {
+			list[i].Count++
+			list[i].TS = a.TS
+			list[i].IP = a.IP
+			list[i].UA = a.UA
+			list[i].Allowed = a.Allowed
+			list[i].Path = a.Path
+			// переместить в конец (самое свежее — внизу)
+			item := list[i]
+			list = append(list[:i], list[i+1:]...)
+			list = append(list, item)
 			_olcAccessWriteAttempts(list)
 			return
 		}
 	}
+	a.Count = 1
+	a.FirstTS = a.TS
 	list = append(list, a)
 	if len(list) > olcAccessAttemptsMax {
 		list = list[len(list)-olcAccessAttemptsMax:]
@@ -221,26 +218,18 @@ func olcAccessAllowed(ac olcAccessControl, hwid, ip string) bool {
 	return false
 }
 
-// olcAccessGate: записывает попытку и решает, отдавать ли подписку. Возвращает
-// false (и пишет 404) только в режиме enforce для неизвестного устройства.
-func olcAccessGate(w http.ResponseWriter, r *http.Request, clientID string) bool {
-	ac := olcAccessLoad()
-	if !ac.Enabled {
-		return true
+// olcResolveClientIDWithAccess: разрешённому устройству (bypass) позволяет брать
+// подписку по ОРИГИНАЛЬНОМУ client-id даже при включённой рандомизации; иначе —
+// обычный resolveClientID (рандомизированный id / 404 для оригинала под рандомом).
+func olcResolveClientIDWithAccess(requestedID string, cfg Config, bypass bool) (string, error) {
+	if bypass {
+		for _, client := range cfg.Clients {
+			if client.ClientID == requestedID {
+				return requestedID, nil
+			}
+		}
 	}
-	hwid := strings.TrimSpace(r.Header.Get("x-hwid"))
-	ip := remoteHost(r)
-	ua := r.Header.Get("User-Agent")
-	allowed := olcAccessAllowed(ac, hwid, ip)
-	olcAccessRecordAttempt(olcAccessAttempt{
-		TS: time.Now().UTC().Format(time.RFC3339), HWID: hwid, IP: ip, UA: ua,
-		ClientID: clientID, Path: r.URL.Path, Allowed: allowed,
-	})
-	if ac.Mode == "enforce" && !allowed {
-		http.NotFound(w, r) // не раскрываем существование пути неизвестному устройству
-		return false
-	}
-	return true
+	return resolveClientID(requestedID, cfg)
 }
 
 func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +341,7 @@ func olcAccessDedup(in []string) []string {
 }
 
 '''
-if 'func olcAccessGate(' in t:
+if 'func olcResolveClientIDWithAccess(' in t:
     print("[patch-access-control-api] impl already present")
 elif fn_anchor in t:
     t = t.replace(fn_anchor, fn_block + fn_anchor, 1); changed = True

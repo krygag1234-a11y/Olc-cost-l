@@ -416,6 +416,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Fix addon log resolution (correct file paths + journald fallback).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-feature-logs-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Fix v2: логи tor/olcrtc показывали healthcheck.log — journald-первым для юнит-аддонов.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-feature-logs-fix-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Server-side autologi (auto-refresh logs) setting + endpoint.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-autologi-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Phase 1: per-bridge health API (join active bridges.conf with health TSV) + probe_now action.
