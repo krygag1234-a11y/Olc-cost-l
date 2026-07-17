@@ -431,6 +431,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-split-expand-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Access control: allowlist доступа к подписке по hwid устройства + журнал попыток.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-control-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Монитор подключений: устройства (device=) из логов olcrtc-core, read-only.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-connections-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).

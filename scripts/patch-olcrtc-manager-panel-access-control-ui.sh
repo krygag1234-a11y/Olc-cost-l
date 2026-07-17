@@ -34,6 +34,7 @@ function AccessControlSection() {
   const [mode, setMode] = useState<"monitor" | "enforce">("monitor");
   const [allowed, setAllowed] = useState<string[]>([]);
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
+  const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [autolog, setAutolog] = useState(true);
   const [newHwid, setNewHwid] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,6 +62,11 @@ function AccessControlSection() {
       const a = await fetch("/api/access/attempts", { cache: "no-store" });
       const ab = await a.json();
       setAttempts(Array.isArray(ab.attempts) ? ab.attempts : []);
+    } catch { /* ignore */ }
+    try {
+      const c = await fetch("/api/access/connections", { cache: "no-store" });
+      const cb = await c.json();
+      setConnections(Array.isArray(cb.connections) ? cb.connections : []);
     } catch { /* ignore */ }
   };
   const loadAll = async () => { await loadSettings(); await loadAttempts(); };
@@ -217,6 +223,30 @@ function AccessControlSection() {
               })}
             </div>
           )}
+        </>
+      )}
+      {enabled && connections.length > 0 && (
+        <>
+          <div className="text-xs font-medium text-foreground">Устройства, подключавшиеся к инстансам</div>
+          <div className="text-[11px] text-muted-foreground">Идентификатор устройства (device) из логов подключения — тот же, что hwid подписки. Можно добавить в allowlist.</div>
+          <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-card/40 p-2">
+            {connections.map((c, i) => {
+              const dev = String(c.device || "");
+              const known = allowed.some((h) => h.toLowerCase() === dev.toLowerCase());
+              const count = Number(c.count || 1);
+              return (
+                <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
+                  <div className="min-w-0">
+                    <div className="truncate font-mono">{dev} {known && <span className="text-emerald-400">✓</span>}{count > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{count}</span>}</div>
+                    <div className="truncate text-muted-foreground">последнее: {String(c.last || "").slice(0, 19)}</div>
+                  </div>
+                  {!known && dev && (
+                    <button type="button" className="shrink-0 rounded border border-primary px-2 py-1 text-primary" disabled={busy} onClick={() => void allow(dev)}>Разрешить</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </>
       )}
       {msg && <div className="text-xs text-red-500 whitespace-pre-wrap">{msg}</div>}

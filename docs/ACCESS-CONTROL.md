@@ -108,6 +108,34 @@ curl -s -u admin:ПАРОЛЬ http://127.0.0.1:8888/api/access/attempts
    Compatibility-fallback (без hwid) — в `enforce` пустой hwid всё равно не пройдёт
    allowlist и будет отклонён (что и требуется).
 
+## Контроль на уровне ПОДКЛЮЧЕНИЯ к инстансам (исследование + план)
+
+**Находка (openlibrecommunity/olcrtc):** при подключении сервер логирует
+`peer session <sid> opened (peer=<p> device=install-<hex>)` — `device` берётся из
+handshake `Hello.DeviceID` (`internal/handshake/handshake.go`, `internal/server/server.go`).
+Это **тот же** `install-<hex>`, что olcbox шлёт как `x-hwid` при запросе подписки
+(persistent per-install id). Итог: **один allowlist покрывает и подписку, и
+подключение**. Слепок НЕ меняется при обновлении приложения, меняется при
+переустановке/очистке данных.
+
+**Реализовано (read-only монитор):** `GET /api/access/connections` парсит journal
+olcrtc-manager, отдаёт устройства (device=) с счётчиком и временем. В UI — подсекция
+«Устройства, подключавшиеся к инстансам» с кнопкой «Разрешить» (тот же allowlist).
+
+**Enforcement на подключении (следующий шаг, НЕ реализован):** в olcrtc-core есть
+штатный `AuthHook handshake.AuthFunc = func(deviceID, claims)(sessionID, err)` —
+после CLIENT_HELLO; вернуть ошибку = отклонить клиента. План: патч `cmd/olcrtc` —
+установить AuthHook, читающий `access-control.json`; enforce + device не в allowlist →
+Reject; по умолчанию (выкл/нет файла) — админить всех (поведение не меняется).
+⚠️ РИСК: неверный AuthHook рвёт ВСЕ туннели → обязателен тест с реальным устройством;
+safe-by-default. Мотивация: инстанс можно скопировать из подписки и слить —
+device-enforcement на подключении закрывает эксплуатацию утёкшего инстанса.
+
+**План структуры (глобально + per-client):** глобальный контроль (есть) — ко всем
+подпискам/инстансам или выборочно; per-client — кнопка-шестерёнка у кнопки
+рандомизации (🎲) на карточке клиента → модалка доступа для ЭТОЙ подписки
+(белый список / бан устройств, ограничение подключения ко всем/выборочным инстансам).
+
 ## Возможные доработки (по желанию)
 
 - Whitelist по IP (поле `allowed_ips` уже есть в API/файле; в UI пока только hwid).
