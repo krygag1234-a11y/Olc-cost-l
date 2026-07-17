@@ -32,6 +32,7 @@ route_add = route_anchor + '''
 	handler.Handle("/api/access/attempts", adminAuth(http.HandlerFunc(accessAttemptsHandler)))
 	handler.Handle("/api/access/attempts/clear", adminAuth(http.HandlerFunc(accessAttemptsClearHandler)))
 	handler.Handle("/api/access/allow", adminAuth(http.HandlerFunc(accessAllowHandler)))
+	handler.Handle("/api/access/device", adminAuth(http.HandlerFunc(accessDeviceHandler)))
 	handler.Handle("/api/access/remove", adminAuth(http.HandlerFunc(accessRemoveHandler)))'''
 if '/api/access/settings' in t:
     print("[patch-access-control-api] routes already present")
@@ -94,12 +95,21 @@ const olcAccessAttemptsMax = 200
 
 var olcAccessMu sync.Mutex
 
+// olcAllowedDevice: запись allowlist. Enabled=false — доступ временно отключён, но
+// запись сохраняется (можно вернуть). Label — понятное имя («я», «друг»).
+type olcAllowedDevice struct {
+	HWID    string `json:"hwid"`
+	Label   string `json:"label,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
 type olcAccessControl struct {
-	Enabled      bool     `json:"enabled"`
-	Mode         string   `json:"mode"` // "monitor" (лог, пускать) | "enforce" (блокировать чужих)
-	AllowedHWIDs []string `json:"allowed_hwids"`
-	AllowedIPs   []string `json:"allowed_ips,omitempty"`
-	UpdatedAt    string   `json:"updated_at,omitempty"`
+	Enabled      bool               `json:"enabled"`
+	Mode         string             `json:"mode"` // "monitor" (лог, пускать) | "enforce" (блокировать чужих)
+	Devices      []olcAllowedDevice `json:"devices"`
+	AllowedHWIDs []string           `json:"allowed_hwids,omitempty"` // legacy, мигрируется в Devices
+	AllowedIPs   []string           `json:"allowed_ips,omitempty"`
+	UpdatedAt    string             `json:"updated_at,omitempty"`
 }
 
 type olcAccessAttempt struct {
@@ -115,16 +125,25 @@ type olcAccessAttempt struct {
 }
 
 func olcAccessLoad() olcAccessControl {
-	ac := olcAccessControl{Enabled: false, Mode: "monitor", AllowedHWIDs: []string{}, AllowedIPs: []string{}}
+	ac := olcAccessControl{Enabled: false, Mode: "monitor", Devices: []olcAllowedDevice{}, AllowedIPs: []string{}}
 	if data, err := os.ReadFile(olcAccessControlPath); err == nil {
 		_ = json.Unmarshal(data, &ac)
 	}
 	if ac.Mode != "enforce" {
 		ac.Mode = "monitor"
 	}
-	if ac.AllowedHWIDs == nil {
-		ac.AllowedHWIDs = []string{}
+	if ac.Devices == nil {
+		ac.Devices = []olcAllowedDevice{}
 	}
+	// миграция legacy allowed_hwids -> devices (каждый включён)
+	if len(ac.Devices) == 0 && len(ac.AllowedHWIDs) > 0 {
+		for _, h := range ac.AllowedHWIDs {
+			if strings.TrimSpace(h) != "" {
+				ac.Devices = append(ac.Devices, olcAllowedDevice{HWID: strings.TrimSpace(h), Enabled: true})
+			}
+		}
+	}
+	ac.AllowedHWIDs = nil
 	if ac.AllowedIPs == nil {
 		ac.AllowedIPs = []string{}
 	}
@@ -205,8 +224,8 @@ func _olcAccessWriteAttempts(list []olcAccessAttempt) {
 }
 
 func olcAccessAllowed(ac olcAccessControl, hwid, ip string) bool {
-	for _, h := range ac.AllowedHWIDs {
-		if h != "" && strings.EqualFold(strings.TrimSpace(h), strings.TrimSpace(hwid)) {
+	for _, d := range ac.Devices {
+		if d.Enabled && d.HWID != "" && strings.EqualFold(strings.TrimSpace(d.HWID), strings.TrimSpace(hwid)) {
 			return true
 		}
 	}
@@ -247,8 +266,8 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		if in.Mode == "enforce" || in.Mode == "monitor" {
 			cur.Mode = in.Mode
 		}
-		if in.AllowedHWIDs != nil {
-			cur.AllowedHWIDs = olcAccessDedup(in.AllowedHWIDs)
+		if in.Devices != nil {
+			cur.Devices = olcAccessNormalizeDevices(in.Devices)
 		}
 		if in.AllowedIPs != nil {
 			cur.AllowedIPs = olcAccessDedup(in.AllowedIPs)
@@ -276,16 +295,65 @@ func accessAttemptsClearHandler(w http.ResponseWriter, r *http.Request) {
 
 func accessAllowHandler(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		HWID string `json:"hwid"`
-		IP   string `json:"ip"`
+		HWID  string `json:"hwid"`
+		Label string `json:"label"`
+		IP    string `json:"ip"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	ac := olcAccessLoad()
 	if h := strings.TrimSpace(body.HWID); h != "" {
-		ac.AllowedHWIDs = olcAccessDedup(append(ac.AllowedHWIDs, h))
+		ac.Devices = olcAccessUpsertDevice(ac.Devices, olcAllowedDevice{HWID: h, Label: strings.TrimSpace(body.Label), Enabled: true})
 	}
 	if ip := strings.TrimSpace(body.IP); ip != "" {
 		ac.AllowedIPs = olcAccessDedup(append(ac.AllowedIPs, ip))
+	}
+	if err := olcAccessSave(ac); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, ac)
+}
+
+// accessDeviceHandler: обновить запись устройства — переименовать (label) и/или
+// включить/выключить (enabled), НЕ теряя из allowlist. POST {hwid, label?, enabled}.
+func accessDeviceHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		HWID    string `json:"hwid"`
+		Label   *string `json:"label"`
+		Enabled *bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	h := strings.TrimSpace(body.HWID)
+	if h == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "hwid required"})
+		return
+	}
+	ac := olcAccessLoad()
+	found := false
+	for i := range ac.Devices {
+		if strings.EqualFold(strings.TrimSpace(ac.Devices[i].HWID), h) {
+			if body.Label != nil {
+				ac.Devices[i].Label = strings.TrimSpace(*body.Label)
+			}
+			if body.Enabled != nil {
+				ac.Devices[i].Enabled = *body.Enabled
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		d := olcAllowedDevice{HWID: h, Enabled: true}
+		if body.Label != nil {
+			d.Label = strings.TrimSpace(*body.Label)
+		}
+		if body.Enabled != nil {
+			d.Enabled = *body.Enabled
+		}
+		ac.Devices = append(ac.Devices, d)
 	}
 	if err := olcAccessSave(ac); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -302,13 +370,13 @@ func accessRemoveHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	ac := olcAccessLoad()
 	if h := strings.TrimSpace(body.HWID); h != "" {
-		next := ac.AllowedHWIDs[:0]
-		for _, x := range ac.AllowedHWIDs {
-			if !strings.EqualFold(strings.TrimSpace(x), h) {
-				next = append(next, x)
+		next := ac.Devices[:0]
+		for _, d := range ac.Devices {
+			if !strings.EqualFold(strings.TrimSpace(d.HWID), h) {
+				next = append(next, d)
 			}
 		}
-		ac.AllowedHWIDs = next
+		ac.Devices = next
 	}
 	if ip := strings.TrimSpace(body.IP); ip != "" {
 		next := ac.AllowedIPs[:0]
@@ -324,6 +392,35 @@ func accessRemoveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, ac)
+}
+
+// olcAccessUpsertDevice: добавить/обновить устройство по hwid (не дублируя).
+func olcAccessUpsertDevice(list []olcAllowedDevice, d olcAllowedDevice) []olcAllowedDevice {
+	for i := range list {
+		if strings.EqualFold(strings.TrimSpace(list[i].HWID), strings.TrimSpace(d.HWID)) {
+			list[i].Enabled = true
+			if d.Label != "" {
+				list[i].Label = d.Label
+			}
+			return list
+		}
+	}
+	return append(list, d)
+}
+
+// olcAccessNormalizeDevices: тримминг + дедуп по hwid.
+func olcAccessNormalizeDevices(in []olcAllowedDevice) []olcAllowedDevice {
+	seen := map[string]bool{}
+	out := []olcAllowedDevice{}
+	for _, d := range in {
+		h := strings.TrimSpace(d.HWID)
+		if h == "" || seen[strings.ToLower(h)] {
+			continue
+		}
+		seen[strings.ToLower(h)] = true
+		out = append(out, olcAllowedDevice{HWID: h, Label: strings.TrimSpace(d.Label), Enabled: d.Enabled})
+	}
+	return out
 }
 
 func olcAccessDedup(in []string) []string {

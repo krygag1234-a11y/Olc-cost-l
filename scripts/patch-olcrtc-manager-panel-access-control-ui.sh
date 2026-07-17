@@ -32,7 +32,7 @@ comp_block = r'''// ============================================================
 function AccessControlSection() {
   const [enabled, setEnabled] = useState(false);
   const [mode, setMode] = useState<"monitor" | "enforce">("monitor");
-  const [allowed, setAllowed] = useState<string[]>([]);
+  const [devices, setDevices] = useState<Array<{ hwid: string; label?: string; enabled: boolean }>>([]);
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [autolog, setAutolog] = useState(true);
@@ -49,7 +49,7 @@ function AccessControlSection() {
       const sb = await s.json();
       setEnabled(!!sb.enabled);
       setMode(sb.mode === "enforce" ? "enforce" : "monitor");
-      setAllowed(Array.isArray(sb.allowed_hwids) ? sb.allowed_hwids : []);
+      setDevices(Array.isArray(sb.devices) ? sb.devices : []);
     } catch { /* ignore */ }
     try {
       const l = await fetch("/api/settings/logs", { cache: "no-store" });
@@ -101,14 +101,14 @@ function AccessControlSection() {
   const saveSettings = async (next: { enabled?: boolean; mode?: string }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { enabled, mode, allowed_hwids: allowed, ...next };
+      const body = { enabled, mode, devices, ...next };
       const res = await fetch("/api/access/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
       setEnabled(!!b.enabled); setMode(b.mode === "enforce" ? "enforce" : "monitor");
-      setAllowed(Array.isArray(b.allowed_hwids) ? b.allowed_hwids : []);
+      setDevices(Array.isArray(b.devices) ? b.devices : []);
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const allow = async (hwid: string) => {
@@ -118,7 +118,7 @@ function AccessControlSection() {
       const res = await fetch("/api/access/allow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwid }) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
-      setAllowed(Array.isArray(b.allowed_hwids) ? b.allowed_hwids : []);
+      setDevices(Array.isArray(b.devices) ? b.devices : []);
       setNewHwid("");
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
@@ -128,7 +128,7 @@ function AccessControlSection() {
       const res = await fetch("/api/access/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwid }) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
-      setAllowed(Array.isArray(b.allowed_hwids) ? b.allowed_hwids : []);
+      setDevices(Array.isArray(b.devices) ? b.devices : []);
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const clearAttempts = async () => {
@@ -139,6 +139,16 @@ function AccessControlSection() {
       await loadAttempts();
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
+  const setDevice = async (hwid: string, patch: { label?: string; enabled?: boolean }) => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch("/api/access/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwid, ...patch }) });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
+      setDevices(Array.isArray(b.devices) ? b.devices : []);
+    } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
+  };
+  const isKnown = (hwid: string) => devices.some((d) => (d.hwid || "").toLowerCase() === hwid.toLowerCase());
 
   return (
     <section className="grid gap-3 rounded-md border border-border bg-background p-4">
@@ -170,14 +180,19 @@ function AccessControlSection() {
       )}
       {enabled && (
         <>
-          <div className="text-xs font-medium text-foreground">Разрешённые устройства (hwid)</div>
-          {allowed.length === 0 && <div className="text-xs text-muted-foreground">Пока пусто. Добавьте hwid вручную или из журнала ниже.</div>}
-          {allowed.length > 0 && (
-            <div className="grid max-h-32 gap-1 overflow-y-auto">
-              {allowed.map((h) => (
-                <div key={h} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-xs">
-                  <span className="truncate font-mono">{h}</span>
-                  <button type="button" className="text-red-400 hover:text-red-300" disabled={busy} onClick={() => void remove(h)}>✕</button>
+          <div className="text-xs font-medium text-foreground">Разрешённые устройства</div>
+          {devices.length === 0 && <div className="text-xs text-muted-foreground">Пока пусто. Добавьте hwid вручную или из журнала ниже.</div>}
+          {devices.length > 0 && (
+            <div className="grid max-h-40 gap-1 overflow-y-auto">
+              {devices.map((d) => (
+                <div key={d.hwid} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
+                  <input type="checkbox" title="Вкл/выкл доступ" checked={d.enabled !== false} disabled={busy}
+                    onChange={(e) => void setDevice(d.hwid, { enabled: e.target.checked })} />
+                  <input className="h-7 w-28 shrink-0 rounded border border-border bg-card px-1 text-[11px] text-foreground outline-none focus:border-primary"
+                    placeholder="имя" defaultValue={d.label || ""}
+                    onBlur={(e) => { if ((e.target.value || "") !== (d.label || "")) void setDevice(d.hwid, { label: e.target.value }); }} />
+                  <span className={`min-w-0 flex-1 truncate font-mono ${d.enabled === false ? "text-muted-foreground line-through" : ""}`}>{d.hwid}</span>
+                  <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => void remove(d.hwid)}>✕</button>
                 </div>
               ))}
             </div>
@@ -204,7 +219,7 @@ function AccessControlSection() {
             <div ref={listRef} onScroll={onScroll} className="grid max-h-56 gap-1 overflow-y-auto rounded border border-border bg-card/40 p-2">
               {attempts.map((a, i) => {
                 const hwid = String(a.hwid || "");
-                const known = allowed.some((h) => h.toLowerCase() === hwid.toLowerCase());
+                const known = isKnown(hwid);
                 const count = Number(a.count || 1);
                 return (
                   <div key={hwid + "|" + String(a.client_id) + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
@@ -232,7 +247,7 @@ function AccessControlSection() {
           <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-card/40 p-2">
             {connections.map((c, i) => {
               const dev = String(c.device || "");
-              const known = allowed.some((h) => h.toLowerCase() === dev.toLowerCase());
+              const known = isKnown(dev);
               const count = Number(c.count || 1);
               return (
                 <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
