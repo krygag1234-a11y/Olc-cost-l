@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# Olc-cost-l olcrtc-core patch: enforcement контроля доступа НА ПОДКЛЮЧЕНИИ.
+#
+# olcrtc-core (internal/server) поддерживает Config.AuthHook (handshake.AuthFunc):
+#   func(deviceID string, claims map[string]any) (sessionID string, err error)
+# вызывается после CLIENT_HELLO; вернуть err = отклонить клиента (REJECT).
+# По умолчанию cmd/olcrtc его НЕ ставит (admit-all defaultAuthHook).
+#
+# Этот патч добавляет olcAccessConnectionAuthHook, читающий тот же
+# /var/lib/olcrtc/access-control.json, что и шлюз подписки. Закрывает сценарий
+# «слили инстанс»: даже с валидными room_id/key чужое устройство не подключится.
+#
+# SAFE-BY-DEFAULT (критично — иначе можно оборвать ВСЕ туннели):
+#   - энфорс НА ПОДКЛЮЧЕНИИ включается ТОЛЬКО при enabled=true И
+#     enforce_connections=true (отдельный флаг, по умолчанию false);
+#   - любая ошибка (нет файла/парс) → FAIL-OPEN (пускаем);
+#   - пустой allowlist при включённом энфорсе → FAIL-OPEN + один лог-варн
+#     (защита от самоблокировки);
+#   - глобальный ban и ban_no_hwid учитываются.
+# ⚠️ Требует теста с РЕАЛЬНЫМ устройством перед доверием (см. docs/ACCESS-CONTROL.md).
+#
+# Idempotent. Target: $OLCRTC_REPO. Run in apply_olcrtc (до go build ./cmd/olcrtc).
+set -euo pipefail
+
+OLCRTC_REPO="${1:?usage: $0 <olcrtc-repo-root>}"
+SESSION_GO="$OLCRTC_REPO/internal/app/session/session.go"
+HOOK_GO="$OLCRTC_REPO/internal/app/session/olc_access_hook.go"
+[[ -f "$SESSION_GO" ]] || { echo "[patch-olcrtc-core-access-hook] ERROR: $SESSION_GO not found"; exit 1; }
+
+# 1. Файл с реализацией хука (перезаписываем — источник истины здесь).
+cat > "$HOOK_GO" <<'GO'
+package session
+
+// Olc-cost-l: enforcement контроля доступа на УРОВНЕ ПОДКЛЮЧЕНИЯ (AuthHook).
+// Читает /var/lib/olcrtc/access-control.json (тот же файл, что шлюз подписки).
+// SAFE-BY-DEFAULT: активен ТОЛЬКО при enabled && enforce_connections; любая
+// ошибка или пустой allowlist → пускаем (fail-open), чтобы не рвать туннели.
+// ⛔ ПРАВИЛО РАЗРАБОТЧИКУ: при изменении формата access-control.json —
+// синхронизируйте структуры ниже и панельный olcAccessControl (patch-…-access-control-api).
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"strings"
+	"sync"
+
+	"github.com/google/uuid"
+	"github.com/openlibrecommunity/olcrtc/internal/logger"
+)
+
+const olcAccessControlPath = "/var/lib/olcrtc/access-control.json"
+
+type olcAccDevice struct {
+	HWID    string `json:"hwid"`
+	Enabled bool   `json:"enabled"`
+}
+
+type olcAccControl struct {
+	Enabled      bool           `json:"enabled"`
+	EnforceConns bool           `json:"enforce_connections"`
+	BanNoHwid    bool           `json:"ban_no_hwid"`
+	Devices      []olcAccDevice `json:"devices"`
+	Ban          []olcAccDevice `json:"ban"`
+}
+
+var olcAccWarnOnce sync.Once
+
+func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, error) {
+	admit := func() (string, error) { return uuid.NewString(), nil }
+	data, err := os.ReadFile(olcAccessControlPath)
+	if err != nil {
+		return admit()
+	}
+	var ac olcAccControl
+	if json.Unmarshal(data, &ac) != nil {
+		return admit()
+	}
+	if !ac.Enabled || !ac.EnforceConns {
+		return admit()
+	}
+	dev := strings.TrimSpace(deviceID)
+	for _, b := range ac.Ban {
+		if b.Enabled && dev != "" && strings.EqualFold(strings.TrimSpace(b.HWID), dev) {
+			return "", errors.New("device banned")
+		}
+	}
+	if dev == "" {
+		if ac.BanNoHwid {
+			return "", errors.New("no device id")
+		}
+		return admit()
+	}
+	allowed := 0
+	for _, d := range ac.Devices {
+		if d.Enabled && strings.TrimSpace(d.HWID) != "" {
+			allowed++
+			if strings.EqualFold(strings.TrimSpace(d.HWID), dev) {
+				return admit()
+			}
+		}
+	}
+	if allowed == 0 {
+		olcAccWarnOnce.Do(func() {
+			logger.Infof("olc-access: enforce_connections включён, но allowlist пуст — пускаю всех (fail-open)")
+		})
+		return admit()
+	}
+	return "", errors.New("device not allowed")
+}
+GO
+echo "[patch-olcrtc-core-access-hook] wrote $HOOK_GO"
+
+# 2. Вставить AuthHook в server.Config литерал (перед OnSessionOpen).
+python3 - "$SESSION_GO" <<'PY'
+import sys, pathlib
+f = pathlib.Path(sys.argv[1])
+t = f.read_text()
+if 'AuthHook:         olcAccessConnectionAuthHook,' in t or 'AuthHook: olcAccessConnectionAuthHook,' in t:
+    print("[patch-olcrtc-core-access-hook] AuthHook already wired")
+    sys.exit(0)
+anchor = '\t\t\tOnSessionOpen: func(sessionID, deviceID string, claims map[string]any) {'
+repl = '\t\t\tAuthHook:         olcAccessConnectionAuthHook,\n' + anchor
+if anchor in t:
+    t = t.replace(anchor, repl, 1)
+    f.write_text(t)
+    print("[patch-olcrtc-core-access-hook] wired AuthHook into server.Config")
+else:
+    print("[patch-olcrtc-core-access-hook] WARN: OnSessionOpen anchor not found — hook file present but not wired")
+PY

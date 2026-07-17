@@ -37,44 +37,88 @@ else:
 
 # --- 2. Обработчик (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
-fn_block = r'''// accessConnectionsHandler: парсит journal olcrtc-manager и отдаёт устройства,
-// подключавшиеся к инстансам (device=install-… в строках peer session). Read-only;
-// тот же идентификатор, что и allowlist подписки. См. docs/ACCESS-CONTROL.md.
+fn_block = r'''// accessConnectionsHandler: отдаёт устройства (device=install-…), подключавшиеся к
+// инстансам, С ПРИВЯЗКОЙ к клиенту/инстансу. Источник — per-instance лог-буферы
+// (panelSupervisor.processes): менеджер знает, какому клиенту/локации принадлежит
+// каждый процесс olcrtc, поэтому device можно сопоставить с подпиской и инстансом.
+// Фолбэк — journal olcrtc-manager (без привязки), если буферы пусты. Read-only;
+// device == тот же hwid, что allowlist подписки. См. docs/ACCESS-CONTROL.md.
 func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "journalctl", "-u", "olcrtc-manager", "-n", "3000", "--no-pager", "-o", "short-iso")
-	out, _ := cmd.CombinedOutput()
 	re := regexp.MustCompile(`device=(install-[0-9a-fA-F]+)`)
 	type accConn struct {
-		Device string `json:"device"`
-		Count  int    `json:"count"`
-		Last   string `json:"last"`
+		Device       string `json:"device"`
+		ClientID     string `json:"client_id"`
+		LocationName string `json:"location_name"`
+		RoomID       string `json:"room_id"`
+		Transport    string `json:"transport"`
+		Count        int    `json:"count"`
+		Last         string `json:"last"`
 	}
 	order := []string{}
-	byDev := map[string]*accConn{}
-	for _, line := range strings.Split(string(out), "\n") {
-		mm := re.FindStringSubmatch(line)
-		if mm == nil {
-			continue
+	byKey := map[string]*accConn{}
+	if panelSupervisor != nil {
+		panelSupervisor.mu.RLock()
+		procs := make([]*process, 0, len(panelSupervisor.processes))
+		for _, p := range panelSupervisor.processes {
+			procs = append(procs, p)
 		}
-		dev := mm[1]
-		ts := ""
-		if fields := strings.Fields(line); len(fields) > 0 {
-			ts = fields[0]
+		panelSupervisor.mu.RUnlock()
+		for _, p := range procs {
+			if p == nil || p.logs == nil {
+				continue
+			}
+			cid := p.location.ClientID
+			lname := p.location.Name
+			room := p.location.Endpoint.RoomID
+			tr := p.location.Transport.Type
+			for _, ln := range p.logs.Snapshot() {
+				mm := re.FindStringSubmatch(ln.Line)
+				if mm == nil {
+					continue
+				}
+				dev := mm[1]
+				key := dev + "|" + cid + "|" + room + "|" + tr
+				c, ok := byKey[key]
+				if !ok {
+					c = &accConn{Device: dev, ClientID: cid, LocationName: lname, RoomID: room, Transport: tr}
+					byKey[key] = c
+					order = append(order, key)
+				}
+				c.Count++
+				if ln.Time > c.Last {
+					c.Last = ln.Time
+				}
+			}
 		}
-		c, ok := byDev[dev]
-		if !ok {
-			c = &accConn{Device: dev}
-			byDev[dev] = c
-			order = append(order, dev)
+	}
+	if len(order) == 0 {
+		// Фолбэк: journal olcrtc-manager (без привязки к инстансу).
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		out, _ := exec.CommandContext(ctx, "journalctl", "-u", "olcrtc-manager", "-n", "3000", "--no-pager", "-o", "short-iso").CombinedOutput()
+		for _, line := range strings.Split(string(out), "\n") {
+			mm := re.FindStringSubmatch(line)
+			if mm == nil {
+				continue
+			}
+			dev := mm[1]
+			ts := ""
+			if fields := strings.Fields(line); len(fields) > 0 {
+				ts = fields[0]
+			}
+			c, ok := byKey[dev]
+			if !ok {
+				c = &accConn{Device: dev}
+				byKey[dev] = c
+				order = append(order, dev)
+			}
+			c.Count++
+			c.Last = ts
 		}
-		c.Count++
-		c.Last = ts
 	}
 	list := []accConn{}
-	for _, d := range order {
-		list = append(list, *byDev[d])
+	for _, k := range order {
+		list = append(list, *byKey[k])
 	}
 	writeJSON(w, map[string]any{"connections": list})
 }

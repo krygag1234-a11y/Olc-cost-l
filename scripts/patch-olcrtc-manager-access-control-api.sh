@@ -119,6 +119,7 @@ type olcAccessControl struct {
 	Devices      []olcAllowedDevice          `json:"devices"`
 	Ban          []olcAllowedDevice          `json:"ban"`               // глобальный бан (по hwid)
 	BanNoHwid    bool                        `json:"ban_no_hwid"`       // блокировать запросы без hwid (Compatibility)
+	EnforceConns bool                        `json:"enforce_connections"` // энфорсить allowlist на УРОВНЕ ПОДКЛЮЧЕНИЯ (AuthHook olcrtc-core); default off
 	Clients      map[string]*olcClientAccess `json:"clients,omitempty"` // per-подписка
 	AllowedHWIDs []string                    `json:"allowed_hwids,omitempty"` // legacy, мигрируется
 	AllowedIPs   []string                    `json:"allowed_ips,omitempty"`
@@ -349,6 +350,7 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 			cur.Ban = olcAccessNormalizeDevices(in.Ban)
 		}
 		cur.BanNoHwid = in.BanNoHwid
+		cur.EnforceConns = in.EnforceConns
 		if in.AllowedIPs != nil {
 			cur.AllowedIPs = olcAccessDedup(in.AllowedIPs)
 		}

@@ -220,6 +220,8 @@ apply_olcrtc() {
   install -m 0644 "$PATCH_DIR/olcrtc-routing-cidr.go" "$OLCRTC_REPO/internal/routing/cidr.go"
   install -m 0644 "$PATCH_DIR/olcrtc-routing-domains.go" "$OLCRTC_REPO/internal/routing/domains.go"
   bash "$SCRIPT_DIR/patch-olcrtc-core.sh" "$OLCRTC_REPO"
+  # Enforcement контроля доступа на подключении (safe-by-default AuthHook).
+  bash "$SCRIPT_DIR/patch-olcrtc-core-access-hook.sh" "$OLCRTC_REPO"
   bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-blocked-tor.sh" \
     "$OLCRTC_REPO/internal/server/server.go" \

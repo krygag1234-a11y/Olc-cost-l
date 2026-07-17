@@ -102,13 +102,14 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   return (
     <Modal title={`Доступ к подписке: ${clientId}`} onClose={onClose}>
       <div className="grid gap-3 p-4 text-sm">
-        <div className="text-xs text-muted-foreground">
-          Индивидуальный контроль доступа для этой подписки. «Наследовать» — как в
-          глобальных настройках. Забаненные устройства не получат подписку, даже если
-          разрешены глобально. Идентификатор устройства (hwid) olcbox шлёт при запросе.
+        <div className="rounded-md border border-border bg-card/40 p-3 text-xs text-muted-foreground">
+          Индивидуальные правила <b className="text-foreground">только для этой подписки</b>. «Наследовать» —
+          вести себя как в глобальных настройках. Список ниже — <b className="text-emerald-400">дополнение</b> к
+          глобальному белому списку; бан здесь — жёсткий блок именно этой подписки (перекрывает разрешение).
+          Идентификатор устройства (hwid) olcbox шлёт при запросе подписки.
         </div>
         <label className="grid gap-1 text-xs text-muted-foreground">
-          Режим для этой подписки
+          <span className="font-medium text-foreground">Режим для этой подписки</span>
           <select className="h-9 rounded border border-border bg-card px-2 text-foreground" value={mode} disabled={busy}
             onChange={(e) => { setMode(e.target.value); void save({ mode: e.target.value }); }}>
             <option value="inherit">Наследовать глобальный</option>
@@ -118,52 +119,60 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           </select>
         </label>
 
-        <div className="text-xs font-medium text-emerald-400">✅ Разрешённые (только для этой подписки)</div>
-        {allow.length === 0 && <div className="text-xs text-muted-foreground">Пусто — используется глобальный список.</div>}
-        <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid)))}</div>
-        <div className="flex gap-2">
-          <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (разрешить)" value={newAllow} onChange={(e) => setNewAllow(e.target.value)} />
-          <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" disabled={busy || !newAllow.trim()} onClick={() => addAllow(newAllow)}>Разрешить</button>
-        </div>
-
-        <div className="text-xs font-medium text-red-400">🚫 Забаненные (только для этой подписки)</div>
-        {ban.length === 0 && <div className="text-xs text-muted-foreground">Пусто.</div>}
-        <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid)))}</div>
-        <div className="flex gap-2">
-          <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
-          <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-medium text-foreground">📋 Попытки по этой подписке</div>
-          <div className="flex items-center gap-2">
-            {autolog
-              ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
-              : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
-            <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearLog()}>Очистить</button>
+        <div className="grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-3">
+          <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые (для этой подписки)</div>
+          {allow.length === 0 && <div className="text-xs text-muted-foreground">Пусто — используется глобальный список.</div>}
+          <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid)))}</div>
+          <div className="flex gap-2">
+            <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (разрешить)" value={newAllow} onChange={(e) => setNewAllow(e.target.value)} />
+            <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10" disabled={busy || !newAllow.trim()} onClick={() => addAllow(newAllow)}>Разрешить</button>
           </div>
         </div>
-        {attempts.length === 0 && <div className="text-xs text-muted-foreground">Пока нет.</div>}
-        <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-card/40 p-2">
-          {attempts.map((a, i) => {
-            const hwid = String(a.hwid || "");
-            const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
-            const banned = ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
-            return (
-              <div key={hwid + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
-                <div className="min-w-0">
-                  <div className="truncate font-mono">{hwid || "(без hwid)"} {a.allowed ? "✓" : "✗"}{Number(a.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{a.count}</span>}</div>
-                  <div className="truncate text-muted-foreground">{String(a.ip || "")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
-                </div>
-                {hwid && (
-                  <div className="flex shrink-0 gap-1">
-                    {!known && <button type="button" className="rounded border border-primary px-2 py-1 text-primary" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>}
-                    {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400" disabled={busy} onClick={() => addBan(hwid)}>Бан</button>}
+
+        <div className="grid gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
+          <div className="text-xs font-semibold text-red-400">🚫 Забаненные (для этой подписки)</div>
+          {ban.length === 0 && <div className="text-xs text-muted-foreground">Пусто.</div>}
+          <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid)))}</div>
+          <div className="flex gap-2">
+            <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
+            <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
+          </div>
+        </div>
+
+        <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-foreground">📋 Попытки по этой подписке</div>
+            <div className="flex items-center gap-2">
+              {autolog
+                ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+                : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
+              <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearLog()}>Очистить</button>
+            </div>
+          </div>
+          {attempts.length === 0 && <div className="text-xs text-muted-foreground">Пока нет.</div>}
+          {attempts.length > 0 && (
+          <div className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+            {attempts.map((a, i) => {
+              const hwid = String(a.hwid || "");
+              const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
+              const banned = ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
+              return (
+                <div key={hwid + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
+                  <div className="min-w-0">
+                    <div className="truncate font-mono"><span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✗"}</span> {hwid || "(без hwid)"}{Number(a.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{a.count}</span>}</div>
+                    <div className="truncate text-muted-foreground">{String(a.ip || "")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
                   </div>
-                )}
-              </div>
-            );
-          })}
+                  {hwid && (
+                    <div className="flex shrink-0 gap-1">
+                      {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>}
+                      {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(hwid)}>Бан</button>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
         </div>
         {msg && <div className="text-xs text-red-500 whitespace-pre-wrap">{msg}</div>}
       </div>
