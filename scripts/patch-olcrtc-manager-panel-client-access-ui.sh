@@ -231,7 +231,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
 
   return (
     <Modal title={`Выборочный доступ · подписка ${clientId}`} onClose={onClose}>
-      <div className="grid gap-3 p-4 text-sm">
+      <div className="grid gap-3 rounded-md bg-background p-4 text-sm">
         <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-muted-foreground">
           Это <b className="text-sky-400">выборочные</b> правила <b className="text-foreground">только для этой подписки и её инстансов</b>
           — независимо от других подписок. Действуют, когда глобальный контроль в общих настройках выключен.
