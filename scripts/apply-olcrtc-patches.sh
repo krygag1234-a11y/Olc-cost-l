@@ -493,6 +493,8 @@ apply_manager() {
   # Per-client контроль доступа: шестерёнка у 🎲 на карточке клиента → модалка доступа
   # для этой подписки (allow/ban устройств, режим). Требует randomization-ui (🎲).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Автопрокрутка логов: возобновление follow с задержкой (не дёргать при листании вверх).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-sticky-scroll-resume.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then

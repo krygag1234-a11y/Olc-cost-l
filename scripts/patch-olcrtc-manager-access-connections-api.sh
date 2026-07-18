@@ -37,88 +37,126 @@ else:
 
 # --- 2. Обработчик (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
-fn_block = r'''// accessConnectionsHandler: отдаёт устройства (device=install-…), подключавшиеся к
-// инстансам, С ПРИВЯЗКОЙ к клиенту/инстансу. Источник — per-instance лог-буферы
-// (panelSupervisor.processes): менеджер знает, какому клиенту/локации принадлежит
-// каждый процесс olcrtc, поэтому device можно сопоставить с подпиской и инстансом.
-// Фолбэк — journal olcrtc-manager (без привязки), если буферы пусты. Read-only;
-// device == тот же hwid, что allowlist подписки. См. docs/ACCESS-CONTROL.md.
+fn_block = r'''// olcConnRecord — запись журнала подключений (персистентная, с накоплением ×N).
+type olcConnRecord struct {
+	Device       string `json:"device"`
+	ClientID     string `json:"client_id"`
+	LocationName string `json:"location_name"`
+	RoomID       string `json:"room_id"`
+	Transport    string `json:"transport"`
+	Count        int    `json:"count"`
+	First        string `json:"first"`
+	Last         string `json:"last"`
+}
+
+var (
+	olcConnJournalMu     sync.Mutex
+	olcConnJournal       []*olcConnRecord
+	olcConnJournalLoaded bool
+)
+
+const olcConnJournalPath = "/var/lib/olcrtc/access-connections.json"
+
+func olcConnKey(dev, cid, room, tr string) string { return dev + "|" + cid + "|" + room + "|" + tr }
+
+func olcConnJournalLoad() {
+	if olcConnJournalLoaded {
+		return
+	}
+	olcConnJournalLoaded = true
+	if data, err := os.ReadFile(olcConnJournalPath); err == nil {
+		var recs []*olcConnRecord
+		if json.Unmarshal(data, &recs) == nil {
+			olcConnJournal = recs
+		}
+	}
+}
+
+func olcConnJournalSave() {
+	_ = os.MkdirAll("/var/lib/olcrtc", 0o755)
+	if data, err := json.MarshalIndent(olcConnJournal, "", "  "); err == nil {
+		tmp := olcConnJournalPath + ".tmp"
+		if os.WriteFile(tmp, append(data, '\n'), 0o600) == nil {
+			_ = os.Rename(tmp, olcConnJournalPath)
+		}
+	}
+}
+
+// accessConnectionsHandler: НАКОПИТЕЛЬНЫЙ журнал подключений к инстансам (device=…
+// из per-instance лог-буферов) с привязкой клиент/инстанс и счётчиком ×N. Записи
+// ПЕРСИСТЯТСЯ в access-connections.json — не пропадают при ротации кольцевого
+// буфера и переживают рестарт; повторные подключения увеличивают Count по НОВЫМ
+// строкам (без двойного счёта). ?clear=1 очищает журнал. Read-only.
 func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 	re := regexp.MustCompile(`device=([^\s)]+)`)
-	type accConn struct {
-		Device       string `json:"device"`
-		ClientID     string `json:"client_id"`
-		LocationName string `json:"location_name"`
-		RoomID       string `json:"room_id"`
-		Transport    string `json:"transport"`
-		Count        int    `json:"count"`
-		Last         string `json:"last"`
+	olcConnJournalMu.Lock()
+	defer olcConnJournalMu.Unlock()
+	olcConnJournalLoad()
+
+	if strings.TrimSpace(r.URL.Query().Get("clear")) == "1" {
+		olcConnJournal = nil
+		olcConnJournalSave()
+		writeJSON(w, map[string]any{"connections": []any{}})
+		return
 	}
-	order := []string{}
-	byKey := map[string]*accConn{}
+
+	index := map[string]*olcConnRecord{}
+	for _, rec := range olcConnJournal {
+		index[olcConnKey(rec.Device, rec.ClientID, rec.RoomID, rec.Transport)] = rec
+	}
+
+	var procs []*process
 	if panelSupervisor != nil {
 		panelSupervisor.mu.RLock()
-		procs := make([]*process, 0, len(panelSupervisor.processes))
-		for _, p := range panelSupervisor.processes {
-			procs = append(procs, p)
+		for _, pr := range panelSupervisor.processes {
+			procs = append(procs, pr)
 		}
 		panelSupervisor.mu.RUnlock()
-		for _, p := range procs {
-			if p == nil || p.logs == nil {
-				continue
-			}
-			cid := p.location.ClientID
-			lname := p.location.Name
-			room := p.location.Endpoint.RoomID
-			tr := p.location.Transport.Type
-			for _, ln := range p.logs.Snapshot() {
-				mm := re.FindStringSubmatch(ln.Line)
-				if mm == nil {
-					continue
-				}
-				dev := mm[1]
-				key := dev + "|" + cid + "|" + room + "|" + tr
-				c, ok := byKey[key]
-				if !ok {
-					c = &accConn{Device: dev, ClientID: cid, LocationName: lname, RoomID: room, Transport: tr}
-					byKey[key] = c
-					order = append(order, key)
-				}
-				c.Count++
-				if ln.Time > c.Last {
-					c.Last = ln.Time
-				}
-			}
-		}
 	}
-	if len(order) == 0 {
-		// Фолбэк: journal olcrtc-manager (без привязки к инстансу).
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		out, _ := exec.CommandContext(ctx, "journalctl", "-u", "olcrtc-manager", "-n", "3000", "--no-pager", "-o", "short-iso").CombinedOutput()
-		for _, line := range strings.Split(string(out), "\n") {
-			mm := re.FindStringSubmatch(line)
+	for _, p := range procs {
+		if p == nil || p.logs == nil {
+			continue
+		}
+		cid := p.location.ClientID
+		lname := p.location.Name
+		room := p.location.Endpoint.RoomID
+		tr := p.location.Transport.Type
+		for _, ln := range p.logs.Snapshot() {
+			mm := re.FindStringSubmatch(ln.Line)
 			if mm == nil {
 				continue
 			}
 			dev := mm[1]
-			ts := ""
-			if fields := strings.Fields(line); len(fields) > 0 {
-				ts = fields[0]
+			key := olcConnKey(dev, cid, room, tr)
+			rec := index[key]
+			if rec == nil {
+				rec = &olcConnRecord{Device: dev, ClientID: cid, LocationName: lname, RoomID: room, Transport: tr}
+				index[key] = rec
+				olcConnJournal = append(olcConnJournal, rec)
 			}
-			c, ok := byKey[dev]
-			if !ok {
-				c = &accConn{Device: dev}
-				byKey[dev] = c
-				order = append(order, dev)
+			if rec.Last == "" || ln.Time > rec.Last {
+				rec.Count++
+				rec.Last = ln.Time
+				if rec.First == "" {
+					rec.First = ln.Time
+				}
+				if rec.LocationName == "" {
+					rec.LocationName = lname
+				}
 			}
-			c.Count++
-			c.Last = ts
 		}
 	}
-	list := []accConn{}
-	for _, k := range order {
-		list = append(list, *byKey[k])
+	if len(olcConnJournal) > 300 {
+		sort.SliceStable(olcConnJournal, func(i, j int) bool { return olcConnJournal[i].Last < olcConnJournal[j].Last })
+		olcConnJournal = olcConnJournal[len(olcConnJournal)-300:]
+	}
+	olcConnJournalSave()
+
+	sorted := append([]*olcConnRecord(nil), olcConnJournal...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Last < sorted[j].Last })
+	list := make([]olcConnRecord, 0, len(sorted))
+	for _, rec := range sorted {
+		list = append(list, *rec)
 	}
 	writeJSON(w, map[string]any{"connections": list})
 }
