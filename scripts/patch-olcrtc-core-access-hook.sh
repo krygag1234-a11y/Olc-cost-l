@@ -31,24 +31,22 @@ HOOK_GO="$OLCRTC_REPO/internal/app/session/olc_access_hook.go"
 cat > "$HOOK_GO" <<'GO'
 package session
 
-// Olc-cost-l: enforcement контроля доступа на УРОВНЕ ПОДКЛЮЧЕНИЯ (AuthHook).
-// Читает /var/lib/olcrtc/access-control.json (тот же файл, что шлюз подписки).
-// SAFE-BY-DEFAULT: любая ошибка/пустой allowlist → пускаем (fail-open), чтобы не
-// рвать туннели. Два независимых источника энфорса на подключении:
-//   1) ГЛОБАЛЬНЫЙ: enabled && enforce_connections — на ВСЕ инстансы;
-//   2) ВЫБОРОЧНЫЙ per-client: clients[cid].conn_enforce (действует ТОЛЬКО когда
-//      глобальный enforce_connections ВЫКЛЮЧЕН) — scope "all"|"selective" (по
-//      room_id из conn_instances). cid/room берутся из env OLCRTC_CLIENT_ID/
-//      OLCRTC_ROOM_ID, которые менеджер прокидывает в процесс инстанса.
-// ⛔ ПРАВИЛО РАЗРАБОТЧИКУ: при изменении формата access-control.json —
-// синхронизируйте структуры ниже и панельный olcAccessControl/olcClientAccess.
+// Olc-cost-l: enforcement контроля ПОДКЛЮЧЕНИЯ (AuthHook). Читает
+// /var/lib/olcrtc/access-control.json. Списки устройств подключения — ОТДЕЛЬНЫЕ
+// от подписки: глоб. conn_devices/conn_ban; per-client conn_allow/conn_ban.
+// Активен: глоб. enabled && enforce_connections (все инстансы) ЛИБО per-client
+// conn_enforce (когда глоб. enforce_connections ВЫКЛ; scope all|selective).
+// Пустой allow-лист при активном энфорсе = БЛОКИРОВАТЬ ВСЕХ (НЕ fail-open).
+// Fail-open ТОЛЬКО при ошибке чтения/парса файла (чтобы не рвать при сбое ФС).
+// Каждая попытка подключения при активном энфорсе логируется (device=…) — её
+// видно в журнале подключений панели. ⛔ формат синхронизировать с панельным
+// olcAccessControl/olcClientAccess (patch-…-access-control-api).
 
 import (
 	"encoding/json"
 	"errors"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/openlibrecommunity/olcrtc/internal/logger"
@@ -62,9 +60,8 @@ type olcAccDevice struct {
 }
 
 type olcAccClient struct {
-	Mode          string         `json:"mode"`
-	Allow         []olcAccDevice `json:"allow"`
-	Ban           []olcAccDevice `json:"ban"`
+	ConnAllow     []olcAccDevice `json:"conn_allow"`
+	ConnBan       []olcAccDevice `json:"conn_ban"`
 	BanNoHwid     bool           `json:"ban_no_hwid"`
 	ConnEnforce   bool           `json:"conn_enforce"`
 	ConnScope     string         `json:"conn_scope"`
@@ -75,12 +72,10 @@ type olcAccControl struct {
 	Enabled      bool                     `json:"enabled"`
 	EnforceConns bool                     `json:"enforce_connections"`
 	BanNoHwid    bool                     `json:"ban_no_hwid"`
-	Devices      []olcAccDevice           `json:"devices"`
-	Ban          []olcAccDevice           `json:"ban"`
+	ConnDevices  []olcAccDevice           `json:"conn_devices"`
+	ConnBan      []olcAccDevice           `json:"conn_ban"`
 	Clients      map[string]*olcAccClient `json:"clients"`
 }
-
-var olcAccWarnOnce sync.Once
 
 func olcAccMatch(list []olcAccDevice, dev string) bool {
 	for _, d := range list {
@@ -103,28 +98,19 @@ func olcAccCount(lists ...[]olcAccDevice) int {
 	return n
 }
 
-// olcAccDecide — общее решение: dev против списков allow/ban (уже собранных).
-func olcAccDecide(dev string, banNoHwid bool, allow []olcAccDevice, ban []olcAccDevice, extraAllow []olcAccDevice, extraBan []olcAccDevice) (string, error) {
-	admit := func() (string, error) { return uuid.NewString(), nil }
-	if olcAccMatch(ban, dev) || olcAccMatch(extraBan, dev) {
-		return "", errors.New("device banned")
+// olcAccDecideConn — решение для ПОДКЛЮЧЕНИЯ: banNoHwid, списки allow/ban.
+// Пустой allow = блок всех (энфорс включён осознанно).
+func olcAccDecideConn(dev string, banNoHwid bool, allow []olcAccDevice, ban []olcAccDevice) bool {
+	if olcAccMatch(ban, dev) {
+		return false
 	}
 	if dev == "" {
-		if banNoHwid {
-			return "", errors.New("no device id")
-		}
-		return admit()
+		return !banNoHwid
 	}
-	if olcAccMatch(allow, dev) || olcAccMatch(extraAllow, dev) {
-		return admit()
+	if olcAccMatch(allow, dev) {
+		return true
 	}
-	if olcAccCount(allow, extraAllow) == 0 {
-		olcAccWarnOnce.Do(func() {
-			logger.Infof("olc-access: энфорс подключения включён, но allowlist пуст — пускаю всех (fail-open)")
-		})
-		return admit()
-	}
-	return "", errors.New("device not allowed")
+	return false // не в списке (в т.ч. пустой список) — блок
 }
 
 func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, error) {
@@ -141,13 +127,20 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 		return admit()
 	}
 	dev := strings.TrimSpace(deviceID)
-	// 1) Глобальный энфорс подключения — приоритетнее, действует на все инстансы.
+	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
+	finish := func(ok bool) (string, error) {
+		logger.Infof("olc-access: conn attempt device=%s allowed=%t room=%s", dev, ok, room)
+		if ok {
+			return admit()
+		}
+		return "", errors.New("device not allowed to connect")
+	}
+	// 1) Глобальный энфорс подключения — приоритетнее, на все инстансы.
 	if ac.EnforceConns {
-		return olcAccDecide(dev, ac.BanNoHwid, ac.Devices, ac.Ban, nil, nil)
+		return finish(olcAccDecideConn(dev, ac.BanNoHwid, ac.ConnDevices, ac.ConnBan))
 	}
 	// 2) Выборочный per-client (только когда глобальный выключен).
 	cid := strings.TrimSpace(os.Getenv("OLCRTC_CLIENT_ID"))
-	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
 	if cid != "" && ac.Clients != nil {
 		if cc, ok := ac.Clients[cid]; ok && cc != nil && cc.ConnEnforce {
 			enforced := true
@@ -161,7 +154,7 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 				}
 			}
 			if enforced {
-				return olcAccDecide(dev, ac.BanNoHwid || cc.BanNoHwid, ac.Devices, ac.Ban, cc.Allow, cc.Ban)
+				return finish(olcAccDecideConn(dev, ac.BanNoHwid || cc.BanNoHwid, cc.ConnAllow, cc.ConnBan))
 			}
 		}
 	}

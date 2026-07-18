@@ -27,6 +27,10 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [mode, setMode] = useState<string>("off");
   const [allow, setAllow] = useState<Dev[]>([]);
   const [ban, setBan] = useState<Dev[]>([]);
+  const [connAllow, setConnAllow] = useState<Dev[]>([]);
+  const [connBan, setConnBan] = useState<Dev[]>([]);
+  const [hiddenCross, setHiddenCross] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("olc-cross-hidden-v1") || "[]"); } catch { return []; } });
+  const hideCross = (k: string) => { const nx = Array.from(new Set([...hiddenCross, k])); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const [allowIps, setAllowIps] = useState<string[]>([]);
   const [banNoHwid, setBanNoHwid] = useState(false);
   const [newIp, setNewIp] = useState("");
@@ -41,6 +45,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const kResumeRef = useRef<number | null>(null);
   const [newAllow, setNewAllow] = useState("");
   const [newBan, setNewBan] = useState("");
+  const [newConnAllow, setNewConnAllow] = useState("");
+  const [newConnBan, setNewConnBan] = useState("");
   const [autolog, setAutolog] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -57,6 +63,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setMode(b.mode && b.mode !== "inherit" ? b.mode : "off");
       setAllow(Array.isArray(b.allow) ? b.allow : []);
       setBan(Array.isArray(b.ban) ? b.ban : []);
+      setConnAllow(Array.isArray(b.conn_allow) ? b.conn_allow : []);
+      setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
       setAllowIps(Array.isArray(b.allow_ips) ? b.allow_ips : []);
       setBanNoHwid(!!b.ban_no_hwid);
       setConnEnforce(!!b.conn_enforce);
@@ -118,10 +126,10 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
 
-  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: string[]; ban_no_hwid?: boolean; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
+  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: string[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_no_hwid: banNoHwid, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
+      const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_no_hwid: banNoHwid, conn_allow: connAllow, conn_ban: connBan, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
       const r = await fetch("/api/access/client", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
@@ -129,6 +137,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setMode(cc.mode && cc.mode !== "inherit" ? cc.mode : "off");
       setAllow(Array.isArray(cc.allow) ? cc.allow : []);
       setBan(Array.isArray(cc.ban) ? cc.ban : []);
+      setConnAllow(Array.isArray(cc.conn_allow) ? cc.conn_allow : []);
+      setConnBan(Array.isArray(cc.conn_ban) ? cc.conn_ban : []);
       setAllowIps(Array.isArray(cc.allow_ips) ? cc.allow_ips : []);
       setBanNoHwid(!!cc.ban_no_hwid);
       setConnEnforce(!!cc.conn_enforce);
@@ -139,6 +149,28 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   };
   const addIp = (ip: string) => { const v = (ip || "").trim(); if (!v) return; const nx = [...allowIps, v]; setAllowIps(nx); setNewIp(""); void save({ allow_ips: nx }); };
   const rmIp = (ip: string) => { const nx = allowIps.filter((x) => x !== ip); setAllowIps(nx); void save({ allow_ips: nx }); };
+  const addConnAllow = (h: string) => { h = (h || "").trim(); if (!h) return; if (connAllow.some((d) => d.hwid.toLowerCase() === h.toLowerCase())) return; void save({ conn_allow: [...connAllow, { hwid: h, enabled: true }] }); };
+  const addConnBan = (h: string) => { h = (h || "").trim(); if (!h) return; if (connBan.some((d) => d.hwid.toLowerCase() === h.toLowerCase())) return; void save({ conn_ban: [...connBan, { hwid: h, enabled: true }] }); };
+  const rmConnAllow = (h: string) => void save({ conn_allow: connAllow.filter((d) => d.hwid !== h) });
+  const rmConnBan = (h: string) => void save({ conn_ban: connBan.filter((d) => d.hwid !== h) });
+  const toggleConnAllow = (h: string, en: boolean) => void save({ conn_allow: connAllow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
+  const toggleConnBan = (h: string, en: boolean) => void save({ conn_ban: connBan.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
+  // Кросс-кнопка «добавить в противоположный список». title — полный текст (подсказка).
+  const crossBtn = (hwid: string, kind: "allow" | "ban", target: "sub" | "conn", present: boolean, add: () => void) => {
+    const key = `${clientId}|${hwid}|${kind}|${target}`;
+    if (present || hiddenCross.includes(key)) return null;
+    const title = kind === "allow"
+      ? (target === "sub" ? "Добавить в разрешённые устройства для получения подписки" : "Добавить в разрешённые устройства для подключения к инстансам")
+      : (target === "sub" ? "Добавить в забаненные устройства для получения подписки" : "Добавить в забаненные устройства для подключения к инстансам");
+    const label = (kind === "allow" ? "✅→" : "🚫→") + (target === "sub" ? "подписка" : "подключение");
+    const cls = kind === "allow" ? "border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10" : "border-orange-500/50 text-orange-400 hover:bg-orange-500/10";
+    return (
+      <span className="inline-flex shrink-0 items-center">
+        <button type="button" className={`rounded-l border px-1.5 py-1 text-[10px] ${cls}`} disabled={busy} title={title} onClick={add}>{label}</button>
+        <button type="button" className="rounded-r border border-l-0 border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Скрыть эту подсказку" onClick={() => hideCross(key)}>×</button>
+      </span>
+    );
+  };
   const toggleInstance = (room: string, on: boolean) => {
     const nx = on ? [...connInstances, room] : connInstances.filter((r) => r !== room);
     setConnInstances(nx); void save({ conn_instances: nx });
@@ -151,10 +183,11 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const toggleAllow = (h: string, en: boolean) => void save({ allow: allow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
   const toggleBan = (h: string, en: boolean) => void save({ ban: ban.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
 
-  const devRow = (d: Dev, onToggle: ((en: boolean) => void) | null, onRemove: () => void) => (
+  const devRow = (d: Dev, onToggle: ((en: boolean) => void) | null, onRemove: () => void, extra?: any) => (
     <div key={d.hwid} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-[11px]">
       {onToggle && <input type="checkbox" title="вкл/выкл" checked={d.enabled !== false} disabled={busy} onChange={(e) => onToggle(e.target.checked)} />}
       <span className={`min-w-0 flex-1 truncate font-mono ${d.enabled === false ? "text-muted-foreground line-through" : ""}`}>{d.label ? d.label + " · " : ""}{d.hwid}</span>
+      {extra || null}
       <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={onRemove}>✕</button>
     </div>
   );
@@ -193,7 +226,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           <div className="grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-2">
             <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые устройства</div>
             {allow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
-            <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid)))}</div>
+            <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid), crossBtn(d.hwid, "allow", "conn", connAllow.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addConnAllow(d.hwid))))}</div>
             <div className="flex gap-2">
               <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (hwid)" value={newAllow} onChange={(e) => setNewAllow(e.target.value)} />
               <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10" disabled={busy || !newAllow.trim()} onClick={() => addAllow(newAllow)}>Разрешить</button>
@@ -222,7 +255,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           <div className="grid gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2">
             <div className="text-xs font-semibold text-red-400">🚫 Забаненные устройства (эта подписка)</div>
             {ban.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
-            <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid)))}</div>
+            <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid), crossBtn(d.hwid, "ban", "conn", connBan.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addConnBan(d.hwid))))}</div>
             <div className="flex gap-2">
               <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
               <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
@@ -284,7 +317,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
               <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
                 <input type="checkbox" className="mt-0.5" checked={connEnforce} disabled={busy}
                   onChange={(e) => { setConnEnforce(e.target.checked); void save({ conn_enforce: e.target.checked }); }} />
-                <span>Пускать к инстансам этой подписки только разрешённые устройства (список выше). Пустой список = не блокирует.</span>
+                <span>Пускать к инстансам этой подписки только устройства из списка «Разрешённые для подключения» ниже.
+                  Если список пуст — <b className="text-foreground">не пускает никого</b> (полная блокировка подключений).</span>
               </label>
               {connEnforce && (
                 <div className="grid gap-2 pl-5">
@@ -316,6 +350,27 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                   )}
                 </div>
               )}
+
+              <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2">
+                <div className="text-xs font-semibold text-sky-400">🔌✅ Разрешённые для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
+                <div className="text-[10px] text-muted-foreground">Отдельный список от «получения подписки». Кнопкой можно продублировать устройство в список подписки.</div>
+                {connAllow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто{connEnforce ? " — при включённом контроле никто не подключится" : ""}.</div>}
+                <div className="grid max-h-32 gap-1 overflow-y-auto">{connAllow.map((d) => devRow(d, (en) => toggleConnAllow(d.hwid, en), () => rmConnAllow(d.hwid), crossBtn(d.hwid, "allow", "sub", allow.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addAllow(d.hwid))))}</div>
+                <div className="flex gap-2">
+                  <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (hwid)" value={newConnAllow} onChange={(e) => setNewConnAllow(e.target.value)} />
+                  <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-xs text-sky-400 hover:bg-sky-500/10" disabled={busy || !newConnAllow.trim()} onClick={() => { addConnAllow(newConnAllow); setNewConnAllow(""); }}>Разрешить</button>
+                </div>
+              </div>
+
+              <div className="grid gap-2 rounded-md border border-orange-500/30 bg-orange-500/5 p-2">
+                <div className="text-xs font-semibold text-orange-400">🔌🚫 Забаненные для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
+                {connBan.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
+                <div className="grid max-h-32 gap-1 overflow-y-auto">{connBan.map((d) => devRow(d, (en) => toggleConnBan(d.hwid, en), () => rmConnBan(d.hwid), crossBtn(d.hwid, "ban", "sub", ban.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addBan(d.hwid))))}</div>
+                <div className="flex gap-2">
+                  <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить подключение)" value={newConnBan} onChange={(e) => setNewConnBan(e.target.value)} />
+                  <button type="button" className="rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/20" disabled={busy || !newConnBan.trim()} onClick={() => { addConnBan(newConnBan); setNewConnBan(""); }}>Забанить</button>
+                </div>
+              </div>
             </>
           )}
           <div className="grid gap-2 rounded-md border border-border bg-background/60 p-2">

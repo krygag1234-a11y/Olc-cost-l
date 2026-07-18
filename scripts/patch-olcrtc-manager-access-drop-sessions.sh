@@ -55,23 +55,20 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 		return true
 	}
 	dev := strings.TrimSpace(hwid)
-	decide := func(allow, ban, xallow, xban []olcAllowedDevice) bool {
-		if olcConnMatch(ban, dev) || olcConnMatch(xban, dev) {
+	decide := func(banNoHwid bool, allow, ban []olcAllowedDevice) bool {
+		if olcConnMatch(ban, dev) {
 			return false
 		}
 		if dev == "" {
-			return !ac.BanNoHwid
+			return !banNoHwid
 		}
-		if olcConnMatch(allow, dev) || olcConnMatch(xallow, dev) {
+		if olcConnMatch(allow, dev) {
 			return true
 		}
-		if olcConnCount(allow, xallow) == 0 {
-			return true // пустой allowlist — fail-open (как в хуке)
-		}
-		return false
+		return false // не в списке (в т.ч. пустой) — блок
 	}
 	if ac.EnforceConns {
-		return decide(ac.Devices, ac.Ban, nil, nil)
+		return decide(ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
 	}
 	if ac.Clients != nil {
 		if cc, ok := ac.Clients[clientID]; ok && cc != nil && cc.ConnEnforce {
@@ -86,7 +83,7 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 				}
 			}
 			if enforced {
-				return decide(ac.Devices, ac.Ban, cc.Allow, cc.Ban)
+				return decide(ac.BanNoHwid || cc.BanNoHwid, cc.ConnAllow, cc.ConnBan)
 			}
 		}
 	}
