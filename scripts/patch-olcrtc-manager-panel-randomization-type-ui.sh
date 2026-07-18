@@ -63,15 +63,15 @@ rep(
 "gamble button label")
 
 # D1. Компонент RandTypeModal (перед function App())
-modal = '''function RandTypeModal({ clientId, onChoose, onClose }: { clientId: string; onChoose: (ty: number) => void; onClose: () => void }) {
+modal = '''function RandTypeModal({ clientId, onChoose, onClose, edit }: { clientId: string; onChoose: (ty: number) => void; onClose: () => void; edit?: boolean }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between">
-          <div className="truncate text-sm font-semibold text-foreground">🎲 Тип рандомизации — {clientId}</div>
+          <div className="truncate text-sm font-semibold text-foreground">🎲 {edit ? "Изменить тип" : "Тип рандомизации"} — {clientId}</div>
           <button type="button" className="rounded px-2 text-muted-foreground hover:bg-muted" onClick={onClose}>✕</button>
         </div>
-        <p className="mb-3 text-[11px] text-muted-foreground">Выберите тип. Если закрыть без выбора — рандомизация НЕ включится.</p>
+        <p className="mb-3 text-[11px] text-muted-foreground">{edit ? "Выберите новый тип. Сгенерированный хэш сохранится. Закрыть без выбора — оставить как есть." : "Выберите тип. Если закрыть без выбора — рандомизация НЕ включится."}</p>
         <div className="grid gap-2">
           <button type="button" className="grid gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-left transition-colors hover:bg-emerald-500/10" onClick={() => onChoose(1)}>
             <div className="text-sm font-medium text-emerald-500">Тип 1 — статичный хэш</div>
@@ -150,6 +150,86 @@ rep(
                   </div>
                 )}""",
 "selective row type")
+
+# G. Выборочная панель: toggle-функция → applyRand + стейт модалки типа
+rep(
+"""  const toggleRandomization = async (clientID: string, currentEnabled: boolean) => {
+    const res = await fetch(`/api/clients/${encodeURIComponent(clientID)}/randomization`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !currentEnabled }),
+    });
+    if (res.ok) {
+      setMsg(`Рандомизация ${!currentEnabled ? "включена" : "отключена"} для ${clientID}`);
+      loadClients();
+    } else {
+      setMsg(`Ошибка: HTTP ${res.status}`);
+    }
+  };""",
+"""  const [typeTarget, setTypeTarget] = useState<{ id: string; edit: boolean } | null>(null);
+  const applyRand = async (clientID: string, enabled: boolean, randType?: number) => {
+    const body: any = { enabled };
+    if (enabled && randType) body.rand_type = randType;
+    const res = await fetch(`/api/clients/${encodeURIComponent(clientID)}/randomization`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      setMsg(`Рандомизация ${enabled ? "включена" : "отключена"} для ${clientID}`);
+      loadClients();
+    } else {
+      setMsg(`Ошибка: HTTP ${res.status}`);
+    }
+  };""",
+"selective applyRand + typeTarget")
+
+# H. Выборочная панель: чекбокс → мини-модалка (вкл), карандашик (edit)
+rep(
+'''                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium truncate flex-1">{c.client_id}</div>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      disabled={globalEnabled}
+                      onChange={() => toggleRandomization(c.client_id, perClientEnabled)}
+                      className={globalEnabled ? "rounded opacity-50 cursor-not-allowed" : "rounded"}
+                    />
+                    <span className="text-xs">{globalEnabled ? "ON (глобально)" : enabled ? "On" : "Off"}</span>
+                  </label>
+                </div>''',
+'''                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-medium truncate flex-1">{c.client_id}</div>
+                  {perClientEnabled && !globalEnabled && (
+                    <button type="button" className="rounded border border-border px-1 text-xs text-muted-foreground hover:bg-muted" title="Изменить тип рандомизации" onClick={() => setTypeTarget({ id: c.client_id, edit: true })}>✏️</button>
+                  )}
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      disabled={globalEnabled}
+                      onChange={() => { if (perClientEnabled) { void applyRand(c.client_id, false); } else { setTypeTarget({ id: c.client_id, edit: false }); } }}
+                      className={globalEnabled ? "rounded opacity-50 cursor-not-allowed" : "rounded"}
+                    />
+                    <span className="text-xs">{globalEnabled ? "ON (глобально)" : enabled ? "On" : "Off"}</span>
+                  </label>
+                </div>''',
+"selective checkbox+pencil")
+
+# I. Выборочная панель: рендер RandTypeModal
+rep(
+'      {msg && <p className="text-xs text-amber-600">{msg}</p>}',
+'''      {typeTarget && (
+        <RandTypeModal
+          clientId={typeTarget.id}
+          edit={typeTarget.edit}
+          onClose={() => setTypeTarget(null)}
+          onChoose={(ty) => { const tt = typeTarget; setTypeTarget(null); void applyRand(tt.id, true, ty); }}
+        />
+      )}
+      {msg && <p className="text-xs text-amber-600">{msg}</p>}''',
+"selective modal render")
 
 if changed:
     f.write_text(t)

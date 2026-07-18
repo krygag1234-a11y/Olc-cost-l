@@ -166,6 +166,7 @@ func randomizationPatchHandler(configPath string) http.HandlerFunc {
 				if cfg.Clients[i].Randomization == nil {
 					cfg.Clients[i].Randomization = &ClientRandomization{}
 				}
+				wasEnabled := cfg.Clients[i].Randomization.Enabled
 				cfg.Clients[i].Randomization.Enabled = req.Enabled
 				if req.Enabled {
 					rt := req.RandType
@@ -175,7 +176,11 @@ func randomizationPatchHandler(configPath string) http.HandlerFunc {
 					cfg.Clients[i].Randomization.RandType = rt
 					randType = rt
 					if rt == 1 {
-						cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+						// Свежее включение → новый хэш; смена типа у уже включённого
+						// (edit-карандашик) → сохранить существующий хэш (не пересоздавать).
+						if !wasEnabled || cfg.Clients[i].Randomization.RandomizedID == "" {
+							cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+						}
 						randomizedID = cfg.Clients[i].Randomization.RandomizedID
 					} else {
 						cfg.Clients[i].Randomization.RandomizedID = ""
