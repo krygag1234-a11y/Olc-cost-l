@@ -147,11 +147,16 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 			enforced := true
 			if cc.ConnScope == "selective" {
 				enforced = false
+				inList := false
 				for _, r := range cc.ConnInstances {
 					if strings.TrimSpace(r) == room && room != "" {
 						enforced = true
+						inList = true
 						break
 					}
+				}
+				if !inList {
+					return finish(false) // инстанс НЕ выбран → подключение запрещено
 				}
 			}
 			if enforced {

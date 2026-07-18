@@ -77,11 +77,16 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 			enforced := true
 			if cc.ConnScope == "selective" {
 				enforced = false
+				inList := false
 				for _, r := range cc.ConnInstances {
 					if strings.TrimSpace(r) == strings.TrimSpace(roomID) && roomID != "" {
 						enforced = true
+						inList = true
 						break
 					}
+				}
+				if !inList {
+					return false // инстанс НЕ выбран → подключение запрещено
 				}
 			}
 			if enforced {
