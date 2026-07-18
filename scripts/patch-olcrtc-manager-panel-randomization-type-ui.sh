@@ -269,6 +269,23 @@ rep(
                         )}''',
 "card type-2 label + warning")
 
+# L. Edit: оптимистично мигрировать accessCfg на новый client_id (без мигающего предупреждения)
+rep(
+'''        }),
+      });
+      setEditClient(null);
+    }, "Клиент обновлен");''',
+'''        }),
+      });
+      const _oldId = editClient.client_id;
+      const _newId = editForm.client_id.trim();
+      if (_newId !== _oldId) {
+        setAccessCfg((prev) => { if (prev[_oldId] === undefined) return prev; const m = { ...prev }; m[_newId] = m[_oldId]; delete m[_oldId]; return m; });
+      }
+      setEditClient(null);
+    }, "Клиент обновлен");''',
+"edit accessCfg migration")
+
 if changed:
     f.write_text(t)
 print("[patch-randomization-type-ui] done")

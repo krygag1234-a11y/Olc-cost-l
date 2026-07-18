@@ -21,6 +21,15 @@ def rep(old, new, tag):
     t = t.replace(old, new, 1); changed = True
     print(f"[client-access-log] {tag}: ok")
 
+# 0. Убрать чекбокс «Показать подробно» из логов клиента (первое вхождение = модалка клиента)
+rep(
+'''              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" checked={logsVerbose} onChange={(event) => setLogsVerbose(event.target.checked)} />
+                {t("logsVerbose")}
+              </label>''',
+'''              <span className="text-xs text-muted-foreground">Попытки доступа этого клиента</span>''',
+"remove verbose checkbox (client modal)")
+
 # 1. Состояние clientAccessLog
 rep(
 "  const [clientLogs, setClientLogs] = useState<ClientLogGroup[]>([]);",
