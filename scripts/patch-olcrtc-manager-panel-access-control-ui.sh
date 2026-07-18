@@ -42,6 +42,7 @@ function AccessControlSection() {
   const [newConnBan, setNewConnBan] = useState("");
   const [hiddenCross, setHiddenCross] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("olc-cross-hidden-g-v1") || "[]"); } catch { return []; } });
   const hideCross = (k: string) => { const nx = Array.from(new Set([...hiddenCross, k])); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-g-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
+  const unhideCross = (k: string) => { const nx = hiddenCross.filter((x) => x !== k); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-g-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const [allowedIps, setAllowedIps] = useState<string[]>([]);
   const [newIp, setNewIp] = useState("");
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
@@ -163,7 +164,10 @@ function AccessControlSection() {
   const toggleConnBan = (hwid: string, en: boolean) => { const nx = connBan.map((d) => d.hwid === hwid ? { ...d, enabled: en } : d); setConnBan(nx); void saveSettings({ conn_ban: nx }); };
   const crossBtn = (hwid: string, kind: "allow" | "ban", target: "sub" | "conn", present: boolean, add: () => void) => {
     const key = `${hwid}|${kind}|${target}`;
-    if (present || hiddenCross.includes(key)) return null;
+    if (present) return null;
+    if (hiddenCross.includes(key)) {
+      return <button type="button" className="shrink-0 rounded border border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Показать кнопку добавления в противоположный список" onClick={() => unhideCross(key)}>⋯</button>;
+    }
     const title = kind === "allow"
       ? (target === "sub" ? "Добавить в разрешённые устройства для получения подписки" : "Добавить в разрешённые устройства для подключения к инстансам")
       : (target === "sub" ? "Добавить в забаненные устройства для получения подписки" : "Добавить в забаненные устройства для подключения к инстансам");
@@ -172,7 +176,7 @@ function AccessControlSection() {
     return (
       <span className="inline-flex shrink-0 items-center">
         <button type="button" className={`rounded-l border px-1.5 py-1 text-[10px] ${cls}`} disabled={busy} title={title} onClick={add}>{label}</button>
-        <button type="button" className="rounded-r border border-l-0 border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Скрыть эту подсказку" onClick={() => hideCross(key)}>×</button>
+        <button type="button" className="rounded-r border border-l-0 border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Скрыть эту кнопку (можно вернуть)" onClick={() => hideCross(key)}>×</button>
       </span>
     );
   };
@@ -361,6 +365,49 @@ function AccessControlSection() {
             </label>
           </div>
 
+          {/* ── БЛОК 4: журнал попыток подписки ── */}
+          <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-foreground">📋 Журнал попыток (подписка)</div>
+              <div className="flex items-center gap-2">
+                {autolog ? (
+                  <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+                ) : (
+                  <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>
+                )}
+                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearAttempts()}>Очистить</button>
+              </div>
+            </div>
+            {attempts.length === 0 && <div className="text-xs text-muted-foreground">Попыток пока не зафиксировано.</div>}
+            {attempts.length > 0 && (
+              <div ref={listRef} onScroll={onScroll} className="grid max-h-56 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+                {attempts.map((a, i) => {
+                  const hwid = String(a.hwid || "");
+                  const known = isKnown(hwid);
+                  const count = Number(a.count || 1);
+                  return (
+                    <div key={hwid + "|" + String(a.client_id) + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
+                      <div className="min-w-0">
+                        <div className="truncate font-mono">
+                          <span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✗"}</span> {hwid || "(без hwid)"}
+                          {count > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{count}</span>}
+                        </div>
+                        <div className="truncate text-muted-foreground">{String(a.ip || "")} · подписка: {String(a.client_id || "—")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
+                      </div>
+                      {hwid && (
+                        <div className="flex shrink-0 gap-1">
+                          {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => void allow(hwid)}>Разрешить</button>}
+                          {!ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase()) && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => banDevice(hwid)}>Бан</button>}
+                          {String(a.ip || "") && !allowedIps.includes(String(a.ip)) && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* ── БЛОК 4b: контроль ПОДКЛЮЧЕНИЯ (отдельные списки) ── */}
           <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
             <div className="text-xs font-semibold text-sky-400">🔌 Разрешённые устройства (подключение к инстансам)</div>
@@ -406,49 +453,6 @@ function AccessControlSection() {
             </div>
           </div>
 
-          {/* ── БЛОК 4: журнал попыток подписки ── */}
-          <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold text-foreground">📋 Журнал попыток (подписка)</div>
-              <div className="flex items-center gap-2">
-                {autolog ? (
-                  <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
-                ) : (
-                  <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>
-                )}
-                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearAttempts()}>Очистить</button>
-              </div>
-            </div>
-            {attempts.length === 0 && <div className="text-xs text-muted-foreground">Попыток пока не зафиксировано.</div>}
-            {attempts.length > 0 && (
-              <div ref={listRef} onScroll={onScroll} className="grid max-h-56 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
-                {attempts.map((a, i) => {
-                  const hwid = String(a.hwid || "");
-                  const known = isKnown(hwid);
-                  const count = Number(a.count || 1);
-                  return (
-                    <div key={hwid + "|" + String(a.client_id) + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
-                      <div className="min-w-0">
-                        <div className="truncate font-mono">
-                          <span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✗"}</span> {hwid || "(без hwid)"}
-                          {count > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{count}</span>}
-                        </div>
-                        <div className="truncate text-muted-foreground">{String(a.ip || "")} · подписка: {String(a.client_id || "—")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
-                      </div>
-                      {hwid && (
-                        <div className="flex shrink-0 gap-1">
-                          {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => void allow(hwid)}>Разрешить</button>}
-                          {!ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase()) && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => banDevice(hwid)}>Бан</button>}
-                          {String(a.ip || "") && !allowedIps.includes(String(a.ip)) && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
           {/* ── БЛОК 5: подключения к инстансам (с привязкой клиент/инстанс) ── */}
           <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
             <div className="flex items-center justify-between">
@@ -469,21 +473,21 @@ function AccessControlSection() {
               <div ref={connListRef} onScroll={onConnScroll} className="grid max-h-56 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
                 {shown.map((c, i) => {
                   const dev = String(c.device || "");
-                  const known = isKnown(dev);
+                  const known = connDevices.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
                   const count = Number(c.count || 1);
                   const cid = String(c.client_id || "");
                   const loc = String(c.location_name || "");
-                  const banned = ban.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+                  const banned = connBan.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
                   return (
                     <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
                       <div className="min-w-0">
-                        <div className="truncate font-mono">{dev} {known && <span className="text-emerald-400">✓</span>}{count > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{count}</span>}</div>
+                        <div className="truncate font-mono">{dev} {known && <span className="text-sky-400">✓</span>}{count > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{count}</span>}</div>
                         <div className="truncate text-muted-foreground">{(cid || loc) ? <>подписка: {cid || "—"}{loc ? <> · инстанс: {loc}</> : null} · </> : null}последнее: {String(c.last || "").slice(0, 19)}</div>
                       </div>
                       {dev && (
                         <div className="flex shrink-0 gap-1">
-                          {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => void allow(dev)}>Разрешить</button>}
-                          {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => banDevice(dev)}>Бан</button>}
+                          {!known && <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-sky-400 hover:bg-sky-500/10" disabled={busy} title="Разрешить для ПОДКЛЮЧЕНИЯ" onClick={() => addConnDevice(dev)}>Разрешить</button>}
+                          {!banned && <button type="button" className="rounded border border-orange-500/40 px-2 py-1 text-orange-400 hover:bg-orange-500/10" disabled={busy} title="Забанить для ПОДКЛЮЧЕНИЯ" onClick={() => addConnBan(dev)}>Бан</button>}
                         </div>
                       )}
                     </div>

@@ -31,6 +31,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [connBan, setConnBan] = useState<Dev[]>([]);
   const [hiddenCross, setHiddenCross] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("olc-cross-hidden-v1") || "[]"); } catch { return []; } });
   const hideCross = (k: string) => { const nx = Array.from(new Set([...hiddenCross, k])); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
+  const unhideCross = (k: string) => { const nx = hiddenCross.filter((x) => x !== k); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const [allowIps, setAllowIps] = useState<string[]>([]);
   const [banNoHwid, setBanNoHwid] = useState(false);
   const [newIp, setNewIp] = useState("");
@@ -158,7 +159,10 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   // Кросс-кнопка «добавить в противоположный список». title — полный текст (подсказка).
   const crossBtn = (hwid: string, kind: "allow" | "ban", target: "sub" | "conn", present: boolean, add: () => void) => {
     const key = `${clientId}|${hwid}|${kind}|${target}`;
-    if (present || hiddenCross.includes(key)) return null;
+    if (present) return null;
+    if (hiddenCross.includes(key)) {
+      return <button type="button" className="shrink-0 rounded border border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Показать кнопку добавления в противоположный список" onClick={() => unhideCross(key)}>⋯</button>;
+    }
     const title = kind === "allow"
       ? (target === "sub" ? "Добавить в разрешённые устройства для получения подписки" : "Добавить в разрешённые устройства для подключения к инстансам")
       : (target === "sub" ? "Добавить в забаненные устройства для получения подписки" : "Добавить в забаненные устройства для подключения к инстансам");
@@ -167,7 +171,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     return (
       <span className="inline-flex shrink-0 items-center">
         <button type="button" className={`rounded-l border px-1.5 py-1 text-[10px] ${cls}`} disabled={busy} title={title} onClick={add}>{label}</button>
-        <button type="button" className="rounded-r border border-l-0 border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Скрыть эту подсказку" onClick={() => hideCross(key)}>×</button>
+        <button type="button" className="rounded-r border border-l-0 border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Скрыть эту кнопку (можно вернуть)" onClick={() => hideCross(key)}>×</button>
       </span>
     );
   };
@@ -389,19 +393,19 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
             <div ref={kListRef} onScroll={onKScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
               {shown.map((c, i) => {
                 const dev = String(c.device || "");
-                const known = allow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
-                const banned = ban.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+                const known = connAllow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+                const banned = connBan.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
                 const loc = String(c.location_name || "");
                 return (
                   <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
                     <div className="min-w-0">
-                      <div className="truncate font-mono">{dev} {known && <span className="text-emerald-400">✓</span>}{Number(c.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}</div>
+                      <div className="truncate font-mono">{dev} {known && <span className="text-sky-400">✓</span>}{Number(c.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}</div>
                       <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}</div>
                     </div>
                     {dev && (
                       <div className="flex shrink-0 gap-1">
-                        {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(dev)}>Разрешить</button>}
-                        {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(dev)}>Бан</button>}
+                        {!known && <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-sky-400 hover:bg-sky-500/10" disabled={busy} title="Разрешить для подключения" onClick={() => addConnAllow(dev)}>Разрешить</button>}
+                        {!banned && <button type="button" className="rounded border border-orange-500/40 px-2 py-1 text-orange-400 hover:bg-orange-500/10" disabled={busy} title="Забанить для подключения" onClick={() => addConnBan(dev)}>Бан</button>}
                       </div>
                     )}
                   </div>

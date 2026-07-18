@@ -51,9 +51,6 @@ func olcConnCount(lists ...[]olcAllowedDevice) int {
 // глобальный enforce_connections и выборочный per-client conn_enforce. Если энфорс
 // подключения НЕ активен для этого инстанса — true (не трогаем).
 func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
-	if !ac.Enabled {
-		return true
-	}
 	dev := strings.TrimSpace(hwid)
 	decide := func(banNoHwid bool, allow, ban []olcAllowedDevice) bool {
 		if olcConnMatch(ban, dev) {
@@ -67,9 +64,14 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 		}
 		return false // не в списке (в т.ч. пустой) — блок
 	}
-	if ac.EnforceConns {
-		return decide(ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
+	// Глобальный вкл → глобальный энфорс; выборочный per-client НЕ действует.
+	if ac.Enabled {
+		if ac.EnforceConns {
+			return decide(ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
+		}
+		return true
 	}
+	// Глобальный ВЫКЛ → работает выборочный per-client.
 	if ac.Clients != nil {
 		if cc, ok := ac.Clients[clientID]; ok && cc != nil && cc.ConnEnforce {
 			enforced := true
@@ -83,7 +85,7 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 				}
 			}
 			if enforced {
-				return decide(ac.BanNoHwid || cc.BanNoHwid, cc.ConnAllow, cc.ConnBan)
+				return decide(cc.BanNoHwid, cc.ConnAllow, cc.ConnBan)
 			}
 		}
 	}

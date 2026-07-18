@@ -267,57 +267,56 @@ func _olcAccessWriteAttempts(list []olcAccessAttempt) {
 //   allowed — устройство разрешено (глоб. devices / per-client allow / IP);
 //   deny — жёсткий бан (per-client ban) — блокировать независимо от режима;
 //   mode — эффективный режим ("monitor"|"enforce").
+// olcAccessDecision: решение для запроса подписки. ГЛОБАЛЬНЫЙ контроль (enabled)
+// использует ТОЛЬКО глобальные списки; когда он выключен — работает ВЫБОРОЧНЫЙ
+// per-client (clients[clientID]) со своими списками. Взаимоисключающе (как в UI:
+// при вкл. глобальном шестерёнка недоступна).
 func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active bool, allowed bool, deny bool, mode string) {
-	mode = ac.Mode
-	active = ac.Enabled
-	var cc *olcClientAccess
-	if ac.Clients != nil {
-		cc = ac.Clients[clientID]
-	}
-	if cc != nil && cc.Mode != "" && cc.Mode != "inherit" {
-		switch cc.Mode {
-		case "off":
-			active = false
-		case "monitor":
-			active, mode = true, "monitor"
-		case "enforce":
-			active, mode = true, "enforce"
+	var banNoHwid bool
+	var bans, allows []olcAllowedDevice
+	var allowIPs []string
+	if ac.Enabled {
+		mode = "monitor"
+		if ac.Mode == "enforce" {
+			mode = "enforce"
 		}
-	}
-	if !active {
-		return false, true, false, mode
+		active = true
+		banNoHwid = ac.BanNoHwid
+		bans = ac.Ban
+		allows = ac.Devices
+		allowIPs = ac.AllowedIPs
+	} else {
+		var cc *olcClientAccess
+		if ac.Clients != nil {
+			cc = ac.Clients[clientID]
+		}
+		if cc == nil || (cc.Mode != "monitor" && cc.Mode != "enforce") {
+			return false, true, false, "monitor" // выборочный контроль не задан — пускаем
+		}
+		mode = cc.Mode
+		active = true
+		banNoHwid = cc.BanNoHwid
+		bans = cc.Ban
+		allows = cc.Allow
+		allowIPs = cc.AllowIPs
 	}
 	hw := strings.TrimSpace(hwid)
-	// Блокировка запросов без hwid (Compatibility-фолбэк olcbox) — глоб. или per-client.
-	if hw == "" && (ac.BanNoHwid || (cc != nil && cc.BanNoHwid)) {
+	if hw == "" && banNoHwid {
 		return true, false, true, mode
 	}
-	// Глобальный бан (по hwid) — жёсткий блок для всех подписок.
-	for _, b := range ac.Ban {
-		if b.Enabled && b.HWID != "" && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
+	for _, b := range bans {
+		if b.Enabled && strings.TrimSpace(b.HWID) != "" && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
 			return true, false, true, mode
 		}
 	}
-	if cc != nil {
-		for _, b := range cc.Ban {
-			if b.Enabled && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
-				return true, false, true, mode
-			}
+	for _, a := range allows {
+		if a.Enabled && strings.TrimSpace(a.HWID) != "" && strings.EqualFold(strings.TrimSpace(a.HWID), hw) {
+			return true, true, false, mode
 		}
 	}
-	if olcAccessAllowed(ac, hwid, ip) {
-		return true, true, false, mode
-	}
-	if cc != nil {
-		for _, a := range cc.Allow {
-			if a.Enabled && strings.EqualFold(strings.TrimSpace(a.HWID), strings.TrimSpace(hwid)) {
-				return true, true, false, mode
-			}
-		}
-		for _, aip := range cc.AllowIPs {
-			if aip != "" && strings.TrimSpace(aip) == strings.TrimSpace(ip) {
-				return true, true, false, mode
-			}
+	for _, aip := range allowIPs {
+		if aip != "" && strings.TrimSpace(aip) == strings.TrimSpace(ip) {
+			return true, true, false, mode
 		}
 	}
 	return true, false, false, mode

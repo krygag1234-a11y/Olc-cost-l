@@ -123,9 +123,6 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 	if json.Unmarshal(data, &ac) != nil {
 		return admit()
 	}
-	if !ac.Enabled {
-		return admit()
-	}
 	dev := strings.TrimSpace(deviceID)
 	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
 	finish := func(ok bool) (string, error) {
@@ -135,11 +132,15 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 		}
 		return "", errors.New("device not allowed to connect")
 	}
-	// 1) Глобальный энфорс подключения — приоритетнее, на все инстансы.
-	if ac.EnforceConns {
-		return finish(olcAccDecideConn(dev, ac.BanNoHwid, ac.ConnDevices, ac.ConnBan))
+	// ГЛОБАЛЬНЫЙ контроль включён (enabled): применяется глобальный энфорс
+	// подключения; выборочный per-client НЕ работает (шестерёнка недоступна).
+	if ac.Enabled {
+		if ac.EnforceConns {
+			return finish(olcAccDecideConn(dev, ac.BanNoHwid, ac.ConnDevices, ac.ConnBan))
+		}
+		return admit()
 	}
-	// 2) Выборочный per-client (только когда глобальный выключен).
+	// ГЛОБАЛЬНЫЙ контроль ВЫКЛЮЧЕН → работает ВЫБОРОЧНЫЙ per-client (по подписке).
 	cid := strings.TrimSpace(os.Getenv("OLCRTC_CLIENT_ID"))
 	if cid != "" && ac.Clients != nil {
 		if cc, ok := ac.Clients[cid]; ok && cc != nil && cc.ConnEnforce {
@@ -154,7 +155,7 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 				}
 			}
 			if enforced {
-				return finish(olcAccDecideConn(dev, ac.BanNoHwid || cc.BanNoHwid, cc.ConnAllow, cc.ConnBan))
+				return finish(olcAccDecideConn(dev, cc.BanNoHwid, cc.ConnAllow, cc.ConnBan))
 			}
 		}
 	}
