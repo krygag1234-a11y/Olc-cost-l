@@ -27,7 +27,7 @@ rep(
                 <input type="checkbox" checked={logsVerbose} onChange={(event) => setLogsVerbose(event.target.checked)} />
                 {t("logsVerbose")}
               </label>''',
-'''              <span className="text-xs text-muted-foreground">Попытки доступа этого клиента</span>''',
+'''              <span className="text-xs text-muted-foreground">Попытки доступа к этому клиенту</span>''',
 "remove verbose checkbox (client modal)")
 
 # 1. Состояние clientAccessLog
@@ -101,33 +101,48 @@ rep(
                   </div>
                 ))
               )}''',
-'''              {clientAccessLog.attempts.length === 0 && clientAccessLog.conns.length === 0 ? (
-                <div className="text-muted-foreground">Попыток пока не зафиксировано.</div>
+'''              <div className="mb-1 text-[11px] uppercase text-muted-foreground">🎫 Попытки подписки</div>
+              {clientAccessLog.attempts.length === 0 ? (
+                <div className="mb-3 text-muted-foreground">Пусто.</div>
               ) : (
-                <>
-                  <div className="mb-1 text-[11px] uppercase text-muted-foreground">🎫 Попытки подписки</div>
-                  {clientAccessLog.attempts.length === 0 ? (
-                    <div className="mb-3 text-muted-foreground">Пусто.</div>
-                  ) : (
-                    clientAccessLog.attempts.map((a: any, index: number) => (
-                      <div key={`a-${index}`} className="whitespace-pre-wrap break-words">
-                        <span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✕"}</span>{" "}
-                        <span className="text-muted-foreground">{a.ts}</span> {a.hwid || "—"} · {a.ip || "—"}{a.count > 1 ? ` ×${a.count}` : ""}{a.path ? ` · ${a.path}` : ""}
-                      </div>
-                    ))
-                  )}
-                  <div className="mb-1 mt-4 text-[11px] uppercase text-muted-foreground">🔌 Подключения к инстансам</div>
-                  {clientAccessLog.conns.length === 0 ? (
-                    <div className="text-muted-foreground">Пусто.</div>
-                  ) : (
-                    clientAccessLog.conns.map((c: any, index: number) => (
-                      <div key={`c-${index}`} className="whitespace-pre-wrap break-words">
-                        <span className="text-muted-foreground">{c.last}</span> {c.device || "—"} · {c.location_name || c.room_id}{c.count > 1 ? ` ×${c.count}` : ""}
-                      </div>
-                    ))
-                  )}
-                </>
-              )}''',
+                clientAccessLog.attempts.map((a: any, index: number) => (
+                  <div key={`a-${index}`} className="whitespace-pre-wrap break-words">
+                    <span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✕"}</span>{" "}
+                    <span className="text-muted-foreground">{a.ts}</span> {a.hwid || "—"} · {a.ip || "—"}{a.count > 1 ? ` ×${a.count}` : ""}{a.path ? ` · ${a.path}` : ""}
+                  </div>
+                ))
+              )}
+              <div className="mb-1 mt-4 text-[11px] uppercase text-muted-foreground">🔌 Попытки подключения к инстансам</div>
+              {clientAccessLog.conns.length === 0 ? (
+                <div className="text-muted-foreground">Пусто.</div>
+              ) : (
+                clientAccessLog.conns.map((c: any, index: number) => (
+                  <div key={`c-${index}`} className="whitespace-pre-wrap break-words">
+                    <span className="text-muted-foreground">{c.last}</span> {c.device || "—"} · {c.location_name || c.room_id}{c.count > 1 ? ` ×${c.count}` : ""}
+                  </div>
+                ))
+              )}
+              {(() => {
+                const _lc = (state?.clients || []).find((x: any) => x.client_id === clientLogTarget?.client_id);
+                const _active: any[] = [];
+                (_lc?.locations || []).forEach((loc: any) => {
+                  ((loc.runtime && loc.runtime.peer_devices) || []).forEach((dev: string) => _active.push({ dev, inst: loc.name || loc.room_id }));
+                });
+                return (
+                  <div className="mt-3 border-l-2 border-border pl-3">
+                    <div className="mb-1 text-[11px] uppercase text-muted-foreground">🔌 Подключения к инстансам (активны сейчас)</div>
+                    {_active.length === 0 ? (
+                      <div className="text-muted-foreground">Нет активных подключений/туннелей.</div>
+                    ) : (
+                      _active.map((c: any, index: number) => (
+                        <div key={`act-${index}`} className="whitespace-pre-wrap break-words">
+                          <span className="text-emerald-400">●</span> {c.dev} → {c.inst}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                );
+              })()}''',
 "client logs render -> flat access log")
 
 if changed:

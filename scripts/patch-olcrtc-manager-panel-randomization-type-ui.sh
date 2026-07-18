@@ -63,7 +63,22 @@ rep(
 "gamble button label")
 
 # D1. Компонент RandTypeModal (перед function App())
-modal = '''function RandTypeModal({ clientId, onChoose, onClose, edit }: { clientId: string; onChoose: (ty: number) => void; onClose: () => void; edit?: boolean }) {
+modal = '''function Type2Warning({ show }: { show: boolean }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!show) { setVisible(false); return; }
+    const id = window.setTimeout(() => setVisible(true), 1200);
+    return () => window.clearTimeout(id);
+  }, [show]);
+  if (!visible) return null;
+  return (
+    <span className="mt-1 block text-[10px] leading-tight text-amber-500">
+      ⚠️ Тип 2 без контроля доступа: ссылка меняется каждую секунду — пользоваться нереально. Настройте контроль доступа (⚙), тогда оригинальный client_id заработает для разрешённых устройств.
+    </span>
+  );
+}
+
+function RandTypeModal({ clientId, onChoose, onClose, edit }: { clientId: string; onChoose: (ty: number) => void; onClose: () => void; edit?: boolean }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -262,11 +277,7 @@ rep(
                             🔒 {client.randomization.randomized_id}
                           </span>
                         ) : null}
-                        {client.randomization?.enabled && client.randomization?.rand_type === 2 && accessLoaded && !globalAccessEnabled && !accessCfg[client.client_id] && (
-                          <span className="mt-1 block text-[10px] leading-tight text-amber-500">
-                            ⚠️ Тип 2 без контроля доступа: ссылка меняется каждую секунду — пользоваться нереально. Настройте контроль доступа (⚙), тогда оригинальный client_id заработает для разрешённых устройств.
-                          </span>
-                        )}''',
+                        <Type2Warning show={!!(client.randomization?.enabled && client.randomization?.rand_type === 2 && accessLoaded && !globalAccessEnabled && !accessCfg[client.client_id])} />''',
 "card type-2 label + warning")
 
 # L. Edit: оптимистично мигрировать accessCfg на новый client_id (без мигающего предупреждения)

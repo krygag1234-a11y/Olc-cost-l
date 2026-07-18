@@ -307,7 +307,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
             </details>
           </div>
 
-          <div className="grid gap-2 rounded-md border border-border bg-card/40 p-2">
+          <div className="grid gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2">
             <div className="text-xs font-semibold text-red-400">🚫 Забаненные устройства (эта подписка)</div>
             {ban.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
             <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid), crossBtn(d.hwid, "ban", "conn", connBan.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addConnBan(d.hwid))))}</div>
@@ -401,7 +401,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                 </div>
               )}
 
-              <div className="grid gap-2 rounded-md border border-border bg-card/40 p-2">
+              <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2">
                 <div className="text-xs font-semibold text-sky-400">🔌✅ Разрешённые для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
                 <div className="text-[10px] text-muted-foreground">Отдельный список от «получения подписки». Кнопкой можно продублировать устройство в список подписки. <span className="text-amber-500">IP тут не фильтруется (на подключении виден только hwid).</span></div>
                 {connAllow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто{connEnforce ? " — при включённом контроле никто не подключится" : ""}.</div>}
@@ -412,7 +412,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                 </div>
               </div>
 
-              <div className="grid gap-2 rounded-md border border-border bg-card/40 p-2">
+              <div className="grid gap-2 rounded-md border border-orange-500/30 bg-orange-500/5 p-2">
                 <div className="text-xs font-semibold text-orange-400">🔌🚫 Забаненные для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
                 {connBan.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
                 <div className="grid max-h-32 gap-1 overflow-y-auto">{connBan.map((d) => devRow(d, (en) => toggleConnBan(d.hwid, en), () => rmConnBan(d.hwid), crossBtn(d.hwid, "ban", "sub", ban.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addBan(d.hwid))))}</div>
