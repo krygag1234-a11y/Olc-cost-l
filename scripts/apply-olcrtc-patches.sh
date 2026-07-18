@@ -441,6 +441,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-instance-env.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Мгновенный разрыв сессий устройства при отзыве доступа (device disable/ban/remove).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-drop-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Cleanup access-control.json при удалении клиента (Баг 1): без мёртвых clients{} записей.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-delete-client-cleanup.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
