@@ -497,6 +497,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-ui.sh" "$MGR_REPO/src/main.tsx"
   # Эпик «Типы рандомизации», Этап 2: выбор типа (мини-модалка на 🎲, глобальный селектор, метки).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-type-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Эпик «Типы рандомизации», Этап 4: кнопка Sub→Qr + модалка Qr (1/2 QR, тип2-без-доступа затемнён).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-qr-ui.sh" "$MGR_REPO/src/main.tsx"
   # Автопрокрутка логов: возобновление follow с задержкой (не дёргать при листании вверх).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-sticky-scroll-resume.sh" "$MGR_REPO/src/main.tsx"
   # Логи — накопительные (append-only): старые строки не «уезжают» при ротации буфера.
