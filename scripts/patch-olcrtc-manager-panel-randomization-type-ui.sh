@@ -235,13 +235,13 @@ rep(
 # J1. App: состояние accessCfg (per-client контроль доступа настроен?)
 rep(
 "  const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);",
-"  const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);\n  const [accessCfg, setAccessCfg] = useState<Record<string, boolean>>({});",
+"  const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);\n  const [accessCfg, setAccessCfg] = useState<Record<string, boolean>>({});\n  const [accessLoaded, setAccessLoaded] = useState(false);",
 "accessCfg state")
 
 # J2. App: загрузка per-client access-конфига вместе с globalAccessEnabled
 rep(
 '    const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) setGlobalAccessEnabled(!!b.enabled); } catch { /* ignore */ } };',
-'    const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) { setGlobalAccessEnabled(!!b.enabled); const m: Record<string, boolean> = {}; const cl = b.clients || {}; Object.keys(cl).forEach((k) => { const c = cl[k] || {}; m[k] = !!(c.mode && c.mode !== "off"); }); setAccessCfg(m); } } catch { /* ignore */ } };',
+'    const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) { setGlobalAccessEnabled(!!b.enabled); const m: Record<string, boolean> = {}; const cl = b.clients || {}; Object.keys(cl).forEach((k) => { const c = cl[k] || {}; m[k] = !!((c.mode && c.mode !== "off") || (Array.isArray(c.allow) && c.allow.length) || (Array.isArray(c.allow_ips) && c.allow_ips.length) || c.conn_enforce); }); setAccessCfg(m); setAccessLoaded(true); } } catch { /* ignore */ } };',
 "accessCfg load")
 
 # K. Карточка клиента: метка типа (тип2 → ротация) + предупреждение при типе2 без контроля доступа
@@ -262,7 +262,7 @@ rep(
                             🔒 {client.randomization.randomized_id}
                           </span>
                         ) : null}
-                        {client.randomization?.enabled && client.randomization?.rand_type === 2 && !globalAccessEnabled && !accessCfg[client.client_id] && (
+                        {client.randomization?.enabled && client.randomization?.rand_type === 2 && accessLoaded && !globalAccessEnabled && !accessCfg[client.client_id] && (
                           <span className="mt-1 block text-[10px] leading-tight text-amber-500">
                             ⚠️ Тип 2 без контроля доступа: ссылка меняется каждую секунду — пользоваться нереально. Настройте контроль доступа (⚙), тогда оригинальный client_id заработает для разрешённых устройств.
                           </span>
