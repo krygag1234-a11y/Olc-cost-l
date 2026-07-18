@@ -445,6 +445,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-delete-client-cleanup.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Миграция access-control.json clients{} при переименовании client_id (Этап 5A эпика).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-client-rename-access.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Живой peer-count / активные подключения: парсинг "Current peers count: N, Devices: [...]" (Task 2).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-peer-summary.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
