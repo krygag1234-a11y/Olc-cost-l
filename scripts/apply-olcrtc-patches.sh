@@ -495,6 +495,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-ui.sh" "$MGR_REPO/src/main.tsx"
   # Автопрокрутка логов: возобновление follow с задержкой (не дёргать при листании вверх).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-sticky-scroll-resume.sh" "$MGR_REPO/src/main.tsx"
+  # Логи — накопительные (append-only): старые строки не «уезжают» при ротации буфера.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-append-only.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
