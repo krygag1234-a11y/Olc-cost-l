@@ -22,6 +22,7 @@ gs_old = '''type GlobalSettings struct {
 
 type SubscriptionSettings struct {
 	RandomizationEnabled bool `json:"randomization_enabled"`
+	RandType             int  `json:"rand_type,omitempty"` // 1=статичный хэш, 2=посекундная ротация
 }'''
 gs_new = '''type GlobalSettings struct {
 	Subscription *SubscriptionSettings `json:"subscription,omitempty"`
@@ -30,6 +31,7 @@ gs_new = '''type GlobalSettings struct {
 
 type SubscriptionSettings struct {
 	RandomizationEnabled bool `json:"randomization_enabled"`
+	RandType             int  `json:"rand_type,omitempty"` // 1=статичный хэш, 2=посекундная ротация
 }
 
 type LogsSettings struct {
