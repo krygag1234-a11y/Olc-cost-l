@@ -54,6 +54,10 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\t}
 \t\tclientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
 \t\tclientID = strings.TrimSuffix(clientID, "/randomization/enable")
+\t\trt := 1
+\t\tif strings.TrimSpace(r.URL.Query().Get("rand_type")) == "2" {
+\t\t\trt = 2
+\t\t}
 \t\tcfg, err := loadConfig(configPath)
 \t\tif err != nil {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
@@ -67,8 +71,13 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\t\t\t\tcfg.Clients[i].Randomization = &ClientRandomization{}
 \t\t\t\t}
 \t\t\t\tcfg.Clients[i].Randomization.Enabled = true
-\t\t\t\tcfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
-\t\t\t\trandomizedID = cfg.Clients[i].Randomization.RandomizedID
+\t\t\t\tcfg.Clients[i].Randomization.RandType = rt
+\t\t\t\tif rt == 1 {
+\t\t\t\t\tcfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+\t\t\t\t\trandomizedID = cfg.Clients[i].Randomization.RandomizedID
+\t\t\t\t} else {
+\t\t\t\t\tcfg.Clients[i].Randomization.RandomizedID = ""
+\t\t\t\t}
 \t\t\t\tfound = true
 \t\t\t\tbreak
 \t\t\t}
@@ -84,7 +93,7 @@ func randomizationEnableHandler(configPath string) http.HandlerFunc {
 \t\tif globalSupervisor != nil {
 \t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
-\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
+\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "rand_type": rt, "randomized_id": randomizedID})
 \t}
 }
 
@@ -107,6 +116,7 @@ func randomizationDisableHandler(configPath string) http.HandlerFunc {
 \t\t\tif cfg.Clients[i].ClientID == clientID {
 \t\t\t\tif cfg.Clients[i].Randomization != nil {
 \t\t\t\t\tcfg.Clients[i].Randomization.Enabled = false
+\t\t\t\t\tcfg.Clients[i].Randomization.RandType = 0
 \t\t\t\t}
 \t\t\t\tfound = true
 \t\t\t\tbreak
@@ -134,7 +144,8 @@ func randomizationPatchHandler(configPath string) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Enabled bool `json:"enabled"`
+			Enabled  bool `json:"enabled"`
+			RandType int  `json:"rand_type"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid request", http.StatusBadRequest)
@@ -149,6 +160,7 @@ func randomizationPatchHandler(configPath string) http.HandlerFunc {
 		}
 		found := false
 		var randomizedID string
+		randType := 0
 		for i := range cfg.Clients {
 			if cfg.Clients[i].ClientID == clientID {
 				if cfg.Clients[i].Randomization == nil {
@@ -156,8 +168,21 @@ func randomizationPatchHandler(configPath string) http.HandlerFunc {
 				}
 				cfg.Clients[i].Randomization.Enabled = req.Enabled
 				if req.Enabled {
-					cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
-					randomizedID = cfg.Clients[i].Randomization.RandomizedID
+					rt := req.RandType
+					if rt != 1 && rt != 2 {
+						rt = 1
+					}
+					cfg.Clients[i].Randomization.RandType = rt
+					randType = rt
+					if rt == 1 {
+						cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+						randomizedID = cfg.Clients[i].Randomization.RandomizedID
+					} else {
+						cfg.Clients[i].Randomization.RandomizedID = ""
+					}
+				} else {
+					// выключение — сбросить тип (по дизайну: тип запоминается только при вкл.)
+					cfg.Clients[i].Randomization.RandType = 0
 				}
 				found = true
 				break
@@ -175,7 +200,7 @@ func randomizationPatchHandler(configPath string) http.HandlerFunc {
 			globalSupervisor.UpdateSettings(cfg)
 		}
 		if req.Enabled {
-			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "randomized_id": randomizedID})
+			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "rand_type": randType, "randomized_id": randomizedID})
 		} else {
 			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
 		}
@@ -253,20 +278,17 @@ func subscriptionURLHandler(configPath string) http.HandlerFunc {
 \t\tif subPath == "" {
 \t\t\tsubPath = "sub"
 \t\t}
-\t\tuseRandomized := false
-\t\trandomizedID := ""
-\t\tif client.Randomization != nil && client.Randomization.Enabled && client.Randomization.RandomizedID != "" {
-\t\t\tuseRandomized = true
-\t\t\trandomizedID = client.Randomization.RandomizedID
-\t\t}
-\t\tif globalRandomizationEnabled(cfg) && client.Randomization != nil && client.Randomization.RandomizedID != "" {
-\t\t\tuseRandomized = true
-\t\t\trandomizedID = client.Randomization.RandomizedID
-\t\t}
 \t\tvar subURL string
-\t\tif useRandomized {
-\t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, randomizedID)
-\t\t} else {
+\t\tswitch randTypeFor(*client, cfg) {
+\t\tcase 1:
+\t\t\tif client.Randomization != nil && client.Randomization.RandomizedID != "" {
+\t\t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, client.Randomization.RandomizedID)
+\t\t\t} else {
+\t\t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, clientID)
+\t\t\t}
+\t\tcase 2:
+\t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, rotatingHashAt(clientID, cfg.RandomizationSecret, time.Now().Unix()))
+\t\tdefault:
 \t\t\tsubURL = fmt.Sprintf("/%s/%s", subPath, clientID)
 \t\t}
 \t\tif globalSupervisor != nil {
@@ -284,7 +306,11 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\t\treturn
 \t\t\t}
-\t\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": globalRandomizationEnabled(cfg)})
+\t\t\tgt := 0
+\t\t\tif cfg.GlobalSettings != nil && cfg.GlobalSettings.Subscription != nil {
+\t\t\t\tgt = cfg.GlobalSettings.Subscription.RandType
+\t\t\t}
+\t\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": globalRandomizationEnabled(cfg), "rand_type": gt})
 \t\t\treturn
 \t\t}
 \t\tif r.Method != http.MethodPatch {
@@ -293,7 +319,8 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\t\treturn
 \t\t}
 \t\tvar req struct {
-\t\t\tEnabled bool `json:"enabled"`
+\t\t\tEnabled  bool `json:"enabled"`
+\t\t\tRandType int  `json:"rand_type"`
 \t\t}
 \t\tif err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 \t\t\thttp.Error(w, "invalid request", http.StatusBadRequest)
@@ -311,6 +338,15 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\t\tcfg.GlobalSettings.Subscription = &SubscriptionSettings{}
 \t\t}
 \t\tcfg.GlobalSettings.Subscription.RandomizationEnabled = req.Enabled
+\t\tif req.Enabled {
+\t\t\trt := req.RandType
+\t\t\tif rt != 1 && rt != 2 {
+\t\t\t\trt = 1
+\t\t\t}
+\t\t\tcfg.GlobalSettings.Subscription.RandType = rt
+\t\t} else {
+\t\t\tcfg.GlobalSettings.Subscription.RandType = 0
+\t\t}
 \t\tif err := saveConfig(configPath, cfg); err != nil {
 \t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)
 \t\t\treturn
@@ -318,7 +354,7 @@ func globalRandomizationHandler(configPath string) http.HandlerFunc {
 \t\tif globalSupervisor != nil {
 \t\t\tglobalSupervisor.UpdateSettings(cfg)
 \t\t}
-\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
+\t\twriteJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled, "rand_type": cfg.GlobalSettings.Subscription.RandType})
 \t}
 }
 

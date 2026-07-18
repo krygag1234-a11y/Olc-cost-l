@@ -34,6 +34,7 @@ if client_struct_end in t and 'type ClientRandomization struct' not in t:
     structs = '''
 type ClientRandomization struct {
 \tEnabled      bool   `json:"enabled"`
+\tRandType     int    `json:"rand_type,omitempty"` // 1=статичный хэш, 2=посекундная ротация
 \tRandomizedID string `json:"randomized_id,omitempty"`
 }
 
@@ -43,6 +44,7 @@ type GlobalSettings struct {
 
 type SubscriptionSettings struct {
 \tRandomizationEnabled bool `json:"randomization_enabled"`
+\tRandType             int  `json:"rand_type,omitempty"` // 1=статичный хэш, 2=посекундная ротация
 }
 
 '''
@@ -117,6 +119,33 @@ func generateRandomizedID(clientID, secret string) string {
 \treturn hash
 }
 
+// rotatingHashAt — тип 2: HMAC(secret, clientID@sec)[:16] для конкретной секунды.
+func rotatingHashAt(clientID, secret string, sec int64) string {
+\tif secret == "" {
+\t\treturn ""
+\t}
+\tdata := fmt.Sprintf("%s@%d", clientID, sec)
+\th := hmac.New(sha256.New, []byte(secret))
+\th.Write([]byte(data))
+\thash := hex.EncodeToString(h.Sum(nil))
+\tif len(hash) > 16 {
+\t\treturn hash[:16]
+\t}
+\treturn hash
+}
+
+// rotatingHashMatches — окно приёма: текущая И предыдущая секунда.
+func rotatingHashMatches(clientID, secret, candidate string) bool {
+\tif candidate == "" || secret == "" {
+\t\treturn false
+\t}
+\tnow := time.Now().Unix()
+\tif hmac.Equal([]byte(candidate), []byte(rotatingHashAt(clientID, secret, now))) {
+\t\treturn true
+\t}
+\treturn hmac.Equal([]byte(candidate), []byte(rotatingHashAt(clientID, secret, now-1)))
+}
+
 func globalRandomizationEnabled(cfg Config) bool {
 \tif cfg.GlobalSettings == nil || cfg.GlobalSettings.Subscription == nil {
 \t\treturn false
@@ -124,26 +153,56 @@ func globalRandomizationEnabled(cfg Config) bool {
 \treturn cfg.GlobalSettings.Subscription.RandomizationEnabled
 }
 
-func resolveClientID(requestedID string, cfg Config) (string, error) {
-\tglobalEnabled := globalRandomizationEnabled(cfg)
+// randTypeFor — эффективный тип рандомизации для клиента (0=выкл, 1=статичный, 2=ротация).
+// Глобальная рандомизация имеет приоритет над per-client (зеркало гейтинга UI).
+func randTypeFor(client Client, cfg Config) int {
+\tif globalRandomizationEnabled(cfg) {
+\t\tif cfg.GlobalSettings != nil && cfg.GlobalSettings.Subscription != nil && cfg.GlobalSettings.Subscription.RandType > 0 {
+\t\t\treturn cfg.GlobalSettings.Subscription.RandType
+\t\t}
+\t\treturn 1
+\t}
+\tif client.Randomization != nil && client.Randomization.Enabled {
+\t\tif client.Randomization.RandType > 0 {
+\t\t\treturn client.Randomization.RandType
+\t\t}
+\t\treturn 1
+\t}
+\treturn 0
+}
 
+func resolveClientID(requestedID string, cfg Config) (string, error) {
+\t// 1. requested == оригинальный client_id.
 \tfor _, client := range cfg.Clients {
 \t\tif client.ClientID == requestedID {
-\t\t\tperClientEnabled := client.Randomization != nil && client.Randomization.Enabled
-\t\t\tif perClientEnabled || globalEnabled {
+\t\t\tswitch randTypeFor(client, cfg) {
+\t\t\tcase 0:
+\t\t\t\treturn requestedID, nil // рандомизация выкл — обычный доступ
+\t\t\tcase 2:
+\t\t\t\t// тип 2: оригинальный id проходит шлюз; доступ ограничивает
+\t\t\t\t// контроль доступа по устройству (bypass для разрешённых).
+\t\t\t\treturn requestedID, nil
+\t\t\tdefault:
+\t\t\t\t// тип 1: оригинальный id заблокирован, работает только статичный хэш.
 \t\t\t\treturn "", errors.New("not found")
 \t\t\t}
-\t\t\treturn requestedID, nil
 \t\t}
 \t}
 
+\t// 2. requested == статичный RandomizedID (тип 1).
 \tfor _, client := range cfg.Clients {
-\t\tif client.Randomization != nil && client.Randomization.RandomizedID == requestedID {
-\t\t\tperClientEnabled := client.Randomization.Enabled
-\t\t\tif perClientEnabled || globalEnabled {
+\t\tif requestedID != "" && client.Randomization != nil && client.Randomization.RandomizedID == requestedID {
+\t\t\tif randTypeFor(client, cfg) != 0 {
 \t\t\t\treturn client.ClientID, nil
 \t\t\t}
 \t\t\treturn "", errors.New("not found")
+\t\t}
+\t}
+
+\t// 3. requested == ротирующийся хэш (тип 2, окно текущая/предыдущая секунда).
+\tfor _, client := range cfg.Clients {
+\t\tif randTypeFor(client, cfg) == 2 && rotatingHashMatches(client.ClientID, cfg.RandomizationSecret, requestedID) {
+\t\t\treturn client.ClientID, nil
 \t\t}
 \t}
 
