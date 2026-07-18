@@ -443,6 +443,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-drop-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Cleanup access-control.json при удалении клиента (Баг 1): без мёртвых clients{} записей.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-delete-client-cleanup.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Миграция access-control.json clients{} при переименовании client_id (Этап 5A эпика).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-client-rename-access.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
@@ -499,6 +501,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-type-ui.sh" "$MGR_REPO/src/main.tsx"
   # Эпик «Типы рандомизации», Этап 4: кнопка Sub→Qr + модалка Qr (1/2 QR, тип2-без-доступа затемнён).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-qr-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Эпик «Типы рандомизации», Этап 5B: «Логи» клиента → плоский лог попыток подписки/доступа.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-log.sh" "$MGR_REPO/src/main.tsx"
   # Автопрокрутка логов: возобновление follow с задержкой (не дёргать при листании вверх).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-sticky-scroll-resume.sh" "$MGR_REPO/src/main.tsx"
   # Логи — накопительные (append-only): старые строки не «уезжают» при ротации буфера.
