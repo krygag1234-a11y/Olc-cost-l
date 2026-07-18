@@ -142,7 +142,7 @@ func olcDropForbiddenSessions(ac olcAccessControl) {
 	}()
 }
 
-var olcDeviceLineRe = regexp.MustCompile(`device=(install-[0-9a-fA-F]+)`)
+var olcDeviceLineRe = regexp.MustCompile(`device=([^\s)]+)`)
 
 '''
     t = t.replace(anchor, helper + anchor, 1)

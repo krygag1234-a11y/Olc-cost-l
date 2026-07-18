@@ -44,7 +44,7 @@ fn_block = r'''// accessConnectionsHandler: отдаёт устройства (d
 // Фолбэк — journal olcrtc-manager (без привязки), если буферы пусты. Read-only;
 // device == тот же hwid, что allowlist подписки. См. docs/ACCESS-CONTROL.md.
 func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
-	re := regexp.MustCompile(`device=(install-[0-9a-fA-F]+)`)
+	re := regexp.MustCompile(`device=([^\s)]+)`)
 	type accConn struct {
 		Device       string `json:"device"`
 		ClientID     string `json:"client_id"`
