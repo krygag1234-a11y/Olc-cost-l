@@ -213,11 +213,11 @@ function AccessControlSection() {
   return (
     <section className="grid gap-4 rounded-md border border-border bg-background p-4">
       <div>
-        <div className="text-sm font-semibold text-foreground">🔐 Контроль доступа по устройству</div>
+        <div className="text-sm font-semibold text-foreground">🔐 Глобальный контроль доступа по устройству</div>
         <div className="mt-1 text-xs text-muted-foreground">
-          Белый список устройств по идентификатору <span className="font-mono">hwid</span>, который olcbox
-          присылает при запросе подписки. Разрешённые устройства получают доступ, чужие — блокируются и
-          попадают в журнал. Все данные хранятся только на этом сервере.
+          Действует на <b className="text-foreground">все подписки</b>. Белый список устройств по <span className="font-mono">hwid</span>,
+          который olcbox присылает при запросе подписки. Пока он включён — выборочные настройки в ⚙ у клиентов недоступны.
+          Все данные хранятся только на этом сервере.
         </div>
       </div>
       <label className="flex items-center gap-2 text-sm font-medium text-foreground">

@@ -65,6 +65,7 @@ type olcAccClient struct {
 	Mode          string         `json:"mode"`
 	Allow         []olcAccDevice `json:"allow"`
 	Ban           []olcAccDevice `json:"ban"`
+	BanNoHwid     bool           `json:"ban_no_hwid"`
 	ConnEnforce   bool           `json:"conn_enforce"`
 	ConnScope     string         `json:"conn_scope"`
 	ConnInstances []string       `json:"conn_instances"`
@@ -160,7 +161,7 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 				}
 			}
 			if enforced {
-				return olcAccDecide(dev, ac.BanNoHwid, ac.Devices, ac.Ban, cc.Allow, cc.Ban)
+				return olcAccDecide(dev, ac.BanNoHwid || cc.BanNoHwid, ac.Devices, ac.Ban, cc.Allow, cc.Ban)
 			}
 		}
 	}

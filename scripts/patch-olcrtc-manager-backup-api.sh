@@ -76,6 +76,7 @@ func backupExtraFiles(configPath string) map[string]string {
 		"notification_settings": notificationSettingsPath,
 		"instance_defaults":     instanceDefaultsPath,
 		"access_control":        "/var/lib/olcrtc/access-control.json",
+		"split_discovered":      "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
 	}
 }
 

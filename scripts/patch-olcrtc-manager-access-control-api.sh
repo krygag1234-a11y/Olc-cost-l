@@ -114,6 +114,8 @@ type olcClientAccess struct {
 	Mode          string             `json:"mode"`
 	Allow         []olcAllowedDevice `json:"allow"`
 	Ban           []olcAllowedDevice `json:"ban"`
+	AllowIPs      []string           `json:"allow_ips,omitempty"`      // разрешённые IP ТОЛЬКО для этой подписки
+	BanNoHwid     bool               `json:"ban_no_hwid"`              // блок запросов без hwid для этой подписки
 	ConnEnforce   bool               `json:"conn_enforce"`
 	ConnScope     string             `json:"conn_scope"`             // "all" | "selective"
 	ConnInstances []string           `json:"conn_instances,omitempty"` // room_id инстансов при selective
@@ -276,8 +278,8 @@ func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active b
 		return false, true, false, mode
 	}
 	hw := strings.TrimSpace(hwid)
-	// Блокировка запросов без hwid (Compatibility-фолбэк olcbox) — если включено.
-	if ac.BanNoHwid && hw == "" {
+	// Блокировка запросов без hwid (Compatibility-фолбэк olcbox) — глоб. или per-client.
+	if hw == "" && (ac.BanNoHwid || (cc != nil && cc.BanNoHwid)) {
 		return true, false, true, mode
 	}
 	// Глобальный бан (по hwid) — жёсткий блок для всех подписок.
@@ -299,6 +301,11 @@ func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active b
 	if cc != nil {
 		for _, a := range cc.Allow {
 			if a.Enabled && strings.EqualFold(strings.TrimSpace(a.HWID), strings.TrimSpace(hwid)) {
+				return true, true, false, mode
+			}
+		}
+		for _, aip := range cc.AllowIPs {
+			if aip != "" && strings.TrimSpace(aip) == strings.TrimSpace(ip) {
 				return true, true, false, mode
 			}
 		}
@@ -474,7 +481,7 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, cc)
 			return
 		}
-		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}})
+		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []string{}, ConnScope: "all", ConnInstances: []string{}})
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
@@ -486,6 +493,8 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		Mode          string             `json:"mode"`
 		Allow         []olcAllowedDevice `json:"allow"`
 		Ban           []olcAllowedDevice `json:"ban"`
+		AllowIPs      []string           `json:"allow_ips"`
+		BanNoHwid     bool               `json:"ban_no_hwid"`
 		ConnEnforce   bool               `json:"conn_enforce"`
 		ConnScope     string             `json:"conn_scope"`
 		ConnInstances []string           `json:"conn_instances"`
@@ -506,6 +515,10 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	allow := olcAccessNormalizeDevices(body.Allow)
 	ban := olcAccessNormalizeDevices(body.Ban)
+	allowIPs := olcAccessDedup(body.AllowIPs)
+	if allowIPs == nil {
+		allowIPs = []string{}
+	}
 	scope := body.ConnScope
 	if scope != "selective" {
 		scope = "all"
@@ -515,10 +528,11 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		insts = []string{}
 	}
 	hasConn := body.ConnEnforce || (scope == "selective" && len(insts) > 0)
-	if mode == "inherit" && len(allow) == 0 && len(ban) == 0 && !hasConn {
+	hasOverride := (mode != "inherit") || len(allow) > 0 || len(ban) > 0 || len(allowIPs) > 0 || body.BanNoHwid || hasConn
+	if !hasOverride {
 		delete(ac.Clients, id) // нет override — убрать запись
 	} else {
-		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban, ConnEnforce: body.ConnEnforce, ConnScope: scope, ConnInstances: insts}
+		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban, AllowIPs: allowIPs, BanNoHwid: body.BanNoHwid, ConnEnforce: body.ConnEnforce, ConnScope: scope, ConnInstances: insts}
 	}
 	if err := olcAccessSave(ac); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

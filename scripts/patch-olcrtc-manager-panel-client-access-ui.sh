@@ -24,9 +24,12 @@ comp_block = r'''// ============================================================
 // ============================================================================
 function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: () => void }) {
   type Dev = { hwid: string; label?: string; enabled: boolean };
-  const [mode, setMode] = useState<string>("inherit");
+  const [mode, setMode] = useState<string>("off");
   const [allow, setAllow] = useState<Dev[]>([]);
   const [ban, setBan] = useState<Dev[]>([]);
+  const [allowIps, setAllowIps] = useState<string[]>([]);
+  const [banNoHwid, setBanNoHwid] = useState(false);
+  const [newIp, setNewIp] = useState("");
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [connClearedAt, setConnClearedAt] = useState<string>("");
@@ -51,9 +54,11 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     try {
       const r = await fetch(`/api/access/client?client_id=${encodeURIComponent(clientId)}`, { cache: "no-store" });
       const b = await r.json();
-      setMode(b.mode || "inherit");
+      setMode(b.mode && b.mode !== "inherit" ? b.mode : "off");
       setAllow(Array.isArray(b.allow) ? b.allow : []);
       setBan(Array.isArray(b.ban) ? b.ban : []);
+      setAllowIps(Array.isArray(b.allow_ips) ? b.allow_ips : []);
+      setBanNoHwid(!!b.ban_no_hwid);
       setConnEnforce(!!b.conn_enforce);
       setConnScope(b.conn_scope === "selective" ? "selective" : "all");
       setConnInstances(Array.isArray(b.conn_instances) ? b.conn_instances : []);
@@ -113,33 +118,32 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
 
-  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
+  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: string[]; ban_no_hwid?: boolean; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { client_id: clientId, mode, allow, ban, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
+      const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_no_hwid: banNoHwid, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
       const r = await fetch("/api/access/client", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
-      const cc = (b.clients || {})[clientId] || { mode: "inherit", allow: [], ban: [] };
-      setMode(cc.mode || "inherit");
+      const cc = (b.clients || {})[clientId] || {};
+      setMode(cc.mode && cc.mode !== "inherit" ? cc.mode : "off");
       setAllow(Array.isArray(cc.allow) ? cc.allow : []);
       setBan(Array.isArray(cc.ban) ? cc.ban : []);
+      setAllowIps(Array.isArray(cc.allow_ips) ? cc.allow_ips : []);
+      setBanNoHwid(!!cc.ban_no_hwid);
       setConnEnforce(!!cc.conn_enforce);
       setConnScope(cc.conn_scope === "selective" ? "selective" : "all");
       setConnInstances(Array.isArray(cc.conn_instances) ? cc.conn_instances : []);
       await load();
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
+  const addIp = (ip: string) => { const v = (ip || "").trim(); if (!v) return; const nx = [...allowIps, v]; setAllowIps(nx); setNewIp(""); void save({ allow_ips: nx }); };
+  const rmIp = (ip: string) => { const nx = allowIps.filter((x) => x !== ip); setAllowIps(nx); void save({ allow_ips: nx }); };
   const toggleInstance = (room: string, on: boolean) => {
     const nx = on ? [...connInstances, room] : connInstances.filter((r) => r !== room);
     setConnInstances(nx); void save({ conn_instances: nx });
   };
-  const allowIp = async (ip: string) => {
-    const v = (ip || "").trim(); if (!v) return;
-    setBusy(true); setMsg(null);
-    try { const r = await fetch("/api/access/allow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip: v }) }); if (!r.ok) throw new Error("HTTP " + r.status); setMsg("IP " + v + " добавлен в разрешённые (глобально)"); }
-    catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
-  };
+  const allowIp = (ip: string) => addIp(ip); // из журнала — в per-client список этой подписки
   const addAllow = (h: string) => { h = h.trim(); if (!h) return; void save({ allow: [...allow, { hwid: h, enabled: true }] }); setNewAllow(""); };
   const addBan = (h: string) => { h = h.trim(); if (!h) return; void save({ ban: [...ban, { hwid: h, enabled: true }] }); setNewBan(""); };
   const rmAllow = (h: string) => void save({ allow: allow.filter((d) => d.hwid !== h) });
@@ -156,40 +160,131 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   );
 
   return (
-    <Modal title={`Доступ к подписке: ${clientId}`} onClose={onClose}>
+    <Modal title={`Выборочный доступ · подписка ${clientId}`} onClose={onClose}>
       <div className="grid gap-3 p-4 text-sm">
-        <div className="rounded-md border border-border bg-card/40 p-3 text-xs text-muted-foreground">
-          Индивидуальные правила <b className="text-foreground">только для этой подписки</b>. «Наследовать» —
-          вести себя как в глобальных настройках. Список ниже — <b className="text-emerald-400">дополнение</b> к
-          глобальному белому списку; бан здесь — жёсткий блок именно этой подписки (перекрывает разрешение).
-          Идентификатор устройства (hwid) olcbox шлёт при запросе подписки.
+        <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-muted-foreground">
+          Это <b className="text-sky-400">выборочные</b> правила <b className="text-foreground">только для этой подписки и её инстансов</b>
+          — независимо от других подписок. Действуют, когда глобальный контроль в общих настройках выключен.
+          Идентификатор устройства (hwid) olcbox присылает при запросе подписки.
         </div>
-        <label className="grid gap-1 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Режим для этой подписки</span>
-          <select className="h-9 rounded border border-border bg-card px-2 text-foreground" value={mode} disabled={busy}
-            onChange={(e) => { setMode(e.target.value); void save({ mode: e.target.value }); }}>
-            <option value="inherit">Наследовать глобальный</option>
-            <option value="off">Выключен (пускать всех)</option>
-            <option value="monitor">Наблюдение (лог, пускать)</option>
-            <option value="enforce">Блокировать неизвестные</option>
-          </select>
-        </label>
 
-        <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
-          <div className="text-xs font-semibold text-sky-400">🔌 Контроль подключений (для этой подписки)</div>
+        {/* ═══ СЕКЦИЯ A: доступ к получению подписки ═══ */}
+        <div className="grid gap-3 rounded-md border border-border bg-card/30 p-3">
+          <div className="text-sm font-semibold text-foreground">🎫 Кто может получить подписку</div>
+
+          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+            <label className="flex items-center gap-1">
+              <input type="radio" name={`olc-cli-mode-${clientId}`} checked={mode === "off"} disabled={busy}
+                onChange={() => { setMode("off"); void save({ mode: "off" }); }} />
+              Выключено (пускать всех)
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="radio" name={`olc-cli-mode-${clientId}`} checked={mode === "monitor"} disabled={busy}
+                onChange={() => { setMode("monitor"); void save({ mode: "monitor" }); }} />
+              Наблюдение (лог, пускать)
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="radio" name={`olc-cli-mode-${clientId}`} checked={mode === "enforce"} disabled={busy}
+                onChange={() => { setMode("enforce"); void save({ mode: "enforce" }); }} />
+              Блокировать неизвестных
+            </label>
+          </div>
+
+          <div className="grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-2">
+            <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые устройства</div>
+            {allow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
+            <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid)))}</div>
+            <div className="flex gap-2">
+              <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (hwid)" value={newAllow} onChange={(e) => setNewAllow(e.target.value)} />
+              <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10" disabled={busy || !newAllow.trim()} onClick={() => addAllow(newAllow)}>Разрешить</button>
+            </div>
+            <details className="text-[11px]">
+              <summary className="cursor-pointer text-muted-foreground">🌐 Разрешить по IP (для этой подписки)</summary>
+              <div className="mt-2 grid gap-2">
+                {allowIps.length > 0 && (
+                  <div className="grid max-h-28 gap-1 overflow-y-auto">
+                    {allowIps.map((ip) => (
+                      <div key={ip} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1">
+                        <span className="min-w-0 flex-1 truncate font-mono text-foreground">{ip}</span>
+                        <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => rmIp(ip)}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="IP-адрес" value={newIp} onChange={(e) => setNewIp(e.target.value)} />
+                  <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted" disabled={busy || !newIp.trim()} onClick={() => addIp(newIp)}>Добавить IP</button>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div className="grid gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2">
+            <div className="text-xs font-semibold text-red-400">🚫 Забаненные устройства (эта подписка)</div>
+            {ban.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
+            <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid)))}</div>
+            <div className="flex gap-2">
+              <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
+              <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
+            </div>
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <input type="checkbox" checked={banNoHwid} disabled={busy} onChange={(e) => { setBanNoHwid(e.target.checked); void save({ ban_no_hwid: e.target.checked }); }} />
+              Блокировать запросы без hwid (Compatibility-режим olcbox)
+            </label>
+          </div>
+
+          <div className="grid gap-2 rounded-md border border-border bg-background/60 p-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-foreground">📋 Журнал попыток получить подписку</div>
+              <div className="flex items-center gap-2">
+                {autolog
+                  ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+                  : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
+                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearLog()}>Очистить</button>
+              </div>
+            </div>
+            {attempts.length === 0 && <div className="text-[11px] text-muted-foreground">Пока нет.</div>}
+            {attempts.length > 0 && (
+            <div ref={aListRef} onScroll={onAScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+              {attempts.map((a, i) => {
+                const hwid = String(a.hwid || "");
+                const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
+                const banned = ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
+                return (
+                  <div key={hwid + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
+                    <div className="min-w-0">
+                      <div className="truncate font-mono"><span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✗"}</span> {hwid || "(без hwid)"}{Number(a.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{a.count}</span>}</div>
+                      <div className="truncate text-muted-foreground">{String(a.ip || "")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
+                    </div>
+                    {hwid && (
+                      <div className="flex shrink-0 gap-1">
+                        {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>}
+                        {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(hwid)}>Бан</button>}
+                        {String(a.ip || "") && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить IP для этой подписки" onClick={() => addIp(String(a.ip))}>+IP</button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            )}
+          </div>
+        </div>
+
+        {/* ═══ СЕКЦИЯ B: доступ к подключению ═══ */}
+        <div className="grid gap-3 rounded-md border border-border bg-card/30 p-3">
+          <div className="text-sm font-semibold text-foreground">🔌 Кто может подключаться к инстансам</div>
           {globalEnforceConns ? (
             <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-2 text-[11px] text-amber-500">
-              Действует <b>глобальный</b> контроль подключений (общие настройки → «Уровни защиты»).
-              Выборочный контроль для подписки недоступен, пока он включён. Выключите глобальный —
-              и сохранённые здесь настройки вернутся.
+              Действует <b>глобальный</b> контроль подключений (общие настройки). Выборочный по подписке недоступен,
+              пока он включён; сохранённые здесь настройки вернутся после его выключения.
             </div>
           ) : (
             <>
               <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
                 <input type="checkbox" className="mt-0.5" checked={connEnforce} disabled={busy}
                   onChange={(e) => { setConnEnforce(e.target.checked); void save({ conn_enforce: e.target.checked }); }} />
-                <span>Ограничить, кто может <b className="text-foreground">подключаться</b> к инстансам этой подписки
-                  (только разрешённые устройства). Пустой список разрешённых = не блокирует (fail-open).</span>
+                <span>Пускать к инстансам этой подписки только разрешённые устройства (список выше). Пустой список = не блокирует.</span>
               </label>
               {connEnforce && (
                 <div className="grid gap-2 pl-5">
@@ -207,7 +302,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                   </div>
                   {connScope === "selective" && (
                     <div className="grid gap-1">
-                      {instances.length === 0 && <div className="text-[11px] text-muted-foreground">Инстансы подписки не найдены (панель ещё не подняла процессы?).</div>}
+                      {instances.length === 0 && <div className="text-[11px] text-muted-foreground">Инстансы не найдены.</div>}
                       {instances.map((it) => (
                         <label key={it.room_id} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-[11px]">
                           <input type="checkbox" checked={connInstances.includes(it.room_id)} disabled={busy}
@@ -216,109 +311,51 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                           <span className="shrink-0 font-mono text-muted-foreground">{it.room_id}</span>
                         </label>
                       ))}
-                      <div className="text-[10px] text-muted-foreground">Контроль применяется только к отмеченным инстансам; остальные — как обычно.</div>
+                      <div className="text-[10px] text-muted-foreground">Контроль — только на отмеченных инстансах.</div>
                     </div>
                   )}
                 </div>
               )}
             </>
           )}
-        </div>
-
-        <div className="grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-3">
-          <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые (для этой подписки)</div>
-          {allow.length === 0 && <div className="text-xs text-muted-foreground">Пусто — используется глобальный список.</div>}
-          <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid)))}</div>
-          <div className="flex gap-2">
-            <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (разрешить)" value={newAllow} onChange={(e) => setNewAllow(e.target.value)} />
-            <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10" disabled={busy || !newAllow.trim()} onClick={() => addAllow(newAllow)}>Разрешить</button>
-          </div>
-        </div>
-
-        <div className="grid gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-          <div className="text-xs font-semibold text-red-400">🚫 Забаненные (для этой подписки)</div>
-          {ban.length === 0 && <div className="text-xs text-muted-foreground">Пусто.</div>}
-          <div className="grid max-h-32 gap-1 overflow-y-auto">{ban.map((d) => devRow(d, (en) => toggleBan(d.hwid, en), () => rmBan(d.hwid)))}</div>
-          <div className="flex gap-2">
-            <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
-            <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
-          </div>
-        </div>
-
-        <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold text-foreground">📋 Попытки по этой подписке</div>
-            <div className="flex items-center gap-2">
-              {autolog
-                ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
-                : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
-              <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearLog()}>Очистить</button>
+          <div className="grid gap-2 rounded-md border border-border bg-background/60 p-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-foreground">🔌 Журнал подключений (эта подписка)</div>
+              <div className="flex items-center gap-2">
+                {autolog
+                  ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
+                  : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
+                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={clearConnections}>Очистить</button>
+              </div>
             </div>
-          </div>
-          {attempts.length === 0 && <div className="text-xs text-muted-foreground">Пока нет.</div>}
-          {attempts.length > 0 && (
-          <div ref={aListRef} onScroll={onAScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
-            {attempts.map((a, i) => {
-              const hwid = String(a.hwid || "");
-              const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
-              const banned = ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
-              return (
-                <div key={hwid + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
-                  <div className="min-w-0">
-                    <div className="truncate font-mono"><span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✗"}</span> {hwid || "(без hwid)"}{Number(a.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{a.count}</span>}</div>
-                    <div className="truncate text-muted-foreground">{String(a.ip || "")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
-                  </div>
-                  {hwid && (
-                    <div className="flex shrink-0 gap-1">
-                      {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>}
-                      {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(hwid)}>Бан</button>}
-                      {String(a.ip || "") && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP (глобально)" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
+            {(() => { const shown = connClearedAt ? connections.filter((c) => String(c.last || "") > connClearedAt) : connections; return (<>
+            {shown.length === 0 && <div className="text-[11px] text-muted-foreground">Подключений пока нет.</div>}
+            {shown.length > 0 && (
+            <div ref={kListRef} onScroll={onKScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
+              {shown.map((c, i) => {
+                const dev = String(c.device || "");
+                const known = allow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+                const banned = ban.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
+                const loc = String(c.location_name || "");
+                return (
+                  <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
+                    <div className="min-w-0">
+                      <div className="truncate font-mono">{dev} {known && <span className="text-emerald-400">✓</span>}{Number(c.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}</div>
+                      <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}</div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          )}
-        </div>
-
-        <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold text-foreground">🔌 Подключения (эта подписка)</div>
-            <div className="flex items-center gap-2">
-              {autolog
-                ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
-                : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
-              <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={clearConnections}>Очистить</button>
+                    {dev && (
+                      <div className="flex shrink-0 gap-1">
+                        {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(dev)}>Разрешить</button>}
+                        {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(dev)}>Бан</button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+            )}
+            </>); })()}
           </div>
-          {(() => { const shown = connClearedAt ? connections.filter((c) => String(c.last || "") > connClearedAt) : connections; return (<>
-          {shown.length === 0 && <div className="text-xs text-muted-foreground">Подключений пока нет.</div>}
-          {shown.length > 0 && (
-          <div ref={kListRef} onScroll={onKScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
-            {shown.map((c, i) => {
-              const dev = String(c.device || "");
-              const known = allow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
-              const banned = ban.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
-              const loc = String(c.location_name || "");
-              return (
-                <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
-                  <div className="min-w-0">
-                    <div className="truncate font-mono">{dev} {known && <span className="text-emerald-400">✓</span>}{Number(c.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}</div>
-                    <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}</div>
-                  </div>
-                  {dev && (
-                    <div className="flex shrink-0 gap-1">
-                      {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(dev)}>Разрешить</button>}
-                      {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(dev)}>Бан</button>}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          )}
-          </>); })()}
         </div>
         {msg && <div className="text-xs text-red-500 whitespace-pre-wrap">{msg}</div>}
       </div>
@@ -337,11 +374,22 @@ else:
 
 # --- 2. Состояние accessClient (после globalRandomizationEnabled) ---
 state_anchor = 'const [globalRandomizationEnabled, setGlobalRandomizationEnabled] = useState(false);'
-if 'const [accessClient, setAccessClient]' in t:
+if 'const [accessClient, setAccessClientRaw]' in t:
     print("[patch-client-access-ui] state already present")
 elif state_anchor in t:
-    t = t.replace(state_anchor, state_anchor + '\n  const [accessClient, setAccessClient] = useState<string | null>(null);', 1); changed = True
-    print("[patch-client-access-ui] added accessClient state")
+    inject = state_anchor + '''
+  const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);
+  const [accessClient, setAccessClientRaw] = useState<string | null>(() => { try { return localStorage.getItem("olc-modal-client-access-v1") || null; } catch { return null; } });
+  const setAccessClient = (v: string | null) => { try { if (v) localStorage.setItem("olc-modal-client-access-v1", v); else localStorage.removeItem("olc-modal-client-access-v1"); } catch { /* ignore */ } setAccessClientRaw(v); };
+  useEffect(() => {
+    let stop = false;
+    const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) setGlobalAccessEnabled(!!b.enabled); } catch { /* ignore */ } };
+    void load();
+    const id = window.setInterval(load, 5000);
+    return () => { stop = true; window.clearInterval(id); };
+  }, []);'''
+    t = t.replace(state_anchor, inject, 1); changed = True
+    print("[patch-client-access-ui] added accessClient state (persisted) + globalAccessEnabled")
 else:
     print("[patch-client-access-ui] WARN: globalRandomizationEnabled state anchor not found")
 
@@ -350,9 +398,9 @@ gear_anchor = '''                        🎲 {client.randomization?.enabled || 
                       </button>'''
 gear_add = gear_anchor + '''
                       <button
-                        className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
-                        disabled={busy}
-                        title="Контроль доступа к этой подписке (устройства)"
+                        className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={busy || globalAccessEnabled}
+                        title={globalAccessEnabled ? "Для доступа к выборочным настройкам доступа по устройству отключите глобальный контроль доступа" : "Выборочный контроль доступа для этой подписки"}
                         onClick={() => setAccessClient(client.client_id)}
                       >
                         ⚙
@@ -367,7 +415,7 @@ else:
 
 # --- 4. Рендер модалки (перед {showSettings && () ---
 render_anchor = '      {showSettings && ('
-render_add = '      {accessClient && <ClientAccessModal clientId={accessClient} onClose={() => setAccessClient(null)} />}\n      {showSettings && ('
+render_add = '      {accessClient && !globalAccessEnabled && <ClientAccessModal clientId={accessClient} onClose={() => setAccessClient(null)} />}\n      {showSettings && ('
 if '<ClientAccessModal ' in t:
     print("[patch-client-access-ui] modal render already present")
 elif render_anchor in t:
