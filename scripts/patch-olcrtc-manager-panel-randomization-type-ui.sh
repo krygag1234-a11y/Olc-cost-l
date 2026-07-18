@@ -231,6 +231,44 @@ rep(
       {msg && <p className="text-xs text-amber-600">{msg}</p>}''',
 "selective modal render")
 
+# ── Этап 3: UI типа 2 ──
+# J1. App: состояние accessCfg (per-client контроль доступа настроен?)
+rep(
+"  const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);",
+"  const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);\n  const [accessCfg, setAccessCfg] = useState<Record<string, boolean>>({});",
+"accessCfg state")
+
+# J2. App: загрузка per-client access-конфига вместе с globalAccessEnabled
+rep(
+'    const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) setGlobalAccessEnabled(!!b.enabled); } catch { /* ignore */ } };',
+'    const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) { setGlobalAccessEnabled(!!b.enabled); const m: Record<string, boolean> = {}; const cl = b.clients || {}; Object.keys(cl).forEach((k) => { const c = cl[k] || {}; m[k] = !!(c.mode && c.mode !== "off"); }); setAccessCfg(m); } } catch { /* ignore */ } };',
+"accessCfg load")
+
+# K. Карточка клиента: метка типа (тип2 → ротация) + предупреждение при типе2 без контроля доступа
+rep(
+'''                        {globalRandomizationEnabled && client.randomization?.randomized_id && (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            🔒 {client.randomization.randomized_id}
+                          </span>
+                        )}''',
+'''                        {client.randomization?.enabled ? (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            {client.randomization?.rand_type === 2
+                              ? "🔄 ротация каждую секунду"
+                              : (client.randomization?.randomized_id ? `🔒 ${client.randomization.randomized_id}` : "🔒 рандомизированный хэш")}
+                          </span>
+                        ) : globalRandomizationEnabled && client.randomization?.randomized_id ? (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            🔒 {client.randomization.randomized_id}
+                          </span>
+                        ) : null}
+                        {client.randomization?.enabled && client.randomization?.rand_type === 2 && !globalAccessEnabled && !accessCfg[client.client_id] && (
+                          <span className="mt-1 block text-[10px] leading-tight text-amber-500">
+                            ⚠️ Тип 2 без контроля доступа: ссылка меняется каждую секунду — пользоваться нереально. Настройте контроль доступа (⚙), тогда оригинальный client_id заработает для разрешённых устройств.
+                          </span>
+                        )}''',
+"card type-2 label + warning")
+
 if changed:
     f.write_text(t)
 print("[patch-randomization-type-ui] done")
