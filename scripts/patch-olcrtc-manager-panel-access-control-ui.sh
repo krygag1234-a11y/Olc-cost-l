@@ -263,34 +263,19 @@ function AccessControlSection() {
 
       {enabled && (
         <>
-          {/* ── БЛОК 1: два независимых уровня защиты ── */}
+          {/* ── БЛОК 1: доступ к подписке (режим) ── */}
           <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Уровни защиты</div>
-            <div className="grid gap-1">
-              <div className="text-[11px] font-medium text-foreground">1. Доступ к подписке <span className="font-normal text-muted-foreground">— кто может ПОЛУЧИТЬ ссылку-подписку</span></div>
-              <div className="flex flex-wrap gap-3 pl-3 text-xs text-muted-foreground">
-                <label className="flex items-center gap-1">
-                  <input type="radio" name="olc-ac-mode" checked={mode === "monitor"} disabled={busy}
-                    onChange={() => { setMode("monitor"); void saveSettings({ mode: "monitor" }); }} />
-                  Наблюдение (пускать всех, вести журнал)
-                </label>
-                <label className="flex items-center gap-1">
-                  <input type="radio" name="olc-ac-mode" checked={mode === "enforce"} disabled={busy}
-                    onChange={() => { setMode("enforce"); void saveSettings({ mode: "enforce" }); }} />
-                  Блокировать неизвестных
-                </label>
-              </div>
-            </div>
-            <div className="grid gap-1 border-t border-border pt-2">
-              <div className="text-[11px] font-medium text-foreground">2. Доступ к подключению <span className="font-normal text-muted-foreground">— кто может ПОДКЛЮЧИТЬСЯ к инстансам (даже с валидной ссылкой)</span></div>
-              <label className="flex items-start gap-2 pl-3 text-xs text-muted-foreground">
-                <input type="checkbox" className="mt-0.5" checked={enforceConns} disabled={busy}
-                  onChange={(e) => { setEnforceConns(e.target.checked); void saveSettings({ enforce_connections: e.target.checked }); }} />
-                <span>
-                  Блокировать неизвестные устройства на подключении (закрывает «слитый инстанс»).
-                  <span className="text-amber-500"> ⚠️ Проверьте на своём устройстве перед тем, как полагаться —
-                  использует тот же список разрешённых. При пустом списке подключение НЕ блокируется.</span>
-                </span>
+            <div className="text-xs font-semibold text-foreground">🎫 Доступ к подписке <span className="font-normal text-muted-foreground">— кто может ПОЛУЧИТЬ ссылку-подписку (списки ниже)</span></div>
+            <div className="flex flex-wrap gap-3 pl-1 text-xs text-muted-foreground">
+              <label className="flex items-center gap-1">
+                <input type="radio" name="olc-ac-mode" checked={mode === "monitor"} disabled={busy}
+                  onChange={() => { setMode("monitor"); void saveSettings({ mode: "monitor" }); }} />
+                Наблюдение (пускать всех, вести журнал)
+              </label>
+              <label className="flex items-center gap-1">
+                <input type="radio" name="olc-ac-mode" checked={mode === "enforce"} disabled={busy}
+                  onChange={() => { setMode("enforce"); void saveSettings({ mode: "enforce" }); }} />
+                Блокировать неизвестных
               </label>
             </div>
           </div>
@@ -409,9 +394,17 @@ function AccessControlSection() {
           </div>
 
           {/* ── БЛОК 4b: контроль ПОДКЛЮЧЕНИЯ (отдельные списки) ── */}
-          <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
+          <div className="grid gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-3">
+            <div className="text-xs font-semibold text-sky-400">🔌 Доступ к подключению <span className="font-normal text-muted-foreground">— кто может ПОДКЛЮЧИТЬСЯ к инстансам (даже с валидной ссылкой)</span></div>
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" className="mt-0.5" checked={enforceConns} disabled={busy}
+                onChange={(e) => { setEnforceConns(e.target.checked); void saveSettings({ enforce_connections: e.target.checked }); }} />
+              <span>Блокировать неизвестные устройства на подключении (закрывает «слитый инстанс»), по спискам ниже.
+                <span className="text-amber-500"> ⚠️ Проверьте на своём устройстве. Пустой список разрешённых при включённом контроле = НИКОГО не пускает.</span>
+              </span>
+            </label>
             <div className="text-xs font-semibold text-sky-400">🔌 Разрешённые устройства (подключение к инстансам)</div>
-            <div className="text-[11px] text-muted-foreground">ОТДЕЛЬНЫЙ список от «получения подписки». Действует, когда включён тумблер «Доступ к подключению» выше. Пустой список при включённом контроле = <b className="text-foreground">никого не пускает</b>.</div>
+            <div className="text-[11px] text-muted-foreground">ОТДЕЛЬНЫЙ список от «получения подписки». <span className="text-amber-500">IP-фильтра здесь нет: на подключении виден только hwid устройства, не IP — IP-контроль работает только в разделе «получение подписки».</span></div>
             {connDevices.length === 0 && <div className="text-xs text-muted-foreground">Пусто.</div>}
             {connDevices.length > 0 && (
               <div className="grid max-h-40 gap-1 overflow-y-auto">

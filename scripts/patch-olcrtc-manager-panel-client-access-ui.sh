@@ -55,6 +55,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [connScope, setConnScope] = useState<"all" | "selective">("all");
   const [connInstances, setConnInstances] = useState<string[]>([]);
   const [globalEnforceConns, setGlobalEnforceConns] = useState(false);
+  const [glob, setGlob] = useState<any>({ devices: [], ban: [], allow_ips: [], conn_devices: [], conn_ban: [] });
+  const [syncHidden, setSyncHidden] = useState<boolean>(() => { try { return localStorage.getItem("olc-sync-hidden-" + clientId) === "1"; } catch { return false; } });
   const [instances, setInstances] = useState<Array<{ room_id: string; name: string }>>([]);
 
   const load = async () => {
@@ -76,6 +78,13 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       const s = await fetch("/api/access/settings", { cache: "no-store" });
       const sb = await s.json();
       setGlobalEnforceConns(!!sb.enforce_connections);
+      setGlob({
+        devices: Array.isArray(sb.devices) ? sb.devices : [],
+        ban: Array.isArray(sb.ban) ? sb.ban : [],
+        allow_ips: Array.isArray(sb.allowed_ips) ? sb.allowed_ips : [],
+        conn_devices: Array.isArray(sb.conn_devices) ? sb.conn_devices : [],
+        conn_ban: Array.isArray(sb.conn_ban) ? sb.conn_ban : [],
+      });
     } catch { /* ignore */ }
     try {
       const st = await fetch("/api/state", { cache: "no-store" });
@@ -196,6 +205,30 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     </div>
   );
 
+  // Синхронизация per-client списков с ГЛОБАЛЬНЫМИ (одной кнопкой). Объединение
+  // (union): глобальные записи доливаются в списки подписки, ничего не удаляя.
+  const hasHwid = (list: Dev[], h: string) => list.some((d) => (d.hwid || "").toLowerCase() === (h || "").toLowerCase());
+  const mergeDev = (base: Dev[], add: Dev[]) => { const out = [...base]; for (const d of add || []) { if (d && d.hwid && !hasHwid(out, d.hwid)) out.push({ hwid: d.hwid, label: d.label, enabled: d.enabled !== false }); } return out; };
+  const mergeIp = (base: string[], add: string[]) => Array.from(new Set([...(base || []), ...((add || []).filter(Boolean))]));
+  const isSynced = () =>
+    (glob.devices || []).every((d: Dev) => hasHwid(allow, d.hwid)) &&
+    (glob.ban || []).every((d: Dev) => hasHwid(ban, d.hwid)) &&
+    (glob.conn_devices || []).every((d: Dev) => hasHwid(connAllow, d.hwid)) &&
+    (glob.conn_ban || []).every((d: Dev) => hasHwid(connBan, d.hwid)) &&
+    (glob.allow_ips || []).every((ip: string) => (allowIps || []).includes(ip));
+  const syncFromGlobal = () => {
+    void save({
+      allow: mergeDev(allow, glob.devices),
+      ban: mergeDev(ban, glob.ban),
+      conn_allow: mergeDev(connAllow, glob.conn_devices),
+      conn_ban: mergeDev(connBan, glob.conn_ban),
+      allow_ips: mergeIp(allowIps, glob.allow_ips),
+      mode: mode === "off" ? "enforce" : mode,
+    });
+  };
+  const setSyncHiddenPersist = (v: boolean) => { setSyncHidden(v); try { localStorage.setItem("olc-sync-hidden-" + clientId, v ? "1" : "0"); } catch { /* ignore */ } };
+  const synced = isSynced();
+
   return (
     <Modal title={`Выборочный доступ · подписка ${clientId}`} onClose={onClose}>
       <div className="grid gap-3 p-4 text-sm">
@@ -204,6 +237,24 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           — независимо от других подписок. Действуют, когда глобальный контроль в общих настройках выключен.
           Идентификатор устройства (hwid) olcbox присылает при запросе подписки.
         </div>
+
+        {syncHidden ? (
+          <div className="flex justify-end">
+            <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted" onClick={() => setSyncHiddenPersist(false)} title="Показать кнопку синхронизации с глобальными">⋯ синхронизация</button>
+          </div>
+        ) : (
+          <div className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 ${synced ? "border-border bg-card/30" : "border-indigo-500/50 bg-indigo-500/10"}`}>
+            <div className="min-w-0 text-[11px] text-muted-foreground">
+              {synced ? "Списки этой подписки уже включают все глобальные записи." : "Скопировать все глобальные разрешённые/забаненные/IP в эту подписку (объединение, ничего не удаляя)."}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" disabled={busy || synced}
+                className={`rounded px-2 py-1 text-[11px] font-medium ${synced ? "cursor-not-allowed border border-border text-muted-foreground opacity-50" : "border border-indigo-500/60 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25"}`}
+                onClick={syncFromGlobal}>Синхронизировать с глобальными</button>
+              <button type="button" className="rounded border border-border px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted" title="Скрыть (можно вернуть)" onClick={() => setSyncHiddenPersist(true)}>×</button>
+            </div>
+          </div>
+        )}
 
         {/* ═══ СЕКЦИЯ A: доступ к получению подписки ═══ */}
         <div className="grid gap-3 rounded-md border border-border bg-card/30 p-3">
@@ -357,7 +408,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
 
               <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2">
                 <div className="text-xs font-semibold text-sky-400">🔌✅ Разрешённые для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
-                <div className="text-[10px] text-muted-foreground">Отдельный список от «получения подписки». Кнопкой можно продублировать устройство в список подписки.</div>
+                <div className="text-[10px] text-muted-foreground">Отдельный список от «получения подписки». Кнопкой можно продублировать устройство в список подписки. <span className="text-amber-500">IP тут не фильтруется (на подключении виден только hwid).</span></div>
                 {connAllow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто{connEnforce ? " — при включённом контроле никто не подключится" : ""}.</div>}
                 <div className="grid max-h-32 gap-1 overflow-y-auto">{connAllow.map((d) => devRow(d, (en) => toggleConnAllow(d.hwid, en), () => rmConnAllow(d.hwid), crossBtn(d.hwid, "allow", "sub", allow.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addAllow(d.hwid))))}</div>
                 <div className="flex gap-2">
