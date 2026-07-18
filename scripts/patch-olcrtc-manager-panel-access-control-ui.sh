@@ -57,7 +57,7 @@ function AccessControlSection() {
   const connListRef = useRef<HTMLDivElement | null>(null);
   const connFollowRef = useRef(true);
   const connResumeRef = useRef<number | null>(null);
-  const [connClearedAt, setConnClearedAt] = useState<string>("");
+  const [connClearedAt, setConnClearedAt] = useState<string>(() => { try { return localStorage.getItem("olc-conn-cleared-global") || ""; } catch { return ""; } });
 
   const loadSettings = async () => {
     try {
@@ -136,7 +136,7 @@ function AccessControlSection() {
       if (connResumeRef.current) { window.clearTimeout(connResumeRef.current); connResumeRef.current = null; }
     }
   };
-  const clearConnections = () => { setConnClearedAt(new Date().toISOString()); };
+  const clearConnections = () => { const ts = new Date().toISOString(); setConnClearedAt(ts); try { localStorage.setItem("olc-conn-cleared-global", ts); } catch {} };
 
   const saveSettings = async (next: { enabled?: boolean; mode?: string; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_devices?: any[]; conn_ban?: any[] }) => {
     setBusy(true); setMsg(null);

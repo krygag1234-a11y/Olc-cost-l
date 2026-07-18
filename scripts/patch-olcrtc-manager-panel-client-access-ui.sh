@@ -37,7 +37,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [newIp, setNewIp] = useState("");
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
-  const [connClearedAt, setConnClearedAt] = useState<string>("");
+  const [connClearedAt, setConnClearedAt] = useState<string>(() => { try { return localStorage.getItem("olc-conn-cleared-" + clientId) || ""; } catch { return ""; } });
   const aListRef = useRef<HTMLDivElement | null>(null);
   const aFollowRef = useRef(true);
   const aResumeRef = useRef<number | null>(null);
@@ -127,7 +127,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   };
   const onAScroll = mkOnScroll(aListRef, aFollowRef, aResumeRef);
   const onKScroll = mkOnScroll(kListRef, kFollowRef, kResumeRef);
-  const clearConnections = () => { setConnClearedAt(new Date().toISOString()); };
+  const clearConnections = () => { const ts = new Date().toISOString(); setConnClearedAt(ts); try { localStorage.setItem("olc-conn-cleared-" + clientId, ts); } catch {} };
   const clearLog = async () => {
     setBusy(true); setMsg(null);
     try {
@@ -362,12 +362,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
         {/* ═══ СЕКЦИЯ B: доступ к подключению ═══ */}
         <div className="grid gap-3 rounded-md border border-border bg-card/30 p-3">
           <div className="text-sm font-semibold text-foreground">🔌 Кто может подключаться к инстансам</div>
-          {globalEnforceConns ? (
-            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-2 text-[11px] text-amber-500">
-              Действует <b>глобальный</b> контроль подключений (общие настройки). Выборочный по подписке недоступен,
-              пока он включён; сохранённые здесь настройки вернутся после его выключения.
-            </div>
-          ) : (
+          {(
             <>
               <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
                 <input type="checkbox" className="mt-0.5" checked={connEnforce} disabled={busy}
