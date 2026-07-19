@@ -27,7 +27,7 @@ def rep(old, new, tag):
     print(f"[client-access-log] {tag}: ok")
 
 # --- 1. Компоненты ClientLogPanel + ClientAccessLogModal (перед function App) ---
-comp = r'''function ClientLogPanel({ title, load, empty, autologi, liveKey, maxH }: { title: string; load: () => Promise<React.ReactNode[]>; empty: string; autologi: boolean; liveKey: string; maxH?: string }) {
+comp = r'''function ClientLogPanel({ title, load, empty, autologi, liveKey, maxH, statusMode }: { title: string; load: () => Promise<React.ReactNode[]>; empty: string; autologi: boolean; liveKey: string; maxH?: string; statusMode?: boolean }) {
   const { t } = usePanelLang();
   const [rows, setRows] = useState<React.ReactNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,16 +41,18 @@ comp = r'''function ClientLogPanel({ title, load, empty, autologi, liveKey, maxH
   }, [load]);
   useEffect(() => { void refresh(true); }, [refresh]);
   useEffect(() => {
-    if (!live) return;
+    if (!live && !statusMode) return;
     const id = window.setInterval(() => void refresh(false), LOGS_LIVE_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [live, refresh]);
+  }, [live, statusMode, refresh]);
   return (
     <div className="grid gap-2 rounded-md border border-border bg-card/40 p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-semibold text-foreground">{title}</div>
         <div className="flex shrink-0 items-center gap-2">
-          {autologi ? (
+          {statusMode ? (
+            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-600"><span className="text-emerald-400">●</span> живой статус</span>
+          ) : autologi ? (
             <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-600">Автообновление</span>
           ) : (
             <>
@@ -116,7 +118,7 @@ function ClientAccessLogModal({ client, autologi, onClose }: { client: any; auto
         <div className="text-xs text-muted-foreground">Данные по этому клиенту. Показываются независимо от того, включён ли контроль доступа.</div>
         <ClientLogPanel title="🎫 Попытки подписки" load={loadAttempts} empty="Попыток пока нет." autologi={autologi} liveKey={"olc-clog-att-" + cid} />
         <ClientLogPanel title="🔌 Попытки подключения к инстансам" load={loadConns} empty="Попыток пока нет." autologi={autologi} liveKey={"olc-clog-conn-" + cid} />
-        <ClientLogPanel title="🔌 Подключения к инстансам (активны сейчас)" load={loadActive} empty="Нет активных подключений/туннелей." autologi={autologi} liveKey={"olc-clog-act-" + cid} maxH="max-h-40" />
+        <ClientLogPanel title="🔌 Подключения к инстансам (активны сейчас)" load={loadActive} empty="Нет активных подключений/туннелей." autologi={autologi} liveKey={"olc-clog-act-" + cid} maxH="max-h-40" statusMode />
       </div>
     </Modal>
   );
