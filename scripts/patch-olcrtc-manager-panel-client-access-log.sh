@@ -124,19 +124,24 @@ rep(
               )}
               {(() => {
                 const _lc = (state?.clients || []).find((x: any) => x.client_id === clientLogTarget?.client_id);
-                const _active: any[] = [];
+                const _byDev: Record<string, string[]> = {};
                 (_lc?.locations || []).forEach((loc: any) => {
-                  ((loc.runtime && loc.runtime.peer_devices) || []).forEach((dev: string) => _active.push({ dev, inst: loc.name || loc.room_id }));
+                  const inst = loc.name || loc.room_id;
+                  ((loc.runtime && loc.runtime.peer_devices) || []).forEach((dev: string) => {
+                    if (!_byDev[dev]) _byDev[dev] = [];
+                    if (!_byDev[dev].includes(inst)) _byDev[dev].push(inst);
+                  });
                 });
+                const _devs = Object.keys(_byDev);
                 return (
                   <div className="mt-3 border-l-2 border-border pl-3">
                     <div className="mb-1 text-[11px] uppercase text-muted-foreground">🔌 Подключения к инстансам (активны сейчас)</div>
-                    {_active.length === 0 ? (
+                    {_devs.length === 0 ? (
                       <div className="text-muted-foreground">Нет активных подключений/туннелей.</div>
                     ) : (
-                      _active.map((c: any, index: number) => (
+                      _devs.map((dev: string, index: number) => (
                         <div key={`act-${index}`} className="whitespace-pre-wrap break-words">
-                          <span className="text-emerald-400">●</span> {c.dev} → {c.inst}
+                          <span className="text-emerald-400">●</span> {dev} → {_byDev[dev].join(", ")}
                         </div>
                       ))
                     )}
