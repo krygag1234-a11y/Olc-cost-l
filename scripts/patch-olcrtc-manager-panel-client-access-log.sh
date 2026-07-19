@@ -151,6 +151,36 @@ rep(
               })()}''',
 "client logs render -> flat access log")
 
+# 4. «Активны сейчас» — живой статус: лёгкий поллинг /api/state, пока модалка логов
+#    клиента открыта, НЕЗАВИСИМО от автологов (статус — не лог; записи должны
+#    исчезать после отключения без ручного «Обновить»).
+rep(
+'''  useEffect(() => {
+    if (!clientLogTarget || !clientLogsLive) return;
+    const id = window.setInterval(() => {
+      refreshClientLogs(clientLogTarget).catch((err) =>
+        setNotice(err instanceof Error ? err.message : String(err)),
+      );
+    }, LOGS_LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [clientLogTarget, clientLogsLive, refreshClientLogs]);''',
+'''  useEffect(() => {
+    if (!clientLogTarget || !clientLogsLive) return;
+    const id = window.setInterval(() => {
+      refreshClientLogs(clientLogTarget).catch((err) =>
+        setNotice(err instanceof Error ? err.message : String(err)),
+      );
+    }, LOGS_LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [clientLogTarget, clientLogsLive, refreshClientLogs]);
+
+  useEffect(() => {
+    if (!clientLogTarget) return;
+    const id = window.setInterval(() => { void loadState(); }, LOGS_LIVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [clientLogTarget]);''',
+"live state poll while client log modal open")
+
 if changed:
     f.write_text(t)
 print("[patch-client-access-log] done")

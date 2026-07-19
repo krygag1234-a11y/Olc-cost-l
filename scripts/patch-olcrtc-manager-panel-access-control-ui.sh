@@ -154,6 +154,7 @@ function AccessControlSection() {
       setEnforceConns(!!b.enforce_connections);
       setConnDevices(Array.isArray(b.conn_devices) ? b.conn_devices : []);
       setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
+      try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: { enabled: !!b.enabled } })); } catch { /* ignore */ }
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const setConnDevice = (hwid: string, patch: { enabled?: boolean }) => { const nx = connDevices.map((d) => d.hwid === hwid ? { ...d, ...patch } : d); setConnDevices(nx); void saveSettings({ conn_devices: nx }); };

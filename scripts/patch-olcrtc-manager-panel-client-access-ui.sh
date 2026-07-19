@@ -155,6 +155,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setConnScope(cc.conn_scope === "selective" ? "selective" : "all");
       setConnInstances(Array.isArray(cc.conn_instances) ? cc.conn_instances : []);
       await load();
+      try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: {} })); } catch { /* ignore */ }
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
   const addIp = (ip: string) => { const v = (ip || "").trim(); if (!v) return; const nx = [...allowIps, v]; setAllowIps(nx); setNewIp(""); void save({ allow_ips: nx }); };
@@ -491,7 +492,9 @@ elif state_anchor in t:
     const load = async () => { try { const r = await fetch("/api/access/settings", { cache: "no-store" }); const b = await r.json(); if (!stop) setGlobalAccessEnabled(!!b.enabled); } catch { /* ignore */ } };
     void load();
     const id = window.setInterval(load, 5000);
-    return () => { stop = true; window.clearInterval(id); };
+    const onAccessSaved = (ev: Event) => { const d = (ev as CustomEvent).detail || {}; if (typeof d.enabled === "boolean") setGlobalAccessEnabled(d.enabled); void load(); };
+    window.addEventListener("olc-access-saved", onAccessSaved);
+    return () => { stop = true; window.clearInterval(id); window.removeEventListener("olc-access-saved", onAccessSaved); };
   }, []);'''
     t = t.replace(state_anchor, inject, 1); changed = True
     print("[patch-client-access-ui] added accessClient state (persisted) + globalAccessEnabled")
