@@ -32,7 +32,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [hiddenCross, setHiddenCross] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("olc-cross-hidden-v1") || "[]"); } catch { return []; } });
   const hideCross = (k: string) => { const nx = Array.from(new Set([...hiddenCross, k])); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const unhideCross = (k: string) => { const nx = hiddenCross.filter((x) => x !== k); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
-  const [allowIps, setAllowIps] = useState<string[]>([]);
+  const [allowIps, setAllowIps] = useState<Array<{ ip: string; enabled: boolean }>>([]);
+  const normIps = (v: any) => (Array.isArray(v) ? v : []).map((x: any) => (typeof x === "string" ? { ip: x, enabled: true } : { ip: String(x?.ip || ""), enabled: x?.enabled !== false })).filter((x: any) => x.ip);
   const [banNoHwid, setBanNoHwid] = useState(false);
   const [newIp, setNewIp] = useState("");
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
@@ -68,7 +69,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setBan(Array.isArray(b.ban) ? b.ban : []);
       setConnAllow(Array.isArray(b.conn_allow) ? b.conn_allow : []);
       setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
-      setAllowIps(Array.isArray(b.allow_ips) ? b.allow_ips : []);
+      setAllowIps(normIps(b.allow_ips));
       setBanNoHwid(!!b.ban_no_hwid);
       setConnEnforce(!!b.conn_enforce);
       setConnScope(b.conn_scope === "selective" ? "selective" : "all");
@@ -81,7 +82,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setGlob({
         devices: Array.isArray(sb.devices) ? sb.devices : [],
         ban: Array.isArray(sb.ban) ? sb.ban : [],
-        allow_ips: Array.isArray(sb.allowed_ips) ? sb.allowed_ips : [],
+        allow_ips: normIps(sb.allowed_ips),
         conn_devices: Array.isArray(sb.conn_devices) ? sb.conn_devices : [],
         conn_ban: Array.isArray(sb.conn_ban) ? sb.conn_ban : [],
       });
@@ -136,7 +137,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
 
-  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: string[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
+  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: any[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
       const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_no_hwid: banNoHwid, conn_allow: connAllow, conn_ban: connBan, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
@@ -149,7 +150,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       setBan(Array.isArray(cc.ban) ? cc.ban : []);
       setConnAllow(Array.isArray(cc.conn_allow) ? cc.conn_allow : []);
       setConnBan(Array.isArray(cc.conn_ban) ? cc.conn_ban : []);
-      setAllowIps(Array.isArray(cc.allow_ips) ? cc.allow_ips : []);
+      setAllowIps(normIps(cc.allow_ips));
       setBanNoHwid(!!cc.ban_no_hwid);
       setConnEnforce(!!cc.conn_enforce);
       setConnScope(cc.conn_scope === "selective" ? "selective" : "all");
@@ -158,8 +159,9 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: {} })); } catch { /* ignore */ }
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
-  const addIp = (ip: string) => { const v = (ip || "").trim(); if (!v) return; const nx = [...allowIps, v]; setAllowIps(nx); setNewIp(""); void save({ allow_ips: nx }); };
-  const rmIp = (ip: string) => { const nx = allowIps.filter((x) => x !== ip); setAllowIps(nx); void save({ allow_ips: nx }); };
+  const addIp = (ip: string) => { const v = (ip || "").trim(); if (!v || allowIps.some((x) => x.ip === v)) return; const nx = [...allowIps, { ip: v, enabled: true }]; setAllowIps(nx); setNewIp(""); void save({ allow_ips: nx }); };
+  const rmIp = (ip: string) => { const nx = allowIps.filter((x) => x.ip !== ip); setAllowIps(nx); void save({ allow_ips: nx }); };
+  const toggleIp = (ip: string, en: boolean) => { const nx = allowIps.map((x) => (x.ip === ip ? { ...x, enabled: en } : x)); setAllowIps(nx); void save({ allow_ips: nx }); };
   const addConnAllow = (h: string) => { h = (h || "").trim(); if (!h) return; if (connAllow.some((d) => d.hwid.toLowerCase() === h.toLowerCase())) return; void save({ conn_allow: [...connAllow, { hwid: h, enabled: true }] }); };
   const addConnBan = (h: string) => { h = (h || "").trim(); if (!h) return; if (connBan.some((d) => d.hwid.toLowerCase() === h.toLowerCase())) return; void save({ conn_ban: [...connBan, { hwid: h, enabled: true }] }); };
   const rmConnAllow = (h: string) => void save({ conn_allow: connAllow.filter((d) => d.hwid !== h) });
@@ -210,13 +212,13 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   // (union): глобальные записи доливаются в списки подписки, ничего не удаляя.
   const hasHwid = (list: Dev[], h: string) => list.some((d) => (d.hwid || "").toLowerCase() === (h || "").toLowerCase());
   const mergeDev = (base: Dev[], add: Dev[]) => { const out = [...base]; for (const d of add || []) { if (d && d.hwid && !hasHwid(out, d.hwid)) out.push({ hwid: d.hwid, label: d.label, enabled: d.enabled !== false }); } return out; };
-  const mergeIp = (base: string[], add: string[]) => Array.from(new Set([...(base || []), ...((add || []).filter(Boolean))]));
+  const mergeIp = (base: any[], add: any[]) => { const out = [...(base || [])]; for (const x of add || []) { if (x && x.ip && !out.some((y: any) => y.ip === x.ip)) out.push({ ip: x.ip, enabled: x.enabled !== false }); } return out; };
   const isSynced = () =>
     (glob.devices || []).every((d: Dev) => hasHwid(allow, d.hwid)) &&
     (glob.ban || []).every((d: Dev) => hasHwid(ban, d.hwid)) &&
     (glob.conn_devices || []).every((d: Dev) => hasHwid(connAllow, d.hwid)) &&
     (glob.conn_ban || []).every((d: Dev) => hasHwid(connBan, d.hwid)) &&
-    (glob.allow_ips || []).every((ip: string) => (allowIps || []).includes(ip));
+    (glob.allow_ips || []).every((x: any) => (allowIps || []).some((y: any) => y.ip === x.ip));
   const syncFromGlobal = () => {
     void save({
       allow: mergeDev(allow, glob.devices),
@@ -290,12 +292,14 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
             <details className="text-[11px]">
               <summary className="cursor-pointer text-muted-foreground">🌐 Разрешить по IP (для этой подписки)</summary>
               <div className="mt-2 grid gap-2">
+                <div className="text-[11px] leading-snug text-amber-500/90">⚠️ IP-список действует НЕЗАВИСИМО от списка устройств: запрос с включённого IP получает эту подписку, даже если его устройство выключено или отсутствует в списке. Чтобы IP перестал действовать — снимите с него галочку (или удалите).</div>
                 {allowIps.length > 0 && (
                   <div className="grid max-h-28 gap-1 overflow-y-auto">
-                    {allowIps.map((ip) => (
-                      <div key={ip} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1">
-                        <span className="min-w-0 flex-1 truncate font-mono text-foreground">{ip}</span>
-                        <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => rmIp(ip)}>✕</button>
+                    {allowIps.map((x) => (
+                      <div key={x.ip} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1">
+                        <input type="checkbox" checked={x.enabled} disabled={busy} title={x.enabled ? "IP активен: пропускает подписку" : "IP выключен: не действует"} onChange={(e) => toggleIp(x.ip, e.target.checked)} />
+                        <span className={"min-w-0 flex-1 truncate font-mono " + (x.enabled ? "text-foreground" : "text-muted-foreground line-through opacity-60")}>{x.ip}</span>
+                        <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => rmIp(x.ip)}>✕</button>
                       </div>
                     ))}
                   </div>

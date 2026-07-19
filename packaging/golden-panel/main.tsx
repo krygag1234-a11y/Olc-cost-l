@@ -646,6 +646,10 @@ type ClientState = {
   refresh?: string;
   quota: Quota;
   locations: LocationState[];
+  randomization?: {
+    enabled: boolean;
+    randomized_id?: string;
+  };
 };
 
 type Quota = {
@@ -1374,6 +1378,7 @@ function normalizePanelState(raw: State): State {
       refresh: c.refresh,
       quota: c.quota ?? {},
       locations: (c.locations ?? []).map((loc) => normalizeLocationState(loc as Partial<LocationState>)),
+      randomization: c.randomization,
     }))
     .filter((c) => c.client_id !== "");
   return {
@@ -4685,6 +4690,85 @@ function UpdateAvailableToast() {
   );
 }
 
+
+function SelectiveRandomizationPanel() {
+  const [clients, setClients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState("");
+
+  const loadClients = () => {
+    setLoading(true);
+    fetch("/api/clients/", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data: any) => {
+        setClients(data.clients || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadClients();
+  }, []);
+
+  const toggleRandomization = async (clientID: string, currentEnabled: boolean) => {
+    const res = await fetch(`/api/clients/${encodeURIComponent(clientID)}/randomization`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !currentEnabled }),
+    });
+    if (res.ok) {
+      setMsg(`Рандомизация ${!currentEnabled ? "включена" : "отключена"} для ${clientID}`);
+      loadClients();
+    } else {
+      setMsg(`Ошибка: HTTP ${res.status}`);
+    }
+  };
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="font-medium">Выборочная рандомизация</div>
+      <p className="text-xs text-muted-foreground">
+        Настройте рандомизацию URL для каждого клиента индивидуально
+      </p>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Загрузка...</p>
+      ) : clients.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Нет клиентов</p>
+      ) : (
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {clients.map((c: any) => {
+            const enabled = c.randomization?.enabled ?? false;
+            const randomizedID = c.randomization?.randomized_id || "";
+            return (
+              <div key={c.client_id} className="border border-border rounded p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium truncate flex-1">{c.client_id}</div>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={() => toggleRandomization(c.client_id, enabled)}
+                      className="rounded"
+                    />
+                    <span className="text-xs">{enabled ? "On" : "Off"}</span>
+                  </label>
+                </div>
+                {enabled && randomizedID && (
+                  <div className="text-xs text-muted-foreground truncate">
+                    Hash: {randomizedID}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {msg && <p className="text-xs text-amber-600">{msg}</p>}
+    </div>
+  );
+}
+
 function App() {
   const { t, lang, setLang } = usePanelLang();
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -4719,6 +4803,8 @@ function App() {
   const [locationModalError, setLocationModalError] = useState("");
   const [settingsForm, setSettingsForm] = useState<SettingsForm>(defaultSettingsForm);
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", repeat: "" });
+  const [selectiveRandomizationOpen, setSelectiveRandomizationOpen] = useState(false);
+  const [globalRandomizationEnabled, setGlobalRandomizationEnabled] = useState(false);
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
 
   const checkAuth = async () => {
@@ -4771,6 +4857,15 @@ function App() {
       subscription_path: body.subscription_path,
       refresh: body.refresh ?? "",
     });
+
+    // Load global randomization state
+    try {
+      const randRes = await request("/api/settings/randomization/global", { cache: "no-store" });
+      const randBody = (await randRes.json()) as { enabled: boolean };
+      setGlobalRandomizationEnabled(randBody.enabled ?? false);
+    } catch {
+      setGlobalRandomizationEnabled(false);
+    }
   };
 
   const loadAudit = async () => {
@@ -5194,6 +5289,13 @@ function App() {
       await navigator.clipboard.writeText(uri);
     }, t("linkCopied", { id: clientID }));
 
+  const toggleRandomization = (clientID: string, currentlyEnabled: boolean) =>
+    runAction(async () => {
+      const endpoint = currentlyEnabled ? "disable" : "enable";
+      await request(`/api/clients/${clientID}/randomization/${endpoint}`, { method: "POST" });
+      await loadState();
+    }, currentlyEnabled ? "Randomization disabled" : "Randomization enabled");
+
   const copySubscription = (clientID: string) =>
     runAction(async () => {
       await navigator.clipboard.writeText(subscriptionURL(clientID, currentSubscriptionPath));
@@ -5313,6 +5415,11 @@ function App() {
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate font-semibold">{client.client_id}</span>
+                        {globalRandomizationEnabled && client.randomization?.randomized_id && (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            🔒 {client.randomization.randomized_id}
+                          </span>
+                        )}
                         <span className="mt-1 block text-xs text-muted-foreground">
                           {clientSummary(client, running)}
                         </span>
@@ -5334,6 +5441,24 @@ function App() {
                       >
                         <Terminal className="h-4 w-4" />
                         Логи
+                      </button>
+                      <button
+                        className={`inline-flex h-8 items-center gap-2 rounded-md border px-2 text-sm transition-all duration-200 ${
+                          client.randomization?.enabled || globalRandomizationEnabled
+                            ? "border-green-500/40 bg-green-500/10 text-green-600 hover:bg-green-500/20"
+                            : "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
+                        } ${globalRandomizationEnabled ? 'opacity-50 cursor-not-allowed' : 'disabled:opacity-60'}`}
+                        disabled={busy || globalRandomizationEnabled}
+                        onClick={() => toggleRandomization(client.client_id, client.randomization?.enabled ?? false)}
+                        title={
+                          globalRandomizationEnabled
+                            ? "Глобальная рандомизация включена (сначала отключите глобальную)"
+                            : client.randomization?.enabled
+                            ? "Рандомизация ВКЛ — нажмите для отключения"
+                            : "Рандомизация ВЫКЛ — нажмите для включения"
+                        }
+                      >
+                        🎲 {client.randomization?.enabled || globalRandomizationEnabled ? "ON" : "OFF"}
                       </button>
                       <button
                         className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm hover:bg-muted disabled:opacity-60"
@@ -5674,6 +5799,24 @@ function App() {
               </label>
             </section>
 
+                        <div className="flex items-center justify-between border-b border-border py-2">
+              <div>
+                <div className="text-sm font-medium">Выборочная рандомизация</div>
+                <div className="text-xs text-muted-foreground">Индивидуальные настройки рандомизации для каждого клиента</div>
+              </div>
+              <button
+                type="button"
+                className="rounded bg-blue-500/10 border border-blue-500/30 px-2 py-1 text-xs text-blue-600 hover:bg-blue-500/20 transition-colors"
+                onClick={() => setSelectiveRandomizationOpen(!selectiveRandomizationOpen)}
+              >
+                {selectiveRandomizationOpen ? "Скрыть" : "Настроить"}
+              </button>
+            </div>
+            {selectiveRandomizationOpen && (
+              <div className="border-l-2 border-primary/30 pl-3">
+                <SelectiveRandomizationPanel />
+              </div>
+            )}
             <MainSettingsAutodetectLink
               expanded={showAutodetectInline}
               onToggle={() => setShowAutodetectInline((v) => !v)}

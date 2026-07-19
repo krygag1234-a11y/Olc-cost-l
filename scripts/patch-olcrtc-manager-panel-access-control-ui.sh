@@ -43,7 +43,8 @@ function AccessControlSection() {
   const [hiddenCross, setHiddenCross] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("olc-cross-hidden-g-v1") || "[]"); } catch { return []; } });
   const hideCross = (k: string) => { const nx = Array.from(new Set([...hiddenCross, k])); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-g-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const unhideCross = (k: string) => { const nx = hiddenCross.filter((x) => x !== k); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-g-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
-  const [allowedIps, setAllowedIps] = useState<string[]>([]);
+  const [allowedIps, setAllowedIps] = useState<Array<{ ip: string; enabled: boolean }>>([]);
+  const normIps = (v: any) => (Array.isArray(v) ? v : []).map((x: any) => (typeof x === "string" ? { ip: x, enabled: true } : { ip: String(x?.ip || ""), enabled: x?.enabled !== false })).filter((x: any) => x.ip);
   const [newIp, setNewIp] = useState("");
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
@@ -71,7 +72,7 @@ function AccessControlSection() {
       setEnforceConns(!!sb.enforce_connections);
       setConnDevices(Array.isArray(sb.conn_devices) ? sb.conn_devices : []);
       setConnBan(Array.isArray(sb.conn_ban) ? sb.conn_ban : []);
-      setAllowedIps(Array.isArray(sb.allowed_ips) ? sb.allowed_ips : []);
+      setAllowedIps(normIps(sb.allowed_ips));
     } catch { /* ignore */ }
     try {
       const l = await fetch("/api/settings/logs", { cache: "no-store" });
@@ -138,7 +139,7 @@ function AccessControlSection() {
   };
   const clearConnections = () => { const ts = new Date().toISOString(); setConnClearedAt(ts); try { localStorage.setItem("olc-conn-cleared-global", ts); } catch {} };
 
-  const saveSettings = async (next: { enabled?: boolean; mode?: string; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_devices?: any[]; conn_ban?: any[] }) => {
+  const saveSettings = async (next: { enabled?: boolean; mode?: string; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_devices?: any[]; conn_ban?: any[]; allowed_ips?: any[] }) => {
     setBusy(true); setMsg(null);
     try {
       const body = { enabled, mode, devices, ban, ban_no_hwid: banNoHwid, enforce_connections: enforceConns, conn_devices: connDevices, conn_ban: connBan, ...next };
@@ -154,6 +155,7 @@ function AccessControlSection() {
       setEnforceConns(!!b.enforce_connections);
       setConnDevices(Array.isArray(b.conn_devices) ? b.conn_devices : []);
       setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
+      if (Array.isArray(b.allowed_ips)) setAllowedIps(normIps(b.allowed_ips));
       try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: { enabled: !!b.enabled } })); } catch { /* ignore */ }
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
@@ -232,16 +234,17 @@ function AccessControlSection() {
     try {
       const res = await fetch("/api/access/allow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip: v }) });
       const b = await res.json();
-      setAllowedIps(Array.isArray(b.allowed_ips) ? b.allowed_ips : []);
+      setAllowedIps(normIps(b.allowed_ips));
       setNewIp("");
     } catch { /* ignore */ } finally { setBusy(false); }
   };
+  const toggleIp = (ip: string, en: boolean) => { const nx = allowedIps.map((x) => (x.ip === ip ? { ...x, enabled: en } : x)); setAllowedIps(nx); void saveSettings({ allowed_ips: nx }); };
   const removeIp = async (ip: string) => {
     setBusy(true);
     try {
       const res = await fetch("/api/access/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip }) });
       const b = await res.json();
-      setAllowedIps(Array.isArray(b.allowed_ips) ? b.allowed_ips : []);
+      setAllowedIps(normIps(b.allowed_ips));
     } catch { /* ignore */ } finally { setBusy(false); }
   };
   const isKnown = (hwid: string) => devices.some((d) => (d.hwid || "").toLowerCase() === hwid.toLowerCase());
@@ -309,12 +312,14 @@ function AccessControlSection() {
             <details className="text-[11px]">
               <summary className="cursor-pointer text-muted-foreground">🌐 Разрешить по IP (без hwid — напр. свой сервер/скрипт)</summary>
               <div className="mt-2 grid gap-2">
+                <div className="text-[11px] leading-snug text-amber-500/90">⚠️ IP-список действует НЕЗАВИСИМО от списка устройств: запрос с включённого IP получает подписку, даже если его устройство выключено или отсутствует в списке. Чтобы IP перестал действовать — снимите с него галочку (или удалите).</div>
                 {allowedIps.length > 0 && (
                   <div className="grid max-h-32 gap-1 overflow-y-auto">
-                    {allowedIps.map((ip) => (
-                      <div key={ip} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1">
-                        <span className="min-w-0 flex-1 truncate font-mono text-foreground">{ip}</span>
-                        <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => void removeIp(ip)}>✕</button>
+                    {allowedIps.map((x) => (
+                      <div key={x.ip} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1">
+                        <input type="checkbox" checked={x.enabled} disabled={busy} title={x.enabled ? "IP активен: пропускает подписку" : "IP выключен: не действует"} onChange={(e) => toggleIp(x.ip, e.target.checked)} />
+                        <span className={"min-w-0 flex-1 truncate font-mono " + (x.enabled ? "text-foreground" : "text-muted-foreground line-through opacity-60")}>{x.ip}</span>
+                        <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => void removeIp(x.ip)}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -384,7 +389,7 @@ function AccessControlSection() {
                         <div className="flex shrink-0 gap-1">
                           {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => void allow(hwid)}>Разрешить</button>}
                           {!ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase()) && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => banDevice(hwid)}>Бан</button>}
-                          {String(a.ip || "") && !allowedIps.includes(String(a.ip)) && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
+                          {String(a.ip || "") && !allowedIps.some((x) => x.ip === String(a.ip)) && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить этот IP" onClick={() => void allowIp(String(a.ip))}>+IP</button>}
                         </div>
                       )}
                     </div>
