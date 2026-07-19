@@ -27,7 +27,7 @@ def rep(old, new, tag):
     print(f"[client-access-log] {tag}: ok")
 
 # --- 1. Компоненты ClientLogPanel + ClientAccessLogModal (перед function App) ---
-comp = r'''function ClientLogPanel({ title, load, empty, autologi, liveKey, maxH, statusMode }: { title: string; load: () => Promise<React.ReactNode[]>; empty: string; autologi: boolean; liveKey: string; maxH?: string; statusMode?: boolean }) {
+comp = r'''function ClientLogPanel({ title, load, empty, autologi, liveKey, maxH, statusMode, hint }: { title: string; load: () => Promise<React.ReactNode[]>; empty: string; autologi: boolean; liveKey: string; maxH?: string; statusMode?: boolean; hint?: string }) {
   const { t } = usePanelLang();
   const [rows, setRows] = useState<React.ReactNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,7 @@ comp = r'''function ClientLogPanel({ title, load, empty, autologi, liveKey, maxH
           )}
         </div>
       </div>
+      {hint && <div className="text-[11px] leading-snug text-muted-foreground">{hint}</div>}
       <LogScrollBox ref={scroll.ref} onScroll={scroll.onScroll} className={"overflow-y-auto rounded-md border border-border bg-black p-3 font-mono text-xs text-slate-100 " + (maxH || "max-h-52")}>
         {loading && rows.length === 0 ? (
           <div className="text-muted-foreground">{t("loadingLogs")}</div>
@@ -118,7 +119,7 @@ function ClientAccessLogModal({ client, autologi, onClose }: { client: any; auto
         <div className="text-xs text-muted-foreground">Данные по этому клиенту. Показываются независимо от того, включён ли контроль доступа.</div>
         <ClientLogPanel title="🎫 Попытки подписки" load={loadAttempts} empty="Попыток пока нет." autologi={autologi} liveKey={"olc-clog-att-" + cid} />
         <ClientLogPanel title="🔌 Попытки подключения к инстансам" load={loadConns} empty="Попыток пока нет." autologi={autologi} liveKey={"olc-clog-conn-" + cid} />
-        <ClientLogPanel title="🔌 Подключения к инстансам (активны сейчас)" load={loadActive} empty="Нет активных подключений/туннелей." autologi={autologi} liveKey={"olc-clog-act-" + cid} maxH="max-h-40" statusMode />
+        <ClientLogPanel title="🔌 Подключения к инстансам (активны сейчас)" load={loadActive} empty="Нет активных подключений/туннелей." autologi={autologi} liveKey={"olc-clog-act-" + cid} maxH="max-h-40" statusMode hint="Отражает сессии, которые держит ядро. После реального отключения запись может исчезать с задержкой до ~1 минуты: ядро выдерживает окно на переподключение, чтобы кратковременный обрыв сети (напр. мобильная) не рвал туннель." />
       </div>
     </Modal>
   );
