@@ -65,6 +65,7 @@ rep(
       setClientAccessLog({ attempts: [], conns: [] });
     }
     setClientLogs([]);
+    void loadState();
   }, []);''',
 "refreshClientLogs -> access log")
 
