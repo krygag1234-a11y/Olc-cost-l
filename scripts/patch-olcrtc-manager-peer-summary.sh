@@ -66,6 +66,57 @@ impl = '''func parsePeerSummaryLine(line string) (int, []string, bool) {
 if stub not in t:
     print("[patch-peer-summary] ERROR: parsePeerSummaryLine stub not found"); sys.exit(1)
 t = t.replace(stub, impl, 1)
+
+# --- RuntimeState: поле PeerAt (время peer-сводки, для выбора текущего инстанса) ---
+rs_old = '''	PeerCount   *int     `json:"peer_count,omitempty"`
+	PeerDevices []string `json:"peer_devices,omitempty"`
+}'''
+rs_new = '''	PeerCount   *int     `json:"peer_count,omitempty"`
+	PeerDevices []string `json:"peer_devices,omitempty"`
+	PeerAt      string   `json:"peer_at,omitempty"`
+}'''
+if 'PeerAt' not in t:
+    if rs_old not in t:
+        print("[patch-peer-summary] ERROR: RuntimeState anchor not found"); sys.exit(1)
+    t = t.replace(rs_old, rs_new, 1)
+
+# --- PeerSummary: возвращать также время строки ---
+ps_old = '''func (b *logBuffer) PeerSummary() (int, []string, bool) {
+	lines := b.Snapshot()
+	for i := len(lines) - 1; i >= 0; i-- {
+		if count, devices, ok := parsePeerSummaryLine(lines[i].Line); ok {
+			return count, devices, true
+		}
+	}
+	return 0, nil, false
+}'''
+ps_new = '''func (b *logBuffer) PeerSummary() (int, []string, string, bool) {
+	lines := b.Snapshot()
+	for i := len(lines) - 1; i >= 0; i-- {
+		if count, devices, ok := parsePeerSummaryLine(lines[i].Line); ok {
+			return count, devices, lines[i].Time, true
+		}
+	}
+	return 0, nil, "", false
+}'''
+if ps_old not in t:
+    print("[patch-peer-summary] ERROR: PeerSummary anchor not found"); sys.exit(1)
+t = t.replace(ps_old, ps_new, 1)
+
+# --- state(): сохранить PeerAt ---
+st_old = '''	if count, devices, ok := p.logs.PeerSummary(); ok {
+		state.PeerCount = &count
+		state.PeerDevices = devices
+	}'''
+st_new = '''	if count, devices, at, ok := p.logs.PeerSummary(); ok {
+		state.PeerCount = &count
+		state.PeerDevices = devices
+		state.PeerAt = at
+	}'''
+if st_old not in t:
+    print("[patch-peer-summary] ERROR: state() PeerSummary caller not found"); sys.exit(1)
+t = t.replace(st_old, st_new, 1)
+
 f.write_text(t)
-print("[patch-peer-summary] ok: parsePeerSummaryLine implemented")
+print("[patch-peer-summary] ok: parsePeerSummaryLine + PeerAt (время) implemented")
 PY

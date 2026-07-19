@@ -124,12 +124,12 @@ rep(
               )}
               {(() => {
                 const _lc = (state?.clients || []).find((x: any) => x.client_id === clientLogTarget?.client_id);
-                const _byDev: Record<string, string[]> = {};
+                const _byDev: Record<string, { inst: string; at: string }> = {};
                 (_lc?.locations || []).forEach((loc: any) => {
                   const inst = loc.name || loc.room_id;
+                  const at = (loc.runtime && loc.runtime.peer_at) || "";
                   ((loc.runtime && loc.runtime.peer_devices) || []).forEach((dev: string) => {
-                    if (!_byDev[dev]) _byDev[dev] = [];
-                    if (!_byDev[dev].includes(inst)) _byDev[dev].push(inst);
+                    if (!_byDev[dev] || at > _byDev[dev].at) _byDev[dev] = { inst, at };
                   });
                 });
                 const _devs = Object.keys(_byDev);
@@ -141,7 +141,7 @@ rep(
                     ) : (
                       _devs.map((dev: string, index: number) => (
                         <div key={`act-${index}`} className="whitespace-pre-wrap break-words">
-                          <span className="text-emerald-400">●</span> {dev} → {_byDev[dev].join(", ")}
+                          <span className="text-emerald-400">●</span> {dev} → {_byDev[dev].inst}
                         </div>
                       ))
                     )}
