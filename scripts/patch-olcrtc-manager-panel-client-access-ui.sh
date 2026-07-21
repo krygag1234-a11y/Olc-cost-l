@@ -34,8 +34,12 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const unhideCross = (k: string) => { const nx = hiddenCross.filter((x) => x !== k); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const [allowIps, setAllowIps] = useState<Array<{ ip: string; enabled: boolean }>>([]);
   const normIps = (v: any) => (Array.isArray(v) ? v : []).map((x: any) => (typeof x === "string" ? { ip: x, enabled: true } : { ip: String(x?.ip || ""), enabled: x?.enabled !== false })).filter((x: any) => x.ip);
+  const [banIps, setBanIps] = useState<Array<{ ip: string; enabled: boolean }>>([]);
   const [banNoHwid, setBanNoHwid] = useState(false);
   const [newIp, setNewIp] = useState("");
+  const [newBanIp, setNewBanIp] = useState("");
+  // Мини-модалка подтверждения (конфликт бан↔разрешено): текст, кнопка ok, действие.
+  const [confirmA, setConfirmA] = useState<null | { text: string; ok: string; cancel: string; okCls: "red" | "emerald"; run: () => void }>(null);
   const [attempts, setAttempts] = useState<Array<Record<string, any>>>([]);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [connClearedAt, setConnClearedAt] = useState<string>(() => { try { return localStorage.getItem("olc-conn-cleared-" + clientId) || ""; } catch { return ""; } });
@@ -56,7 +60,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const [connScope, setConnScope] = useState<"all" | "selective">("all");
   const [connInstances, setConnInstances] = useState<string[]>([]);
   const [globalEnforceConns, setGlobalEnforceConns] = useState(false);
-  const [glob, setGlob] = useState<any>({ devices: [], ban: [], allow_ips: [], conn_devices: [], conn_ban: [] });
+  const [glob, setGlob] = useState<any>({ devices: [], ban: [], allow_ips: [], ban_ips: [], conn_devices: [], conn_ban: [] });
   const [syncHidden, setSyncHidden] = useState<boolean>(() => { try { return localStorage.getItem("olc-sync-hidden-" + clientId) === "1"; } catch { return false; } });
   const [instances, setInstances] = useState<Array<{ room_id: string; name: string }>>([]);
 
@@ -64,12 +68,13 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     try {
       const r = await fetch(`/api/access/client?client_id=${encodeURIComponent(clientId)}`, { cache: "no-store" });
       const b = await r.json();
-      setMode(b.mode && b.mode !== "inherit" ? b.mode : "off");
+      setMode(b.mode === "enforce" ? "enforce" : "off"); // off+monitor слиты в «Выключено»
       setAllow(Array.isArray(b.allow) ? b.allow : []);
       setBan(Array.isArray(b.ban) ? b.ban : []);
       setConnAllow(Array.isArray(b.conn_allow) ? b.conn_allow : []);
       setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
       setAllowIps(normIps(b.allow_ips));
+      setBanIps(normIps(b.ban_ips));
       setBanNoHwid(!!b.ban_no_hwid);
       setConnEnforce(!!b.conn_enforce);
       setConnScope(b.conn_scope === "selective" ? "selective" : "all");
@@ -83,6 +88,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
         devices: Array.isArray(sb.devices) ? sb.devices : [],
         ban: Array.isArray(sb.ban) ? sb.ban : [],
         allow_ips: normIps(sb.allowed_ips),
+        ban_ips: normIps(sb.ban_ips),
         conn_devices: Array.isArray(sb.conn_devices) ? sb.conn_devices : [],
         conn_ban: Array.isArray(sb.conn_ban) ? sb.conn_ban : [],
       });
@@ -137,20 +143,21 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
 
-  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: any[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
+  const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: any[]; ban_ips?: any[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_no_hwid: banNoHwid, conn_allow: connAllow, conn_ban: connBan, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
+      const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_ips: banIps, ban_no_hwid: banNoHwid, conn_allow: connAllow, conn_ban: connBan, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
       const r = await fetch("/api/access/client", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
       const cc = (b.clients || {})[clientId] || {};
-      setMode(cc.mode && cc.mode !== "inherit" ? cc.mode : "off");
+      setMode(cc.mode === "enforce" ? "enforce" : "off");
       setAllow(Array.isArray(cc.allow) ? cc.allow : []);
       setBan(Array.isArray(cc.ban) ? cc.ban : []);
       setConnAllow(Array.isArray(cc.conn_allow) ? cc.conn_allow : []);
       setConnBan(Array.isArray(cc.conn_ban) ? cc.conn_ban : []);
       setAllowIps(normIps(cc.allow_ips));
+      setBanIps(normIps(cc.ban_ips));
       setBanNoHwid(!!cc.ban_no_hwid);
       setConnEnforce(!!cc.conn_enforce);
       setConnScope(cc.conn_scope === "selective" ? "selective" : "all");
@@ -159,11 +166,49 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: {} })); } catch { /* ignore */ }
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
-  const addIp = (ip: string) => { const v = (ip || "").trim(); if (!v || allowIps.some((x) => x.ip === v)) return; const nx = [...allowIps, { ip: v, enabled: true }]; setAllowIps(nx); setNewIp(""); void save({ allow_ips: nx }); };
+  // ── Конфликт бан↔разрешено: устройство/IP НИКОГДА не должно быть в обоих
+  // списках одновременно. Добавление в один список при наличии в противоположном
+  // → мини-модалка подтверждения; подтверждение = атомарный перенос (один save).
+  const inList = (list: Dev[], h: string) => list.some((d) => (d.hwid || "").toLowerCase() === (h || "").toLowerCase());
+  const dropHwid = (list: Dev[], h: string) => list.filter((d) => (d.hwid || "").toLowerCase() !== (h || "").toLowerCase());
+  const ipIn = (list: any[], ip: string) => (list || []).some((x: any) => x.ip === ip);
+  const dropIp = (list: any[], ip: string) => (list || []).filter((x: any) => x.ip !== ip);
+  const addIp = (ip: string) => {
+    const v = (ip || "").trim(); if (!v || ipIn(allowIps, v)) return;
+    if (ipIn(banIps, v)) {
+      setConfirmA({ text: `IP ${v} забанен (подписка). Разбанить его и добавить в разрешённые?`, ok: "Разбанить", cancel: "Нет", okCls: "emerald", run: () => { setNewIp(""); void save({ ban_ips: dropIp(banIps, v), allow_ips: [...allowIps, { ip: v, enabled: true }] }); } });
+      return;
+    }
+    setNewIp(""); void save({ allow_ips: [...allowIps, { ip: v, enabled: true }] });
+  };
   const rmIp = (ip: string) => { const nx = allowIps.filter((x) => x.ip !== ip); setAllowIps(nx); void save({ allow_ips: nx }); };
   const toggleIp = (ip: string, en: boolean) => { const nx = allowIps.map((x) => (x.ip === ip ? { ...x, enabled: en } : x)); setAllowIps(nx); void save({ allow_ips: nx }); };
-  const addConnAllow = (h: string) => { h = (h || "").trim(); if (!h) return; if (connAllow.some((d) => d.hwid.toLowerCase() === h.toLowerCase())) return; void save({ conn_allow: [...connAllow, { hwid: h, enabled: true }] }); };
-  const addConnBan = (h: string) => { h = (h || "").trim(); if (!h) return; if (connBan.some((d) => d.hwid.toLowerCase() === h.toLowerCase())) return; void save({ conn_ban: [...connBan, { hwid: h, enabled: true }] }); };
+  const addBanIp = (ip: string) => {
+    const v = (ip || "").trim(); if (!v || ipIn(banIps, v)) return;
+    if (ipIn(allowIps, v)) {
+      setConfirmA({ text: `IP ${v} в списке разрешённых (подписка). Он будет удалён из разрешённых и забанен.`, ok: "Бан", cancel: "Отмена", okCls: "red", run: () => { setNewBanIp(""); void save({ allow_ips: dropIp(allowIps, v), ban_ips: [...banIps, { ip: v, enabled: true }] }); } });
+      return;
+    }
+    setNewBanIp(""); void save({ ban_ips: [...banIps, { ip: v, enabled: true }] });
+  };
+  const rmBanIp = (ip: string) => { const nx = banIps.filter((x) => x.ip !== ip); setBanIps(nx); void save({ ban_ips: nx }); };
+  const toggleBanIp = (ip: string, en: boolean) => { const nx = banIps.map((x) => (x.ip === ip ? { ...x, enabled: en } : x)); setBanIps(nx); void save({ ban_ips: nx }); };
+  const addConnAllow = (h: string) => {
+    h = (h || "").trim(); if (!h || inList(connAllow, h)) return;
+    if (inList(connBan, h)) {
+      setConfirmA({ text: `Устройство ${h} забанено для ПОДКЛЮЧЕНИЯ. Разбанить его и добавить в разрешённые?`, ok: "Разбанить", cancel: "Нет", okCls: "emerald", run: () => void save({ conn_ban: dropHwid(connBan, h), conn_allow: [...connAllow, { hwid: h, enabled: true }] }) });
+      return;
+    }
+    void save({ conn_allow: [...connAllow, { hwid: h, enabled: true }] });
+  };
+  const addConnBan = (h: string) => {
+    h = (h || "").trim(); if (!h || inList(connBan, h)) return;
+    if (inList(connAllow, h)) {
+      setConfirmA({ text: `Устройство ${h} в списке разрешённых для ПОДКЛЮЧЕНИЯ. Оно будет удалено из разрешённых и забанено.`, ok: "Бан", cancel: "Отмена", okCls: "red", run: () => void save({ conn_allow: dropHwid(connAllow, h), conn_ban: [...connBan, { hwid: h, enabled: true }] }) });
+      return;
+    }
+    void save({ conn_ban: [...connBan, { hwid: h, enabled: true }] });
+  };
   const rmConnAllow = (h: string) => void save({ conn_allow: connAllow.filter((d) => d.hwid !== h) });
   const rmConnBan = (h: string) => void save({ conn_ban: connBan.filter((d) => d.hwid !== h) });
   const toggleConnAllow = (h: string, en: boolean) => void save({ conn_allow: connAllow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
@@ -192,12 +237,30 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     setConnInstances(nx); void save({ conn_instances: nx });
   };
   const allowIp = (ip: string) => addIp(ip); // из журнала — в per-client список этой подписки
-  const addAllow = (h: string) => { h = h.trim(); if (!h) return; void save({ allow: [...allow, { hwid: h, enabled: true }] }); setNewAllow(""); };
-  const addBan = (h: string) => { h = h.trim(); if (!h) return; void save({ ban: [...ban, { hwid: h, enabled: true }] }); setNewBan(""); };
+  const addAllow = (h: string) => {
+    h = (h || "").trim(); if (!h || inList(allow, h)) return;
+    if (inList(ban, h)) {
+      setConfirmA({ text: `Устройство ${h} забанено (подписка). Разбанить его и добавить в разрешённые?`, ok: "Разбанить", cancel: "Нет", okCls: "emerald", run: () => { setNewAllow(""); void save({ ban: dropHwid(ban, h), allow: [...allow, { hwid: h, enabled: true }] }); } });
+      return;
+    }
+    setNewAllow(""); void save({ allow: [...allow, { hwid: h, enabled: true }] });
+  };
+  const addBan = (h: string) => {
+    h = (h || "").trim(); if (!h || inList(ban, h)) return;
+    if (inList(allow, h)) {
+      setConfirmA({ text: `Устройство ${h} в списке разрешённых (подписка). Оно будет удалено из разрешённых и забанено.`, ok: "Бан", cancel: "Отмена", okCls: "red", run: () => { setNewBan(""); void save({ allow: dropHwid(allow, h), ban: [...ban, { hwid: h, enabled: true }] }); } });
+      return;
+    }
+    setNewBan(""); void save({ ban: [...ban, { hwid: h, enabled: true }] });
+  };
   const rmAllow = (h: string) => void save({ allow: allow.filter((d) => d.hwid !== h) });
   const rmBan = (h: string) => void save({ ban: ban.filter((d) => d.hwid !== h) });
   const toggleAllow = (h: string, en: boolean) => void save({ allow: allow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
   const toggleBan = (h: string, en: boolean) => void save({ ban: ban.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });
+  // Режимы секций: «Выключено» затемняет и блокирует ТОЛЬКО свою область разрешённых.
+  const subOff = mode !== "enforce";
+  const connOff = !connEnforce;
+  const dimCls = (off: boolean) => (off ? " pointer-events-none opacity-40 select-none" : "");
 
   const devRow = (d: Dev, onToggle: ((en: boolean) => void) | null, onRemove: () => void, extra?: any) => (
     <div key={d.hwid} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-[11px]">
@@ -218,7 +281,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
     (glob.ban || []).every((d: Dev) => hasHwid(ban, d.hwid)) &&
     (glob.conn_devices || []).every((d: Dev) => hasHwid(connAllow, d.hwid)) &&
     (glob.conn_ban || []).every((d: Dev) => hasHwid(connBan, d.hwid)) &&
-    (glob.allow_ips || []).every((x: any) => (allowIps || []).some((y: any) => y.ip === x.ip));
+    (glob.allow_ips || []).every((x: any) => (allowIps || []).some((y: any) => y.ip === x.ip)) &&
+    (glob.ban_ips || []).every((x: any) => (banIps || []).some((y: any) => y.ip === x.ip));
   const syncFromGlobal = () => {
     void save({
       allow: mergeDev(allow, glob.devices),
@@ -226,6 +290,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
       conn_allow: mergeDev(connAllow, glob.conn_devices),
       conn_ban: mergeDev(connBan, glob.conn_ban),
       allow_ips: mergeIp(allowIps, glob.allow_ips),
+      ban_ips: mergeIp(banIps, glob.ban_ips),
       mode: mode === "off" ? "enforce" : mode,
     });
   };
@@ -263,26 +328,23 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
         <div className="grid gap-3 rounded-md border border-border bg-card/30 p-3">
           <div className="text-sm font-semibold text-foreground">🎫 Кто может получить подписку</div>
 
-          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <label className="flex items-center gap-1">
-              <input type="radio" name={`olc-cli-mode-${clientId}`} checked={mode === "off"} disabled={busy}
-                onChange={() => { setMode("off"); void save({ mode: "off" }); }} />
-              Выключено (пускать всех)
-            </label>
-            <label className="flex items-center gap-1">
-              <input type="radio" name={`olc-cli-mode-${clientId}`} checked={mode === "monitor"} disabled={busy}
-                onChange={() => { setMode("monitor"); void save({ mode: "monitor" }); }} />
-              Наблюдение (лог, пускать)
-            </label>
-            <label className="flex items-center gap-1">
-              <input type="radio" name={`olc-cli-mode-${clientId}`} checked={mode === "enforce"} disabled={busy}
-                onChange={() => { setMode("enforce"); void save({ mode: "enforce" }); }} />
-              Блокировать неизвестных
-            </label>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <button type="button" disabled={busy}
+              className={subOff ? "rounded-md border border-emerald-600/60 bg-emerald-500/15 px-2 py-1 font-medium text-emerald-300" : "rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-muted"}
+              onClick={() => { if (subOff) return; setMode("off"); void save({ mode: "off" }); }}>
+              Выключено (пускать всех (кроме бан-листа), лог)
+            </button>
+            <button type="button" disabled={busy}
+              className={!subOff ? "rounded-md border border-red-500/60 bg-red-500/15 px-2 py-1 font-medium text-red-300" : "rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-muted"}
+              onClick={() => { if (!subOff) return; setMode("enforce"); void save({ mode: "enforce" }); }}>
+              Блокировать неизвестных (+логирование)
+            </button>
           </div>
+          <div className="text-[10px] leading-snug text-muted-foreground">Журнал и бан-лист действуют в ОБОИХ режимах. «Блокировать неизвестных» дополнительно пускает только устройства/IP из «Разрешённых».</div>
 
-          <div className="grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-2">
-            <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые устройства</div>
+          <div className={"grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-2" + dimCls(subOff)}
+            title={subOff ? "Режим «Выключено»: списки разрешённых не действуют и недоступны — включите «Блокировать неизвестных»" : undefined}>
+            <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые устройства{subOff ? " — не действуют в режиме «Выключено»" : ""}</div>
             {allow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
             <div className="grid max-h-32 gap-1 overflow-y-auto">{allow.map((d) => devRow(d, (en) => toggleAllow(d.hwid, en), () => rmAllow(d.hwid), crossBtn(d.hwid, "allow", "conn", connAllow.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addConnAllow(d.hwid))))}</div>
             <div className="flex gap-2">
@@ -320,9 +382,31 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
               <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="install-… (забанить)" value={newBan} onChange={(e) => setNewBan(e.target.value)} />
               <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBan.trim()} onClick={() => addBan(newBan)}>Забанить</button>
             </div>
+            <details className="text-[11px]">
+              <summary className="cursor-pointer text-muted-foreground">🌐🚫 Забаненные IP (эта подписка)</summary>
+              <div className="mt-2 grid gap-2">
+                <div className="text-[11px] leading-snug text-amber-500/90">⚠️ Бан по IP действует ВСЕГДА — в обоих режимах (и в «Выключено»). Запрос подписки с забаненного IP блокируется независимо от устройства.</div>
+                {banIps.length > 0 && (
+                  <div className="grid max-h-28 gap-1 overflow-y-auto">
+                    {banIps.map((x) => (
+                      <div key={x.ip} className="flex items-center gap-2 rounded border border-red-500/30 bg-background px-2 py-1">
+                        <input type="checkbox" checked={x.enabled} disabled={busy} title={x.enabled ? "Бан IP активен" : "Бан IP выключен: не действует"} onChange={(e) => toggleBanIp(x.ip, e.target.checked)} />
+                        <span className={"min-w-0 flex-1 truncate font-mono " + (x.enabled ? "text-red-300" : "text-muted-foreground line-through opacity-60")}>{x.ip}</span>
+                        <button type="button" className="shrink-0 text-red-400 hover:text-red-300" disabled={busy} onClick={() => rmBanIp(x.ip)}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {banIps.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
+                <div className="flex gap-2">
+                  <input className="h-8 flex-1 rounded border border-border bg-card px-2 text-xs text-foreground" placeholder="IP-адрес (забанить)" value={newBanIp} onChange={(e) => setNewBanIp(e.target.value)} />
+                  <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBanIp.trim()} onClick={() => addBanIp(newBanIp)}>Забанить IP</button>
+                </div>
+              </div>
+            </details>
             <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
               <input type="checkbox" checked={banNoHwid} disabled={busy} onChange={(e) => { setBanNoHwid(e.target.checked); void save({ ban_no_hwid: e.target.checked }); }} />
-              Блокировать запросы без hwid (Compatibility-режим olcbox)
+              Блокировать запросы без hwid (Compatibility-режим olcbox) — действует в обоих режимах
             </label>
           </div>
 
@@ -343,17 +427,27 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                 const hwid = String(a.hwid || "");
                 const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
                 const banned = ban.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());
+                const aip = String(a.ip || "");
+                const ipAllowed = ipIn(allowIps, aip);
+                const ipBanned = ipIn(banIps, aip);
                 return (
                   <div key={hwid + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
                     <div className="min-w-0">
                       <div className="truncate font-mono"><span className={a.allowed ? "text-emerald-400" : "text-red-400"}>{a.allowed ? "✓" : "✗"}</span> {hwid || "(без hwid)"}{Number(a.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{a.count}</span>}</div>
-                      <div className="truncate text-muted-foreground">{String(a.ip || "")} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
+                      <div className="truncate text-muted-foreground">{aip} · {String(a.ua || "")} · {String(a.ts || "").slice(0, 19)}</div>
                     </div>
                     {hwid && (
                       <div className="flex shrink-0 gap-1">
-                        {!known && <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>}
+                        {!known && (subOff
+                          ? <button type="button" className="cursor-not-allowed rounded border border-border px-2 py-1 text-muted-foreground opacity-40" disabled title="Режим «Выключено»: разрешённые не действуют. Доступно в «Блокировать неизвестных»">Разрешить</button>
+                          : <button type="button" className="rounded border border-emerald-600/50 px-2 py-1 text-emerald-400 hover:bg-emerald-500/10" disabled={busy} onClick={() => addAllow(hwid)}>Разрешить</button>)}
                         {!banned && <button type="button" className="rounded border border-red-500/40 px-2 py-1 text-red-400 hover:bg-red-500/10" disabled={busy} onClick={() => addBan(hwid)}>Бан</button>}
-                        {String(a.ip || "") && <button type="button" className="rounded border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled={busy} title="Разрешить IP для этой подписки" onClick={() => addIp(String(a.ip))}>+IP</button>}
+                        {aip && (subOff
+                          ? (!ipBanned && <button type="button" className="rounded border border-red-500/50 bg-red-500/10 px-2 py-1 text-red-400 hover:bg-red-500/20" disabled={busy} title="Режим «Выключено»: IP можно только ЗАБАНИТЬ (разрешённые IP не действуют)" onClick={() => addBanIp(aip)}>+IP</button>)
+                          : <span className="inline-flex shrink-0">
+                              {!ipAllowed && <button type="button" className={"border border-emerald-600/50 px-1.5 py-1 text-emerald-400 hover:bg-emerald-500/10 " + (ipBanned ? "rounded" : "rounded-l")} disabled={busy} title="Разрешить этот IP для этой подписки" onClick={() => addIp(aip)}>+IP</button>}
+                              {!ipBanned && <button type="button" className={"border border-red-500/50 px-1.5 py-1 text-red-400 hover:bg-red-500/10 " + (ipAllowed ? "rounded" : "rounded-r border-l-0")} disabled={busy} title="Забанить этот IP для этой подписки" onClick={() => addBanIp(aip)}>🚫</button>}
+                            </span>)}
                       </div>
                     )}
                   </div>
@@ -369,12 +463,19 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           <div className="text-sm font-semibold text-foreground">🔌 Кто может подключаться к инстансам</div>
           {(
             <>
-              <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
-                <input type="checkbox" className="mt-0.5" checked={connEnforce} disabled={busy}
-                  onChange={(e) => { setConnEnforce(e.target.checked); void save({ conn_enforce: e.target.checked }); }} />
-                <span>Пускать к инстансам этой подписки только устройства из списка «Разрешённые для подключения» ниже.
-                  Если список пуст — <b className="text-foreground">не пускает никого</b> (полная блокировка подключений).</span>
-              </label>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button type="button" disabled={busy}
+                  className={connOff ? "rounded-md border border-emerald-600/60 bg-emerald-500/15 px-2 py-1 font-medium text-emerald-300" : "rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-muted"}
+                  onClick={() => { if (connOff) return; setConnEnforce(false); void save({ conn_enforce: false }); }}>
+                  Выключено (пускать всех (кроме бан-листа), лог)
+                </button>
+                <button type="button" disabled={busy}
+                  className={!connOff ? "rounded-md border border-red-500/60 bg-red-500/15 px-2 py-1 font-medium text-red-300" : "rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-muted"}
+                  onClick={() => { if (!connOff) return; setConnEnforce(true); void save({ conn_enforce: true }); }}>
+                  Блокировать неизвестных (+логирование)
+                </button>
+              </div>
+              <div className="text-[10px] leading-snug text-muted-foreground">«Блокировать неизвестных»: к инстансам этой подписки пускаются только устройства из «Разрешённых для подключения». Если список пуст — <b className="text-foreground">не пускает никого</b>. Журнал и бан-лист действуют в ОБОИХ режимах.</div>
               {connEnforce && (
                 <div className="grid gap-2 pl-5">
                   <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
@@ -406,8 +507,9 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                 </div>
               )}
 
-              <div className="grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2">
-                <div className="text-xs font-semibold text-sky-400">🔌✅ Разрешённые для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
+              <div className={"grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2" + dimCls(connOff)}
+                title={connOff ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>
+                <div className="text-xs font-semibold text-sky-400">🔌✅ Разрешённые для ПОДКЛЮЧЕНИЯ (эта подписка){connOff ? " — не действуют в режиме «Выключено»" : ""}</div>
                 <div className="text-[10px] text-muted-foreground">Отдельный список от «получения подписки». Кнопкой можно продублировать устройство в список подписки. <span className="text-amber-500">IP тут не фильтруется (на подключении виден только hwid).</span></div>
                 {connAllow.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто{connEnforce ? " — при включённом контроле никто не подключится" : ""}.</div>}
                 <div className="grid max-h-32 gap-1 overflow-y-auto">{connAllow.map((d) => devRow(d, (en) => toggleConnAllow(d.hwid, en), () => rmConnAllow(d.hwid), crossBtn(d.hwid, "allow", "sub", allow.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addAllow(d.hwid))))}</div>
@@ -419,6 +521,7 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
 
               <div className="grid gap-2 rounded-md border border-orange-500/30 bg-orange-500/5 p-2">
                 <div className="text-xs font-semibold text-orange-400">🔌🚫 Забаненные для ПОДКЛЮЧЕНИЯ (эта подписка)</div>
+                <div className="text-[10px] text-amber-500/90">Бан действует ВСЕГДА — в обоих режимах (и в «Выключено»).</div>
                 {connBan.length === 0 && <div className="text-[11px] text-muted-foreground">Пусто.</div>}
                 <div className="grid max-h-32 gap-1 overflow-y-auto">{connBan.map((d) => devRow(d, (en) => toggleConnBan(d.hwid, en), () => rmConnBan(d.hwid), crossBtn(d.hwid, "ban", "sub", ban.some((x) => x.hwid.toLowerCase() === d.hwid.toLowerCase()), () => addBan(d.hwid))))}</div>
                 <div className="flex gap-2">
@@ -455,8 +558,10 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                     </div>
                     {dev && (
                       <div className="flex shrink-0 gap-1">
-                        {!known && <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-sky-400 hover:bg-sky-500/10" disabled={busy} title="Разрешить для подключения" onClick={() => addConnAllow(dev)}>Разрешить</button>}
-                        {!banned && <button type="button" className="rounded border border-orange-500/40 px-2 py-1 text-orange-400 hover:bg-orange-500/10" disabled={busy} title="Забанить для подключения" onClick={() => addConnBan(dev)}>Бан</button>}
+                        {!known && (connOff
+                          ? <button type="button" className="cursor-not-allowed rounded border border-border px-2 py-1 text-muted-foreground opacity-40" disabled title="Режим «Выключено»: разрешённые не действуют. Доступно в «Блокировать неизвестных»">Разрешить</button>
+                          : <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-sky-400 hover:bg-sky-500/10" disabled={busy} title="Разрешить для подключения" onClick={() => addConnAllow(dev)}>Разрешить</button>)}
+                        {!banned && <button type="button" className="rounded border border-orange-500/40 px-2 py-1 text-orange-400 hover:bg-orange-500/10" disabled={busy} title="Забанить для подключения (действует в обоих режимах)" onClick={() => addConnBan(dev)}>Бан</button>}
                       </div>
                     )}
                   </div>
@@ -468,6 +573,19 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
           </div>
         </div>
         {msg && <div className="text-xs text-red-500 whitespace-pre-wrap">{msg}</div>}
+        {confirmA && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" onClick={() => setConfirmA(null)}>
+            <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="text-sm leading-snug text-foreground">{confirmA.text}</div>
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" className="rounded border border-border px-3 py-1 text-xs hover:bg-muted" onClick={() => setConfirmA(null)}>{confirmA.cancel}</button>
+                <button type="button"
+                  className={confirmA.okCls === "red" ? "rounded border border-red-500/50 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" : "rounded border border-emerald-600/50 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20"}
+                  onClick={() => { const r = confirmA.run; setConfirmA(null); r(); }}>{confirmA.ok}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );

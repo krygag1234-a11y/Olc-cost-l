@@ -34,8 +34,10 @@ package session
 // Olc-cost-l: enforcement контроля ПОДКЛЮЧЕНИЯ (AuthHook). Читает
 // /var/lib/olcrtc/access-control.json. Списки устройств подключения — ОТДЕЛЬНЫЕ
 // от подписки: глоб. conn_devices/conn_ban; per-client conn_allow/conn_ban.
-// Активен: глоб. enabled && enforce_connections (все инстансы) ЛИБО per-client
-// conn_enforce (когда глоб. enforce_connections ВЫКЛ; scope all|selective).
+// Энфорс (вайтлист): глоб. enabled && enforce_connections (все инстансы) ЛИБО
+// per-client conn_enforce (когда глоб. контроль ВЫКЛ; scope all|selective).
+// БАН-ЛИСТ подключения действует ВСЕГДА (даже при выключенном энфорсе —
+// «Выключено (пускать всех, кроме бан-листа)», сессия №17).
 // Пустой allow-лист при активном энфорсе = БЛОКИРОВАТЬ ВСЕХ (НЕ fail-open).
 // Fail-open ТОЛЬКО при ошибке чтения/парса файла (чтобы не рвать при сбое ФС).
 // Каждая попытка подключения при активном энфорсе логируется (device=…) — её
@@ -113,6 +115,19 @@ func olcAccDecideConn(dev string, banNoHwid bool, allow []olcAccDevice, ban []ol
 	return false // не в списке (в т.ч. пустой список) — блок
 }
 
+// olcAccDecideBanOnly — режим «Выключено (пускать всех, кроме бан-листа)»:
+// пускает всех, КРОМЕ забаненных устройств (+ban_no_hwid, если включён).
+// Бан-лист действует ВСЕГДА, даже при выключенном энфорсе (сессия №17).
+func olcAccDecideBanOnly(dev string, banNoHwid bool, ban []olcAccDevice) bool {
+	if olcAccMatch(ban, dev) {
+		return false
+	}
+	if dev == "" && banNoHwid {
+		return false
+	}
+	return true
+}
+
 func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, error) {
 	admit := func() (string, error) { return uuid.NewString(), nil }
 	data, err := os.ReadFile(olcAccessControlPath)
@@ -134,33 +149,41 @@ func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, err
 	}
 	// ГЛОБАЛЬНЫЙ контроль включён (enabled): применяется глобальный энфорс
 	// подключения; выборочный per-client НЕ работает (шестерёнка недоступна).
+	// Бан-лист подключения действует ВСЕГДА (и при выключенном энфорсе).
 	if ac.Enabled {
 		if ac.EnforceConns {
 			return finish(olcAccDecideConn(dev, ac.BanNoHwid, ac.ConnDevices, ac.ConnBan))
+		}
+		if !olcAccDecideBanOnly(dev, ac.BanNoHwid, ac.ConnBan) {
+			return finish(false) // «Выключено», но устройство в бан-листе
 		}
 		return admit()
 	}
 	// ГЛОБАЛЬНЫЙ контроль ВЫКЛЮЧЕН → работает ВЫБОРОЧНЫЙ per-client (по подписке).
 	cid := strings.TrimSpace(os.Getenv("OLCRTC_CLIENT_ID"))
 	if cid != "" && ac.Clients != nil {
-		if cc, ok := ac.Clients[cid]; ok && cc != nil && cc.ConnEnforce {
-			enforced := true
-			if cc.ConnScope == "selective" {
-				enforced = false
-				inList := false
-				for _, r := range cc.ConnInstances {
-					if strings.TrimSpace(r) == room && room != "" {
-						enforced = true
-						inList = true
-						break
+		if cc, ok := ac.Clients[cid]; ok && cc != nil {
+			if cc.ConnEnforce {
+				enforced := true
+				if cc.ConnScope == "selective" {
+					enforced = false
+					inList := false
+					for _, r := range cc.ConnInstances {
+						if strings.TrimSpace(r) == room && room != "" {
+							enforced = true
+							inList = true
+							break
+						}
+					}
+					if !inList {
+						return finish(false) // инстанс НЕ выбран → подключение запрещено
 					}
 				}
-				if !inList {
-					return finish(false) // инстанс НЕ выбран → подключение запрещено
+				if enforced {
+					return finish(olcAccDecideConn(dev, cc.BanNoHwid, cc.ConnAllow, cc.ConnBan))
 				}
-			}
-			if enforced {
-				return finish(olcAccDecideConn(dev, cc.BanNoHwid, cc.ConnAllow, cc.ConnBan))
+			} else if !olcAccDecideBanOnly(dev, cc.BanNoHwid, cc.ConnBan) {
+				return finish(false) // «Выключено», но устройство в бан-листе этой подписки
 			}
 		}
 	}

@@ -48,8 +48,9 @@ func olcConnCount(lists ...[]olcAllowedDevice) int {
 
 // olcConnAllowed — зеркало AuthHook olcrtc-core: разрешено ли устройству dev
 // подключение к инстансу (clientID/roomID) при ТЕКУЩЕМ access-control. Учитывает
-// глобальный enforce_connections и выборочный per-client conn_enforce. Если энфорс
-// подключения НЕ активен для этого инстанса — true (не трогаем).
+// глобальный enforce_connections и выборочный per-client conn_enforce.
+// БАН-ЛИСТ подключения действует ВСЕГДА (даже при выключенном энфорсе —
+// «Выключено (пускать всех, кроме бан-листа)», сессия №17) → бан рвёт сессию сразу.
 func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 	dev := strings.TrimSpace(hwid)
 	decide := func(banNoHwid bool, allow, ban []olcAllowedDevice) bool {
@@ -64,33 +65,46 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 		}
 		return false // не в списке (в т.ч. пустой) — блок
 	}
+	decideBanOnly := func(banNoHwid bool, ban []olcAllowedDevice) bool {
+		if olcConnMatch(ban, dev) {
+			return false
+		}
+		if dev == "" && banNoHwid {
+			return false
+		}
+		return true
+	}
 	// Глобальный вкл → глобальный энфорс; выборочный per-client НЕ действует.
 	if ac.Enabled {
 		if ac.EnforceConns {
 			return decide(ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
 		}
-		return true
+		return decideBanOnly(ac.BanNoHwid, ac.ConnBan)
 	}
 	// Глобальный ВЫКЛ → работает выборочный per-client.
 	if ac.Clients != nil {
-		if cc, ok := ac.Clients[clientID]; ok && cc != nil && cc.ConnEnforce {
-			enforced := true
-			if cc.ConnScope == "selective" {
-				enforced = false
-				inList := false
-				for _, r := range cc.ConnInstances {
-					if strings.TrimSpace(r) == strings.TrimSpace(roomID) && roomID != "" {
-						enforced = true
-						inList = true
-						break
+		if cc, ok := ac.Clients[clientID]; ok && cc != nil {
+			if cc.ConnEnforce {
+				enforced := true
+				if cc.ConnScope == "selective" {
+					enforced = false
+					inList := false
+					for _, r := range cc.ConnInstances {
+						if strings.TrimSpace(r) == strings.TrimSpace(roomID) && roomID != "" {
+							enforced = true
+							inList = true
+							break
+						}
+					}
+					if !inList {
+						return false // инстанс НЕ выбран → подключение запрещено
 					}
 				}
-				if !inList {
-					return false // инстанс НЕ выбран → подключение запрещено
+				if enforced {
+					return decide(cc.BanNoHwid, cc.ConnAllow, cc.ConnBan)
 				}
-			}
-			if enforced {
-				return decide(cc.BanNoHwid, cc.ConnAllow, cc.ConnBan)
+			} else {
+				return decideBanOnly(cc.BanNoHwid, cc.ConnBan)
 			}
 		}
 	}

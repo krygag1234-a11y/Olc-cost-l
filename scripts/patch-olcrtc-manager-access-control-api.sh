@@ -49,18 +49,22 @@ res_anchor = '''		resolvedClientID, err := resolveClientID(requestedID, cfg)
 			http.NotFound(w, r)
 			return
 		}'''
-res_add = '''		// Контроль доступа по hwid устройства (глобальный + per-client). Фиксируем
-		// попытку ДАЖЕ при включённой рандомизации; в enforce/ban блокируем чужих.
+res_add = '''		// Контроль доступа по hwid устройства (глобальный + per-client). Попытка
+		// фиксируется ВСЕГДА (и при выключенном контроле, и при рандомизации).
+		// Бан-лист (устройства/IP/ban_no_hwid) действует в ЛЮБОМ режиме;
+		// enforce дополнительно блокирует неизвестных. Allowed в журнале =
+		// фактический исход (получил подписку или нет).
 		olcAC := olcAccessLoad()
 		olcHwid := strings.TrimSpace(r.Header.Get("x-hwid"))
 		olcIP := remoteHost(r)
 		olcActive, olcAllowedDev, olcDeny, olcMode := olcAccessDecision(olcAC, requestedID, olcHwid, olcIP)
+		olcPass := !olcDeny && (olcMode != "enforce" || olcAllowedDev)
 		if olcActive {
 			olcAccessRecordAttempt(olcAccessAttempt{
 				TS: time.Now().UTC().Format(time.RFC3339), HWID: olcHwid, IP: olcIP,
-				UA: r.Header.Get("User-Agent"), ClientID: requestedID, Path: r.URL.Path, Allowed: olcAllowedDev && !olcDeny,
+				UA: r.Header.Get("User-Agent"), ClientID: requestedID, Path: r.URL.Path, Allowed: olcPass,
 			})
-			if olcDeny || (olcMode == "enforce" && !olcAllowedDev) {
+			if !olcPass {
 				http.NotFound(w, r)
 				return
 			}
@@ -140,6 +144,7 @@ type olcClientAccess struct {
 	Allow         []olcAllowedDevice `json:"allow"`
 	Ban           []olcAllowedDevice `json:"ban"`
 	AllowIPs      []olcAllowedIP     `json:"allow_ips,omitempty"`      // разрешённые IP ТОЛЬКО для этой подписки (галочка = вкл/выкл)
+	BanIPs        []olcAllowedIP     `json:"ban_ips,omitempty"`        // забаненные IP этой подписки — действуют ВСЕГДА (и в «Выключено»)
 	BanNoHwid     bool               `json:"ban_no_hwid"`              // блок запросов без hwid для этой подписки
 	ConnAllow     []olcAllowedDevice `json:"conn_allow"`               // разрешённые устройства ПОДКЛЮЧЕНИЯ этой подписки (ОТДЕЛЬНО)
 	ConnBan       []olcAllowedDevice `json:"conn_ban"`                 // забаненные устройства ПОДКЛЮЧЕНИЯ этой подписки (ОТДЕЛЬНО)
@@ -160,6 +165,7 @@ type olcAccessControl struct {
 	Clients      map[string]*olcClientAccess `json:"clients,omitempty"` // per-подписка
 	AllowedHWIDs []string                    `json:"allowed_hwids,omitempty"` // legacy, мигрируется
 	AllowedIPs   []olcAllowedIP              `json:"allowed_ips,omitempty"`
+	BanIPs       []olcAllowedIP              `json:"ban_ips,omitempty"` // забаненные IP (подписка) — действуют ВСЕГДА (и в «Выключено»)
 	UpdatedAt    string                      `json:"updated_at,omitempty"`
 }
 
@@ -206,6 +212,9 @@ func olcAccessLoad() olcAccessControl {
 	ac.AllowedHWIDs = nil
 	if ac.AllowedIPs == nil {
 		ac.AllowedIPs = []olcAllowedIP{}
+	}
+	if ac.BanIPs == nil {
+		ac.BanIPs = []olcAllowedIP{}
 	}
 	if ac.Clients == nil {
 		ac.Clients = map[string]*olcClientAccess{}
@@ -288,49 +297,58 @@ func _olcAccessWriteAttempts(list []olcAccessAttempt) {
 
 // olcAccessDecision: сводит глобальный + per-client контроль в решение для запроса
 // подписки клиента clientID устройством hwid/ip.
-//   active — контроль вообще применяется к этому клиенту;
-//   allowed — устройство разрешено (глоб. devices / per-client allow / IP);
-//   deny — жёсткий бан (per-client ban) — блокировать независимо от режима;
-//   mode — эффективный режим ("monitor"|"enforce").
-// olcAccessDecision: решение для запроса подписки. ГЛОБАЛЬНЫЙ контроль (enabled)
-// использует ТОЛЬКО глобальные списки; когда он выключен — работает ВЫБОРОЧНЫЙ
-// per-client (clients[clientID]) со своими списками. Взаимоисключающе (как в UI:
-// при вкл. глобальном шестерёнка недоступна).
+//   active — всегда true (журнал попыток ведётся ВСЕГДА — редизайн UX сессии №17);
+//   allowed — устройство разрешено (глоб. devices / per-client allow / allow-IP);
+//   deny — жёсткий бан (ban / ban_ips / ban_no_hwid) — блокирует В ЛЮБОМ режиме,
+//          в т.ч. «Выключено» (бан-лист действует всегда);
+//   mode — эффективный режим: "monitor" (= «Выключено»: пускать всех, кроме
+//          бан-листа, лог) | "enforce" («Блокировать неизвестных»).
+// ГЛОБАЛЬНЫЙ контроль (enabled) использует ТОЛЬКО глобальные списки; когда он
+// выключен — работает ВЫБОРОЧНЫЙ per-client (clients[clientID]) со своими
+// списками. Взаимоисключающе (как в UI: при вкл. глобальном шестерёнка недоступна).
+// СЕМАНТИКА (сессия №17): режимы off/monitor per-client СЛИТЫ в «Выключено»
+// (= monitor-поведение); отсутствующая per-client запись = «Выключено» с пустыми
+// списками (лог всё равно пишется).
 func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active bool, allowed bool, deny bool, mode string) {
 	var banNoHwid bool
 	var bans, allows []olcAllowedDevice
-	var allowIPs []olcAllowedIP
+	var allowIPs, banIPs []olcAllowedIP
 	if ac.Enabled {
 		mode = "monitor"
 		if ac.Mode == "enforce" {
 			mode = "enforce"
 		}
-		active = true
 		banNoHwid = ac.BanNoHwid
-		bans = ac.Ban
-		allows = ac.Devices
-		allowIPs = ac.AllowedIPs
+		bans, allows = ac.Ban, ac.Devices
+		allowIPs, banIPs = ac.AllowedIPs, ac.BanIPs
 	} else {
 		var cc *olcClientAccess
 		if ac.Clients != nil {
 			cc = ac.Clients[clientID]
 		}
-		if cc == nil || (cc.Mode != "monitor" && cc.Mode != "enforce") {
-			return false, true, false, "monitor" // выборочный контроль не задан — пускаем
+		mode = "monitor" // «Выключено»: пускать всех (кроме бан-листа), лог
+		if cc != nil {
+			if cc.Mode == "enforce" {
+				mode = "enforce"
+			}
+			banNoHwid = cc.BanNoHwid
+			bans, allows = cc.Ban, cc.Allow
+			allowIPs, banIPs = cc.AllowIPs, cc.BanIPs
 		}
-		mode = cc.Mode
-		active = true
-		banNoHwid = cc.BanNoHwid
-		bans = cc.Ban
-		allows = cc.Allow
-		allowIPs = cc.AllowIPs
 	}
+	active = true
 	hw := strings.TrimSpace(hwid)
+	ipt := strings.TrimSpace(ip)
 	if hw == "" && banNoHwid {
 		return true, false, true, mode
 	}
 	for _, b := range bans {
 		if b.Enabled && strings.TrimSpace(b.HWID) != "" && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
+			return true, false, true, mode
+		}
+	}
+	for _, bip := range banIPs {
+		if bip.Enabled && bip.IP != "" && strings.TrimSpace(bip.IP) == ipt {
 			return true, false, true, mode
 		}
 	}
@@ -340,7 +358,7 @@ func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active b
 		}
 	}
 	for _, aip := range allowIPs {
-		if aip.Enabled && aip.IP != "" && strings.TrimSpace(aip.IP) == strings.TrimSpace(ip) {
+		if aip.Enabled && aip.IP != "" && strings.TrimSpace(aip.IP) == ipt {
 			return true, true, false, mode
 		}
 	}
@@ -406,6 +424,9 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.AllowedIPs != nil {
 			cur.AllowedIPs = olcAccessDedupIPs(in.AllowedIPs)
+		}
+		if in.BanIPs != nil {
+			cur.BanIPs = olcAccessDedupIPs(in.BanIPs)
 		}
 		if err := olcAccessSave(cur); err != nil {
 			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -521,7 +542,7 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, cc)
 			return
 		}
-		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []olcAllowedIP{}, ConnAllow: []olcAllowedDevice{}, ConnBan: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}})
+		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []olcAllowedIP{}, BanIPs: []olcAllowedIP{}, ConnAllow: []olcAllowedDevice{}, ConnBan: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}})
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
@@ -534,6 +555,7 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		Allow         []olcAllowedDevice `json:"allow"`
 		Ban           []olcAllowedDevice `json:"ban"`
 		AllowIPs      []olcAllowedIP     `json:"allow_ips"`
+		BanIPs        []olcAllowedIP     `json:"ban_ips"`
 		BanNoHwid     bool               `json:"ban_no_hwid"`
 		ConnAllow     []olcAllowedDevice `json:"conn_allow"`
 		ConnBan       []olcAllowedDevice `json:"conn_ban"`
@@ -563,6 +585,10 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 	if allowIPs == nil {
 		allowIPs = []olcAllowedIP{}
 	}
+	banIPs := olcAccessDedupIPs(body.BanIPs)
+	if banIPs == nil {
+		banIPs = []olcAllowedIP{}
+	}
 	scope := body.ConnScope
 	if scope != "selective" {
 		scope = "all"
@@ -572,11 +598,11 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		insts = []string{}
 	}
 	hasConn := body.ConnEnforce || (scope == "selective" && len(insts) > 0) || len(connAllow) > 0 || len(connBan) > 0
-	hasOverride := (mode != "inherit") || len(allow) > 0 || len(ban) > 0 || len(allowIPs) > 0 || body.BanNoHwid || hasConn
+	hasOverride := (mode != "inherit") || len(allow) > 0 || len(ban) > 0 || len(allowIPs) > 0 || len(banIPs) > 0 || body.BanNoHwid || hasConn
 	if !hasOverride {
 		delete(ac.Clients, id) // нет override — убрать запись
 	} else {
-		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban, AllowIPs: allowIPs, BanNoHwid: body.BanNoHwid, ConnAllow: connAllow, ConnBan: connBan, ConnEnforce: body.ConnEnforce, ConnScope: scope, ConnInstances: insts}
+		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban, AllowIPs: allowIPs, BanIPs: banIPs, BanNoHwid: body.BanNoHwid, ConnAllow: connAllow, ConnBan: connBan, ConnEnforce: body.ConnEnforce, ConnScope: scope, ConnInstances: insts}
 	}
 	if err := olcAccessSave(ac); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
