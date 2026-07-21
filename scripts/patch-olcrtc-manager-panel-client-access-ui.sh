@@ -134,7 +134,12 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   };
   const onAScroll = mkOnScroll(aListRef, aFollowRef, aResumeRef);
   const onKScroll = mkOnScroll(kListRef, kFollowRef, kResumeRef);
-  const clearConnections = () => { const ts = new Date().toISOString(); setConnClearedAt(ts); try { localStorage.setItem("olc-conn-cleared-" + clientId, ts); } catch {} };
+  const clearConnections = async () => {
+    setBusy(true);
+    try { await fetch(`/api/access/connections?clear=1&client_id=${encodeURIComponent(clientId)}`, { cache: "no-store" }); } catch { /* ignore */ }
+    const ts = new Date().toISOString(); setConnClearedAt(ts); try { localStorage.setItem("olc-conn-cleared-" + clientId, ts); } catch { /* ignore */ }
+    await loadAttempts(); setBusy(false);
+  };
   const clearLog = async () => {
     setBusy(true); setMsg(null);
     try {
@@ -146,7 +151,9 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
   const save = async (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: any[]; ban_ips?: any[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
-      const body = { client_id: clientId, mode, allow, ban, allow_ips: allowIps, ban_ips: banIps, ban_no_hwid: banNoHwid, conn_allow: connAllow, conn_ban: connBan, conn_enforce: connEnforce, conn_scope: connScope, conn_instances: connInstances, ...next };
+      // ЧАСТИЧНОЕ сохранение: шлём ТОЛЬКО изменённые поля (backend мержит).
+      // Полное тело со stale state затирало параллельные изменения (слетал бан).
+      const body = { client_id: clientId, ...(next || {}) };
       const r = await fetch("/api/access/client", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
@@ -538,33 +545,53 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                 {autolog
                   ? <span className="rounded-full border border-emerald-600/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">● автологи</span>
                   : <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void loadAttempts()}>Обновить</button>}
-                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={clearConnections}>Очистить</button>
+                <button type="button" className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-muted" disabled={busy} onClick={() => void clearConnections()}>Очистить</button>
               </div>
             </div>
-            {(() => { const shown = connClearedAt ? connections.filter((c) => String(c.last || "") > connClearedAt) : connections; return (<>
-            {shown.length === 0 && <div className="text-[11px] text-muted-foreground">Подключений пока нет.</div>}
-            {shown.length > 0 && (
+            {(() => { const shown = connClearedAt ? connections.filter((c) => String(c.last || "") > connClearedAt) : connections;
+            // Группировка по девайсу: одна запись на устройство, внутри — развернуть по инстансам.
+            const gmap: Record<string, any[]> = {};
+            for (const c of shown) { const k = String(c.device || ""); (gmap[k] = gmap[k] || []).push(c); }
+            const groups = Object.entries(gmap).map(([gdev, rows]) => ({
+              dev: gdev,
+              rows: rows.slice().sort((a: any, b: any) => (String(a.last || "") < String(b.last || "") ? -1 : 1)),
+              count: rows.reduce((s: number, r: any) => s + Number(r.count || 0), 0),
+              denied: rows.reduce((s: number, r: any) => s + Number(r.denied || 0), 0),
+              last: rows.reduce((m: string, r: any) => (String(r.last || "") > m ? String(r.last || "") : m), ""),
+            })).sort((a, b) => (a.last < b.last ? -1 : 1));
+            return (<>
+            {groups.length === 0 && <div className="text-[11px] text-muted-foreground">Подключений пока нет.</div>}
+            {groups.length > 0 && (
             <div ref={kListRef} onScroll={onKScroll} className="grid max-h-40 gap-1 overflow-y-auto rounded border border-border bg-background p-2">
-              {shown.map((c, i) => {
-                const dev = String(c.device || "");
+              {groups.map((g) => {
+                const dev = g.dev;
                 const known = connAllow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
                 const banned = connBan.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());
-                const loc = String(c.location_name || "");
                 return (
-                  <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
-                    <div className="min-w-0">
-                      <div className="truncate font-mono">{dev} {known && <span className="text-sky-400">✓</span>}{Number(c.count || 0) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}{Number(c.denied || 0) > 0 && <span className="ml-1 rounded border border-red-500/40 bg-red-500/10 px-1 text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось, это ретраи клиента">🚫 отклонено ×{c.denied}</span>}</div>
-                      <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}{Number(c.count || 0) === 0 && Number(c.denied || 0) > 0 ? " · только отклонённые попытки" : ""}</div>
-                    </div>
-                    {dev && (
-                      <div className="flex shrink-0 gap-1">
-                        {!known && (connOff
-                          ? <button type="button" className="cursor-not-allowed rounded border border-border px-2 py-1 text-muted-foreground opacity-40" disabled title="Режим «Выключено»: разрешённые не действуют. Доступно в «Блокировать неизвестных»">Разрешить</button>
-                          : <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-sky-400 hover:bg-sky-500/10" disabled={busy} title="Разрешить для подключения" onClick={() => addConnAllow(dev)}>Разрешить</button>)}
-                        {!banned && <button type="button" className="rounded border border-orange-500/40 px-2 py-1 text-orange-400 hover:bg-orange-500/10" disabled={busy} title="Забанить для подключения (действует в обоих режимах)" onClick={() => addConnBan(dev)}>Бан</button>}
+                  <details key={dev} className="rounded border border-border px-2 py-1 text-[11px]">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-mono">▸ {dev || "—"} {known && <span className="text-sky-400">✓</span>}{g.count > 0 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{g.count}</span>}{g.denied > 0 && <span className="ml-1 rounded border border-red-500/40 bg-red-500/10 px-1 text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось, это ретраи клиента">🚫 отклонено ×{g.denied}</span>}</div>
+                        <div className="truncate text-muted-foreground">инстансов: {g.rows.length} · последнее: {String(g.last).slice(0, 19)}{g.count === 0 && g.denied > 0 ? " · только отклонённые попытки" : ""}</div>
                       </div>
-                    )}
-                  </div>
+                      {dev && (
+                        <div className="flex shrink-0 gap-1" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+                          {!known && (connOff
+                            ? <button type="button" className="cursor-not-allowed rounded border border-border px-2 py-1 text-muted-foreground opacity-40" disabled title="Режим «Выключено»: разрешённые не действуют. Доступно в «Блокировать неизвестных»">Разрешить</button>
+                            : <button type="button" className="rounded border border-sky-500/50 px-2 py-1 text-sky-400 hover:bg-sky-500/10" disabled={busy} title="Разрешить для подключения" onClick={() => addConnAllow(dev)}>Разрешить</button>)}
+                          {!banned && <button type="button" className="rounded border border-orange-500/40 px-2 py-1 text-orange-400 hover:bg-orange-500/10" disabled={busy} title="Забанить для подключения (действует в обоих режимах)" onClick={() => addConnBan(dev)}>Бан</button>}
+                        </div>
+                      )}
+                    </summary>
+                    <div className="mt-1 grid gap-0.5 border-t border-border pt-1">
+                      {g.rows.map((c: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between gap-2 pl-3 text-[11px]">
+                          <span className="min-w-0 truncate">→ {String(c.location_name || c.room_id || "—")}</span>
+                          <span className="shrink-0 text-muted-foreground">{Number(c.count || 0) > 0 ? `×${c.count}` : ""}{Number(c.denied || 0) > 0 ? <span className="text-red-400"> 🚫×{c.denied}</span> : null} · {String(c.last || "").slice(0, 19)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 );
               })}
             </div>

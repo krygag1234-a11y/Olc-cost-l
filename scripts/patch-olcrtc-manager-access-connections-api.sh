@@ -55,9 +55,11 @@ type olcConnRecord struct {
 }
 
 var (
-	olcConnJournalMu     sync.Mutex
-	olcConnJournal       []*olcConnRecord
-	olcConnJournalLoaded bool
+	olcConnJournalMu      sync.Mutex
+	olcConnJournal        []*olcConnRecord
+	olcConnJournalLoaded  bool
+	olcConnClearedAt      string            // водяной знак глобальной очистки: строки буфера <= этого времени игнорируются
+	olcConnClearedClients = map[string]string{} // per-client водяные знаки очистки
 )
 
 const olcConnJournalPath = "/var/lib/olcrtc/access-connections.json"
@@ -69,17 +71,35 @@ func olcConnJournalLoad() {
 		return
 	}
 	olcConnJournalLoaded = true
-	if data, err := os.ReadFile(olcConnJournalPath); err == nil {
-		var recs []*olcConnRecord
-		if json.Unmarshal(data, &recs) == nil {
-			olcConnJournal = recs
+	data, err := os.ReadFile(olcConnJournalPath)
+	if err != nil {
+		return
+	}
+	// v2: объект с водяными знаками очистки (без них clear=1 «не работал»:
+	// журнал мгновенно пересобирался из тех же строк лог-буферов — Урок 60).
+	var v2 struct {
+		ClearedAt      string            `json:"cleared_at"`
+		ClearedClients map[string]string `json:"cleared_clients"`
+		Records        []*olcConnRecord  `json:"records"`
+	}
+	if json.Unmarshal(data, &v2) == nil && (v2.Records != nil || v2.ClearedAt != "" || len(v2.ClearedClients) > 0) {
+		olcConnJournal = v2.Records
+		olcConnClearedAt = v2.ClearedAt
+		if v2.ClearedClients != nil {
+			olcConnClearedClients = v2.ClearedClients
 		}
+		return
+	}
+	var recs []*olcConnRecord // legacy-формат: плоский массив
+	if json.Unmarshal(data, &recs) == nil {
+		olcConnJournal = recs
 	}
 }
 
 func olcConnJournalSave() {
 	_ = os.MkdirAll("/var/lib/olcrtc", 0o755)
-	if data, err := json.MarshalIndent(olcConnJournal, "", "  "); err == nil {
+	obj := map[string]any{"cleared_at": olcConnClearedAt, "cleared_clients": olcConnClearedClients, "records": olcConnJournal}
+	if data, err := json.MarshalIndent(obj, "", "  "); err == nil {
 		tmp := olcConnJournalPath + ".tmp"
 		if os.WriteFile(tmp, append(data, '\n'), 0o600) == nil {
 			_ = os.Rename(tmp, olcConnJournalPath)
@@ -99,7 +119,23 @@ func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 	olcConnJournalLoad()
 
 	if strings.TrimSpace(r.URL.Query().Get("clear")) == "1" {
-		olcConnJournal = nil
+		now := time.Now().UTC().Format(time.RFC3339)
+		cid := strings.TrimSpace(r.URL.Query().Get("client_id"))
+		if cid != "" {
+			// очистить только записи этой подписки + водяной знак (строки буфера
+			// до этого момента не будут пересчитаны заново)
+			kept := olcConnJournal[:0]
+			for _, rec := range olcConnJournal {
+				if rec.ClientID != cid {
+					kept = append(kept, rec)
+				}
+			}
+			olcConnJournal = kept
+			olcConnClearedClients[cid] = now
+		} else {
+			olcConnJournal = nil
+			olcConnClearedAt = now
+		}
 		olcConnJournalSave()
 		writeJSON(w, map[string]any{"connections": []any{}})
 		return
@@ -127,6 +163,13 @@ func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 		room := p.location.Endpoint.RoomID
 		tr := p.location.Transport.Type
 		for _, ln := range p.logs.Snapshot() {
+			// водяные знаки очистки: старые строки буфера не пересчитываем
+			if olcConnClearedAt != "" && ln.Time <= olcConnClearedAt {
+				continue
+			}
+			if wm := olcConnClearedClients[cid]; wm != "" && ln.Time <= wm {
+				continue
+			}
 			mm := re.FindStringSubmatch(ln.Line)
 			if mm == nil {
 				continue

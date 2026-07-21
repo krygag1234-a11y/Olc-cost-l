@@ -398,15 +398,31 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, olcAccessLoad())
 	case http.MethodPut, http.MethodPost:
-		var in olcAccessControl
+		// ЧАСТИЧНОЕ обновление: применяются ТОЛЬКО присланные поля (nil = не трогать).
+		// Раньше PUT заменял булевы/списки телом целиком → сохранение со stale
+		// state молча затирало параллельные изменения.
+		var in struct {
+			Enabled      *bool              `json:"enabled"`
+			Mode         *string            `json:"mode"`
+			Devices      []olcAllowedDevice `json:"devices"`
+			Ban          []olcAllowedDevice `json:"ban"`
+			BanNoHwid    *bool              `json:"ban_no_hwid"`
+			EnforceConns *bool              `json:"enforce_connections"`
+			ConnDevices  []olcAllowedDevice `json:"conn_devices"`
+			ConnBan      []olcAllowedDevice `json:"conn_ban"`
+			AllowedIPs   []olcAllowedIP     `json:"allowed_ips"`
+			BanIPs       []olcAllowedIP     `json:"ban_ips"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		cur := olcAccessLoad()
-		cur.Enabled = in.Enabled
-		if in.Mode == "enforce" || in.Mode == "monitor" {
-			cur.Mode = in.Mode
+		if in.Enabled != nil {
+			cur.Enabled = *in.Enabled
+		}
+		if in.Mode != nil && (*in.Mode == "enforce" || *in.Mode == "monitor") {
+			cur.Mode = *in.Mode
 		}
 		if in.Devices != nil {
 			cur.Devices = olcAccessNormalizeDevices(in.Devices)
@@ -414,8 +430,12 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		if in.Ban != nil {
 			cur.Ban = olcAccessNormalizeDevices(in.Ban)
 		}
-		cur.BanNoHwid = in.BanNoHwid
-		cur.EnforceConns = in.EnforceConns
+		if in.BanNoHwid != nil {
+			cur.BanNoHwid = *in.BanNoHwid
+		}
+		if in.EnforceConns != nil {
+			cur.EnforceConns = *in.EnforceConns
+		}
 		if in.ConnDevices != nil {
 			cur.ConnDevices = olcAccessNormalizeDevices(in.ConnDevices)
 		}
@@ -428,6 +448,7 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		if in.BanIPs != nil {
 			cur.BanIPs = olcAccessDedupIPs(in.BanIPs)
 		}
+		log.Printf("olc-access: global saved: enabled=%t mode=%s devices=%d ban=%d ips=%d ban_ips=%d enforce_conns=%t conn_devices=%d conn_ban=%d", cur.Enabled, cur.Mode, len(cur.Devices), len(cur.Ban), len(cur.AllowedIPs), len(cur.BanIPs), cur.EnforceConns, len(cur.ConnDevices), len(cur.ConnBan))
 		if err := olcAccessSave(cur); err != nil {
 			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -549,18 +570,22 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	// ЧАСТИЧНОЕ обновление (как в settings): применяются ТОЛЬКО присланные поля.
+	// Раньше POST заменял ВСЮ запись телом запроса — любое сохранение со stale
+	// state UI молча стирало параллельные изменения (у юзера так слетел conn_ban
+	// через 6с после бана). nil-слайс = поле не прислано = не трогать; [] = очистить.
 	var body struct {
 		ClientID      string             `json:"client_id"`
-		Mode          string             `json:"mode"`
+		Mode          *string            `json:"mode"`
 		Allow         []olcAllowedDevice `json:"allow"`
 		Ban           []olcAllowedDevice `json:"ban"`
 		AllowIPs      []olcAllowedIP     `json:"allow_ips"`
 		BanIPs        []olcAllowedIP     `json:"ban_ips"`
-		BanNoHwid     bool               `json:"ban_no_hwid"`
+		BanNoHwid     *bool              `json:"ban_no_hwid"`
 		ConnAllow     []olcAllowedDevice `json:"conn_allow"`
 		ConnBan       []olcAllowedDevice `json:"conn_ban"`
-		ConnEnforce   bool               `json:"conn_enforce"`
-		ConnScope     string             `json:"conn_scope"`
+		ConnEnforce   *bool              `json:"conn_enforce"`
+		ConnScope     *string            `json:"conn_scope"`
 		ConnInstances []string           `json:"conn_instances"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -573,37 +598,73 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ac := olcAccessLoad()
-	mode := body.Mode
-	if mode != "off" && mode != "monitor" && mode != "enforce" {
-		mode = "inherit"
+	cc := ac.Clients[id]
+	if cc == nil {
+		cc = &olcClientAccess{Mode: "off", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []olcAllowedIP{}, BanIPs: []olcAllowedIP{}, ConnAllow: []olcAllowedDevice{}, ConnBan: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}}
 	}
-	allow := olcAccessNormalizeDevices(body.Allow)
-	ban := olcAccessNormalizeDevices(body.Ban)
-	connAllow := olcAccessNormalizeDevices(body.ConnAllow)
-	connBan := olcAccessNormalizeDevices(body.ConnBan)
-	allowIPs := olcAccessDedupIPs(body.AllowIPs)
-	if allowIPs == nil {
-		allowIPs = []olcAllowedIP{}
+	if body.Mode != nil && (*body.Mode == "off" || *body.Mode == "monitor" || *body.Mode == "enforce") {
+		cc.Mode = *body.Mode
 	}
-	banIPs := olcAccessDedupIPs(body.BanIPs)
-	if banIPs == nil {
-		banIPs = []olcAllowedIP{}
+	if body.Allow != nil {
+		cc.Allow = olcAccessNormalizeDevices(body.Allow)
 	}
-	scope := body.ConnScope
-	if scope != "selective" {
-		scope = "all"
+	if body.Ban != nil {
+		cc.Ban = olcAccessNormalizeDevices(body.Ban)
 	}
-	insts := olcAccessDedup(body.ConnInstances)
-	if insts == nil {
-		insts = []string{}
+	if body.AllowIPs != nil {
+		cc.AllowIPs = olcAccessDedupIPs(body.AllowIPs)
 	}
-	hasConn := body.ConnEnforce || (scope == "selective" && len(insts) > 0) || len(connAllow) > 0 || len(connBan) > 0
-	hasOverride := (mode != "inherit") || len(allow) > 0 || len(ban) > 0 || len(allowIPs) > 0 || len(banIPs) > 0 || body.BanNoHwid || hasConn
-	if !hasOverride {
-		delete(ac.Clients, id) // нет override — убрать запись
-	} else {
-		ac.Clients[id] = &olcClientAccess{Mode: mode, Allow: allow, Ban: ban, AllowIPs: allowIPs, BanIPs: banIPs, BanNoHwid: body.BanNoHwid, ConnAllow: connAllow, ConnBan: connBan, ConnEnforce: body.ConnEnforce, ConnScope: scope, ConnInstances: insts}
+	if body.BanIPs != nil {
+		cc.BanIPs = olcAccessDedupIPs(body.BanIPs)
 	}
+	if body.BanNoHwid != nil {
+		cc.BanNoHwid = *body.BanNoHwid
+	}
+	if body.ConnAllow != nil {
+		cc.ConnAllow = olcAccessNormalizeDevices(body.ConnAllow)
+	}
+	if body.ConnBan != nil {
+		cc.ConnBan = olcAccessNormalizeDevices(body.ConnBan)
+	}
+	if body.ConnEnforce != nil {
+		cc.ConnEnforce = *body.ConnEnforce
+	}
+	if body.ConnScope != nil {
+		s := *body.ConnScope
+		if s != "selective" {
+			s = "all"
+		}
+		cc.ConnScope = s
+	}
+	if body.ConnInstances != nil {
+		cc.ConnInstances = olcAccessDedup(body.ConnInstances)
+	}
+	if cc.Allow == nil {
+		cc.Allow = []olcAllowedDevice{}
+	}
+	if cc.Ban == nil {
+		cc.Ban = []olcAllowedDevice{}
+	}
+	if cc.AllowIPs == nil {
+		cc.AllowIPs = []olcAllowedIP{}
+	}
+	if cc.BanIPs == nil {
+		cc.BanIPs = []olcAllowedIP{}
+	}
+	if cc.ConnAllow == nil {
+		cc.ConnAllow = []olcAllowedDevice{}
+	}
+	if cc.ConnBan == nil {
+		cc.ConnBan = []olcAllowedDevice{}
+	}
+	if cc.ConnInstances == nil {
+		cc.ConnInstances = []string{}
+	}
+	if cc.ConnScope == "" {
+		cc.ConnScope = "all"
+	}
+	ac.Clients[id] = cc
+	log.Printf("olc-access: client %s saved: mode=%s allow=%d ban=%d allow_ips=%d ban_ips=%d conn_allow=%d conn_ban=%d conn_enforce=%t scope=%s insts=%d", id, cc.Mode, len(cc.Allow), len(cc.Ban), len(cc.AllowIPs), len(cc.BanIPs), len(cc.ConnAllow), len(cc.ConnBan), cc.ConnEnforce, cc.ConnScope, len(cc.ConnInstances))
 	if err := olcAccessSave(ac); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
