@@ -183,8 +183,12 @@ function AccessControlSection() {
       setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
       setConnScope(b.conn_scope === "selective" ? "selective" : "all");
       setConnInstances(Array.isArray(b.conn_instances) ? b.conn_instances : []);
-      if (Array.isArray(b.allowed_ips)) setAllowedIps(normIps(b.allowed_ips));
-      if (Array.isArray(b.ban_ips)) setBanIps(normIps(b.ban_ips));
+      // Отражаем БЕЗУСЛОВНО (normIps(undefined)=[]): backend помечает allowed_ips/
+      // ban_ips как omitempty → пустой список ВЫПАДАЕТ из ответа. Раньше гейт
+      // `if (Array.isArray(...))` не очищал UI-список → после бана IP из
+      // разрешённых он ВИЗУАЛЬНО оставался в разрешённых (в файле уже перенесён).
+      setAllowedIps(normIps(b.allowed_ips));
+      setBanIps(normIps(b.ban_ips));
       try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: { enabled: !!b.enabled } })); } catch { /* ignore */ }
     } catch (e: any) { setMsg("Ошибка: " + (e?.message || String(e))); } finally { setBusy(false); }
   };
