@@ -449,6 +449,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-client-rename-access.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Живой peer-count / активные подключения: парсинг "Current peers count: N, Devices: [...]" (Task 2).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-peer-summary.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Автосмена ключей (Z5-B): планировщик ротации Endpoint.Key + API; после peer-summary (нужен PeerSummary) и subscription-update-interval (subscriptionRefreshHours).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-key-rotation.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
@@ -513,6 +515,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-append-only.sh" "$MGR_REPO/src/main.tsx"
   # Интервал автообновления подписки — пикер часов (profile-update-interval у olcbox).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-refresh-hours-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Автосмена ключей (Z5-B): секция ♻️ (глоб. + per-client тумблеры). После selective-randomization (анкор MainSettingsAutodetectLink).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-key-rotation-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
