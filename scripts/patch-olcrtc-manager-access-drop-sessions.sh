@@ -137,22 +137,26 @@ func olcDropForbiddenSessions(ac olcAccessControl) {
 			tr := p.location.Transport.Type
 			forbidden := false
 			seen := map[string]bool{}
-			// 1) живые пиры (последняя peer-summary строка ядра) — самый надёжный сигнал
-			if pc, devs, _, ok := p.logs.PeerSummary(); ok && pc > 0 {
-				for _, dev := range devs {
-					dev = strings.TrimSpace(dev)
-					if dev == "" || seen[dev] {
-						continue
-					}
-					seen[dev] = true
-					if !olcConnAllowed(ac, cid, room, dev) {
-						forbidden = true
-						break
+			// 1) живые пиры (последняя peer-summary строка ядра) — источник истины.
+			// Если summary ЕСТЬ — доверяем только ей (историю буфера НЕ смотрим:
+			// там остаются строки отклонённых попыток забаненного девайса, из-за
+			// которых каждое сохранение перезапускало бы инстанс впустую).
+			if pc, devs, _, ok := p.logs.PeerSummary(); ok {
+				if pc > 0 {
+					for _, dev := range devs {
+						dev = strings.TrimSpace(dev)
+						if dev == "" || seen[dev] {
+							continue
+						}
+						seen[dev] = true
+						if !olcConnAllowed(ac, cid, room, dev) {
+							forbidden = true
+							break
+						}
 					}
 				}
-			}
-			// 2) история device=-строк в буфере
-			if !forbidden {
+			} else {
+				// 2) summary нет (старое ядро/нет строк) — история device=-строк буфера
 				for _, ln := range p.logs.Snapshot() {
 					mm := re.FindStringSubmatch(ln.Line)
 					if mm == nil {
