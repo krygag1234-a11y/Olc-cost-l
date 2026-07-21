@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Olc-cost-l backend: МГНОВЕННЫЙ разрыв активных сессий устройства при отзыве
-# доступа. Баг юзера: выключил разрешённое устройство галочкой — а активный
-# туннель не рвётся сразу, блок срабатывает лишь при повторном подключении.
-# Решение: после КАЖДОГО сохранения access-control (disable/ban/remove/смена
-# режима/тоггл энфорса) пере-оценить подключённые устройства и перезапустить
-# инстансы, где есть подключённое устройство, которое БОЛЬШЕ НЕ разрешено при
-# активном энфорсе подключения. Перезапуск инстанса рвёт сессию нарушителя;
-# разрешённые устройства сразу переподключаются (проходят AuthHook).
-# Без активного энфорса подключения ничего не рвём (иначе устройство всё равно
-# переподключится — как и раньше). Idempotent. Target: manager main.go.
+# Olc-cost-l backend: разрыв активных сессий устройства при отзыве доступа.
+# С сессии №18 РЕАЛЬНЫЙ кик делает ЯДРО (ban-watcher в olcrtc-core, патч
+# patch-olcrtc-core-access-hook.sh): каждые 2с пере-проверяет живые сессии и
+# рвёт ТОЛЬКО сессию нарушителя (removePeerSession/reinstall) — остальные
+# девайсы инстанса не страдают. Менеджер после каждого сохранения
+# access-control лишь ЛОГИРУЕТ, у кого доступ отозван (для journalctl-разбора).
+# Раньше менеджер РЕСТАРТОВАЛ инстанс целиком — рвал туннели ВСЕХ девайсов
+# инстанса (жалоба юзера) и не помогал против транспорт-реконнектов.
+# Idempotent. Target: manager main.go.
 # Run after access-control-api + access-connections-api (нужны типы + panelSupervisor).
 set -euo pipefail
 
@@ -111,11 +110,10 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 	return true
 }
 
-// olcDropForbiddenSessions — перезапускает инстансы, где подключено устройство,
-// которое больше не разрешено (по текущему ac). Вызывается после сохранения
-// access-control. Проверяет ЖИВЫХ пиров (PeerSummary — «Current peers count»)
-// И историю per-instance лог-буферов (device=install-…) — буфер кольцевой (500
-// строк), device=-строки могли отротироваться, а peer summary всегда свежая.
+// olcDropForbiddenSessions — с сессии №18 НЕ рестартует инстансы: точечный кик
+// нарушителя делает ЯДРО (ban-watcher, ≤2с, только его сессия). Здесь лишь
+// логируем в journalctl, каким ЖИВЫМ девайсам доступ отозван этим сохранением
+// (по peer-summary «Current peers count» — живые пиры, источник истины).
 func olcDropForbiddenSessions(ac olcAccessControl) {
 	if panelSupervisor == nil {
 		return
@@ -127,60 +125,24 @@ func olcDropForbiddenSessions(ac olcAccessControl) {
 			procs = append(procs, p)
 		}
 		panelSupervisor.mu.RUnlock()
-		re := olcDeviceLineRe
 		for _, p := range procs {
 			if p == nil || p.logs == nil {
 				continue
 			}
 			cid := p.location.ClientID
 			room := p.location.Endpoint.RoomID
-			tr := p.location.Transport.Type
-			forbidden := false
 			seen := map[string]bool{}
-			// 1) живые пиры (последняя peer-summary строка ядра) — источник истины.
-			// Если summary ЕСТЬ — доверяем только ей (историю буфера НЕ смотрим:
-			// там остаются строки отклонённых попыток забаненного девайса, из-за
-			// которых каждое сохранение перезапускало бы инстанс впустую).
-			if pc, devs, _, ok := p.logs.PeerSummary(); ok {
-				if pc > 0 {
-					for _, dev := range devs {
-						dev = strings.TrimSpace(dev)
-						if dev == "" || seen[dev] {
-							continue
-						}
-						seen[dev] = true
-						if !olcConnAllowed(ac, cid, room, dev) {
-							forbidden = true
-							break
-						}
-					}
-				}
-			} else {
-				// 2) summary нет (старое ядро/нет строк) — история device=-строк буфера
-				for _, ln := range p.logs.Snapshot() {
-					mm := re.FindStringSubmatch(ln.Line)
-					if mm == nil {
-						continue
-					}
-					dev := mm[1]
-					if seen[dev] {
+			if pc, devs, _, ok := p.logs.PeerSummary(); ok && pc > 0 {
+				for _, dev := range devs {
+					dev = strings.TrimSpace(dev)
+					if dev == "" || seen[dev] {
 						continue
 					}
 					seen[dev] = true
 					if !olcConnAllowed(ac, cid, room, dev) {
-						forbidden = true
-						break
+						log.Printf("olc-access: revoked live dev=%s inst=%s/%s — kick ядром (ban-watcher, ~2с)", dev, cid, room)
 					}
 				}
-			}
-			if forbidden {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				if err := panelSupervisor.Restart(ctx, cid, room, tr); err != nil {
-					log.Printf("olc-access: drop-restart %s/%s: %v", cid, room, err)
-				} else {
-					log.Printf("olc-access: инстанс %s/%s перезапущен — отозван доступ устройства", cid, room)
-				}
-				cancel()
 			}
 		}
 	}()
@@ -209,10 +171,10 @@ save_new = '''	tmp := olcAccessControlPath + ".tmp"
 	if err := os.Rename(tmp, olcAccessControlPath); err != nil {
 		return err
 	}
-	olcDropForbiddenSessions(ac) // мгновенно рвём сессии отозванных устройств
+	olcDropForbiddenSessions(ac) // лог отозванных живых девайсов (кик — ядром)
 	return nil
 }'''
-if 'olcDropForbiddenSessions(ac) // мгновенно' in t:
+if 'olcDropForbiddenSessions(ac) //' in t:
     print("[patch-access-drop-sessions] save-hook already present")
 elif save_old in t:
     t = t.replace(save_old, save_new, 1)

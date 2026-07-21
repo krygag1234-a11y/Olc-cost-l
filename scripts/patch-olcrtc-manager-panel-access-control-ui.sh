@@ -571,6 +571,7 @@ function AccessControlSection() {
               rows: rows.slice().sort((a: any, b: any) => (String(a.last || "") < String(b.last || "") ? -1 : 1)),
               count: rows.reduce((s: number, r: any) => s + Number(r.count || 0), 0),
               denied: rows.reduce((s: number, r: any) => s + Number(r.denied || 0), 0),
+              kicked: rows.reduce((s: number, r: any) => s + Number(r.kicked || 0), 0),
               last: rows.reduce((m: string, r: any) => (String(r.last || "") > m ? String(r.last || "") : m), ""),
             })).sort((a, b) => (a.last < b.last ? -1 : 1));
             return (<>
@@ -585,7 +586,7 @@ function AccessControlSection() {
                     <details key={dev} className="rounded border border-border px-2 py-1 text-[11px]">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="truncate font-mono">▸ {dev || "—"} {known && <span className="text-sky-400">✓</span>}{g.count > 0 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{g.count}</span>}{g.denied > 0 && <span className="ml-1 rounded border border-red-500/40 bg-red-500/10 px-1 text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось, это ретраи клиента">🚫 отклонено ×{g.denied}</span>}</div>
+                          <div className="truncate font-mono">▸ {dev || "—"} {known && <span className="text-sky-400">✓</span>}{g.count > 0 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{g.count}</span>}{g.denied > 0 && <span className="ml-1 rounded border border-red-500/40 bg-red-500/10 px-1 text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось, это ретраи клиента">🚫 отклонено ×{g.denied}</span>}{g.kicked > 0 && <span className="ml-1 rounded border border-orange-500/40 bg-orange-500/10 px-1 text-orange-400" title="Живая сессия сброшена ядром по бану (ban-watcher): устройство было подключено и его отключило">⛔ сброшен ×{g.kicked}</span>}</div>
                           <div className="truncate text-muted-foreground">инстансов: {g.rows.length} · последнее: {String(g.last).slice(0, 19)}{g.count === 0 && g.denied > 0 ? " · только отклонённые попытки" : ""}</div>
                         </div>
                         {dev && (
@@ -601,7 +602,7 @@ function AccessControlSection() {
                         {g.rows.map((c: any, i: number) => (
                           <div key={i} className="flex items-center justify-between gap-2 pl-3 text-[11px]">
                             <span className="min-w-0 truncate">→ {String(c.client_id || "—")}{c.location_name ? <> · {String(c.location_name)}</> : null}</span>
-                            <span className="shrink-0 text-muted-foreground">{Number(c.count || 0) > 0 ? `×${c.count}` : ""}{Number(c.denied || 0) > 0 ? <span className="text-red-400"> 🚫×{c.denied}</span> : null} · {String(c.last || "").slice(0, 19)}</span>
+                            <span className="shrink-0 text-muted-foreground">{Number(c.count || 0) > 0 ? `×${c.count}` : ""}{Number(c.denied || 0) > 0 ? <span className="text-red-400"> 🚫×{c.denied}</span> : null}{Number(c.kicked || 0) > 0 ? <span className="text-orange-400"> ⛔×{c.kicked}</span> : null} · {String(c.last || "").slice(0, 19)}</span>
                           </div>
                         ))}
                       </div>

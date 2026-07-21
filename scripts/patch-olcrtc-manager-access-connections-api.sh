@@ -38,9 +38,13 @@ else:
 # --- 2. Обработчик (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
 fn_block = r'''// olcConnRecord — запись журнала подключений (персистентная, с накоплением ×N).
-// Count — реальные подключения/принятые попытки; Denied — ОТКЛОНЁННЫЕ попытки
-// (AuthHook: "conn attempt … allowed=false", напр. забаненное устройство в
-// ретрай-лупе). Разделено, чтобы отказы не выглядели как «подключается».
+// Count — РЕАЛЬНЫЕ подключения: считаем ТОЛЬКО "peer connected: device=…"
+// (ровно 1 строка на сессию, оба handshake-пути ядра). Раньше считалась ЛЮБАЯ
+// device=-строка (session opened / session … opened (device=…) / disconnected)
+// → одно подключение давало ×3-4 (жалоба юзера, сессия №18).
+// Denied — отклонённые попытки (AuthHook: "conn attempt … allowed=false").
+// Kicked — кики ban-watcher'а ядра ("olc-access: kick dev=…" — живая сессия
+// сброшена по бану). Прочие строки журнал НЕ считает.
 type olcConnRecord struct {
 	Device       string `json:"device"`
 	ClientID     string `json:"client_id"`
@@ -49,9 +53,11 @@ type olcConnRecord struct {
 	Transport    string `json:"transport"`
 	Count        int    `json:"count"`
 	Denied       int    `json:"denied,omitempty"`
+	Kicked       int    `json:"kicked,omitempty"`
 	First        string `json:"first"`
 	Last         string `json:"last"`
 	LastDenied   string `json:"last_denied,omitempty"`
+	LastKicked   string `json:"last_kicked,omitempty"`
 }
 
 var (
@@ -113,7 +119,8 @@ func olcConnJournalSave() {
 // буфера и переживают рестарт; повторные подключения увеличивают Count по НОВЫМ
 // строкам (без двойного счёта). ?clear=1 очищает журнал. Read-only.
 func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
-	re := regexp.MustCompile(`device=([^\s)]+)`)
+	reDevice := regexp.MustCompile(`device=([^\s)]+)`)
+	reKick := regexp.MustCompile(`dev=([^\s)]+)`)
 	olcConnJournalMu.Lock()
 	defer olcConnJournalMu.Unlock()
 	olcConnJournalLoad()
@@ -170,11 +177,29 @@ func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 			if wm := olcConnClearedClients[cid]; wm != "" && ln.Time <= wm {
 				continue
 			}
-			mm := re.FindStringSubmatch(ln.Line)
-			if mm == nil {
+			// классификация: считаем ТОЛЬКО значимые события (см. olcConnRecord)
+			kind := ""
+			dev := ""
+			switch {
+			case strings.Contains(ln.Line, "olc-access: conn attempt") && strings.Contains(ln.Line, "allowed=false"):
+				kind = "denied"
+				if mm := reDevice.FindStringSubmatch(ln.Line); mm != nil {
+					dev = mm[1]
+				}
+			case strings.Contains(ln.Line, "peer connected: device="):
+				kind = "accepted"
+				if mm := reDevice.FindStringSubmatch(ln.Line); mm != nil {
+					dev = mm[1]
+				}
+			case strings.Contains(ln.Line, "olc-access: kick dev="):
+				kind = "kicked"
+				if mm := reKick.FindStringSubmatch(ln.Line); mm != nil {
+					dev = mm[1]
+				}
+			}
+			if kind == "" || dev == "" {
 				continue
 			}
-			dev := mm[1]
 			key := olcConnKey(dev, cid, room, tr)
 			rec := index[key]
 			if rec == nil {
@@ -183,10 +208,14 @@ func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 				olcConnJournal = append(olcConnJournal, rec)
 			}
 			if rec.Last == "" || ln.Time > rec.Last {
-				if strings.Contains(ln.Line, "allowed=false") {
+				switch kind {
+				case "denied":
 					rec.Denied++
 					rec.LastDenied = ln.Time
-				} else {
+				case "kicked":
+					rec.Kicked++
+					rec.LastKicked = ln.Time
+				default:
 					rec.Count++
 				}
 				rec.Last = ln.Time

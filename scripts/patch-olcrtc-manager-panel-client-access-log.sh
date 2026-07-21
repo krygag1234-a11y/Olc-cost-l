@@ -92,7 +92,7 @@ function ClientAccessLogModal({ client, autologi, onClose }: { client: any; auto
     const b = await fetch("/api/access/connections", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ connections: [] }));
     return (b.connections || []).filter((c: any) => c.client_id === cid).map((c: any, i: number) => (
       <div key={"c-" + i} className="whitespace-pre-wrap break-words leading-relaxed">
-        <span className="text-muted-foreground">{c.last}</span>{"  "}{c.device || "—"} <span className="text-muted-foreground">→</span> {c.location_name || c.room_id}{Number(c.count || 0) > 1 ? ` ×${c.count}` : ""}{Number(c.denied || 0) > 0 ? <span className="text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось"> 🚫 отклонено ×{c.denied}</span> : null}
+        <span className="text-muted-foreground">{c.last}</span>{"  "}{c.device || "—"} <span className="text-muted-foreground">→</span> {c.location_name || c.room_id}{Number(c.count || 0) > 1 ? ` ×${c.count}` : ""}{Number(c.denied || 0) > 0 ? <span className="text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось"> 🚫 отклонено ×{c.denied}</span> : null}{Number(c.kicked || 0) > 0 ? <span className="text-orange-400" title="Живая сессия сброшена ядром по бану (ban-watcher)"> ⛔ сброшен ×{c.kicked}</span> : null}
       </div>
     ));
   }, [cid]);
