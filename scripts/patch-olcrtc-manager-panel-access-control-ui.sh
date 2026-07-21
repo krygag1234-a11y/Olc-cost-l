@@ -200,6 +200,7 @@ function AccessControlSection() {
   const ipIn = (list: any[], ip: string) => (list || []).some((x: any) => x.ip === ip);
   const dropIp = (list: any[], ip: string) => (list || []).filter((x: any) => x.ip !== ip);
   const toggleGInstance = (room: string, on: boolean) => { const nx = on ? [...connInstances, room] : connInstances.filter((r) => r !== room); setConnInstances(nx); void saveSettings({ conn_instances: nx }); };
+  const toggleGClientInstances = (rooms: string[], on: boolean) => { const set = new Set(connInstances); if (on) rooms.forEach((r) => set.add(r)); else rooms.forEach((r) => set.delete(r)); const nx = Array.from(set); setConnInstances(nx); void saveSettings({ conn_instances: nx }); };
   const setConnDevice = (hwid: string, patch: { enabled?: boolean }) => { const nx = connDevices.map((d) => d.hwid === hwid ? { ...d, ...patch } : d); setConnDevices(nx); void saveSettings({ conn_devices: nx }); };
   const addConnDevice = (hwid: string) => {
     const h = (hwid || "").trim(); if (!h || inL(connDevices, h)) return;
@@ -542,21 +543,47 @@ function AccessControlSection() {
                     Только выбранные
                   </label>
                 </div>
-                {connScope === "selective" && (
-                  <div className="grid gap-1">
-                    {allInstances.length === 0 && <div className="text-[11px] text-muted-foreground">Инстансы не найдены.</div>}
-                    {allInstances.map((it) => (
-                      <label key={it.client_id + "|" + it.room_id} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-[11px]">
-                        <input type="checkbox" checked={connInstances.includes(it.room_id)} disabled={busy}
-                          onChange={(e) => toggleGInstance(it.room_id, e.target.checked)} />
-                        <span className="shrink-0 rounded bg-muted px-1 font-mono text-muted-foreground">{it.client_id}</span>
-                        <span className="min-w-0 flex-1 truncate">{it.name}</span>
-                        <span className="shrink-0 font-mono text-muted-foreground">{it.room_id}</span>
-                      </label>
-                    ))}
-                    <div className="text-[10px] text-muted-foreground">Вайтлист инстансов: контроль по спискам — на отмеченных; <b className="text-foreground">НЕотмеченные не пускают никого</b>.</div>
-                  </div>
-                )}
+                {connScope === "selective" && (() => {
+                  // Группировка инстансов по КЛИЕНТУ: каждый клиент — сворачиваемый
+                  // details (клик разворачивает его инстансы), а не плоский список.
+                  const byClient: Record<string, Array<{ room_id: string; name: string }>> = {};
+                  for (const it of allInstances) { (byClient[it.client_id] = byClient[it.client_id] || []).push({ room_id: it.room_id, name: it.name }); }
+                  const clients = Object.entries(byClient);
+                  return (
+                    <div className="grid gap-1">
+                      {clients.length === 0 && <div className="text-[11px] text-muted-foreground">Клиенты/инстансы не найдены.</div>}
+                      {clients.map(([cid, insts]) => {
+                        const rooms = insts.map((x) => x.room_id).filter(Boolean);
+                        const sel = rooms.filter((r) => connInstances.includes(r)).length;
+                        const allSel = rooms.length > 0 && sel === rooms.length;
+                        return (
+                          <details key={cid} className="rounded border border-border bg-background text-[11px]" open={sel > 0}>
+                            <summary className="flex cursor-pointer list-none items-center gap-2 px-2 py-1">
+                              <input type="checkbox" checked={allSel} disabled={busy}
+                                ref={(el) => { if (el) el.indeterminate = sel > 0 && !allSel; }}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => toggleGClientInstances(rooms, e.target.checked)} />
+                              <span className="shrink-0 rounded bg-muted px-1 font-mono text-foreground">{cid}</span>
+                              <span className="min-w-0 flex-1 truncate text-muted-foreground">подписка · инстансов: {insts.length}</span>
+                              <span className={"shrink-0 rounded px-1 " + (sel > 0 ? "bg-sky-500/15 text-sky-300" : "text-muted-foreground")}>выбрано {sel}/{rooms.length}</span>
+                            </summary>
+                            <div className="grid gap-1 border-t border-border px-2 py-1">
+                              {insts.map((it) => (
+                                <label key={it.room_id} className="flex items-center gap-2 rounded px-1 py-0.5">
+                                  <input type="checkbox" checked={connInstances.includes(it.room_id)} disabled={busy}
+                                    onChange={(e) => toggleGInstance(it.room_id, e.target.checked)} />
+                                  <span className="min-w-0 flex-1 truncate">{it.name}</span>
+                                  <span className="shrink-0 font-mono text-muted-foreground">{it.room_id}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </details>
+                        );
+                      })}
+                      <div className="text-[10px] text-muted-foreground">Вайтлист инстансов: контроль по спискам — на отмеченных; <b className="text-foreground">НЕотмеченные не пускают никого</b>. Клик по клиенту разворачивает его инстансы; галочка у клиента отмечает все его инстансы.</div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
             <div className={"grid gap-2" + dimCls(connOff)} title={connOff ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>
