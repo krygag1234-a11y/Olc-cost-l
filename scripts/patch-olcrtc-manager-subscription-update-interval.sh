@@ -98,7 +98,7 @@ new_write = '''\t\tif hours := subscriptionRefreshHours(cfg, resolvedClientID); 
 \t\t}
 \t\tw.Header().Set("Content-Type", "text/plain; charset=utf-8")
 \t\t_, _ = w.Write([]byte(sub))'''
-if 'profile-update-interval' in t:
+if 'w.Header().Set("profile-update-interval"' in t:
     print("[patch-sub-update-interval] header already set")
 elif old_write in t:
     t = t.replace(old_write, new_write, 1)
