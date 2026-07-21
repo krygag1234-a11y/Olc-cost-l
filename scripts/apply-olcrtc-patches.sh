@@ -416,6 +416,8 @@ apply_manager() {
   # Subscription randomization must run after golden-panel because golden-panel rewrites main.go.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-randomization.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # profile-update-interval header (реальное автообновление olcbox из refresh); после subscription-randomization
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-update-interval.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Fix addon log resolution (correct file paths + journald fallback).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-feature-logs-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Fix v2: логи tor/olcrtc показывали healthcheck.log — journald-первым для юнит-аддонов.
@@ -509,6 +511,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-sticky-scroll-resume.sh" "$MGR_REPO/src/main.tsx"
   # Логи — накопительные (append-only): старые строки не «уезжают» при ротации буфера.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-append-only.sh" "$MGR_REPO/src/main.tsx"
+  # Интервал автообновления подписки — пикер часов (profile-update-interval у olcbox).
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-refresh-hours-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
