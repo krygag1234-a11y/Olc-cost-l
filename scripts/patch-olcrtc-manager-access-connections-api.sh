@@ -38,6 +38,9 @@ else:
 # --- 2. Обработчик (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
 fn_block = r'''// olcConnRecord — запись журнала подключений (персистентная, с накоплением ×N).
+// Count — реальные подключения/принятые попытки; Denied — ОТКЛОНЁННЫЕ попытки
+// (AuthHook: "conn attempt … allowed=false", напр. забаненное устройство в
+// ретрай-лупе). Разделено, чтобы отказы не выглядели как «подключается».
 type olcConnRecord struct {
 	Device       string `json:"device"`
 	ClientID     string `json:"client_id"`
@@ -45,8 +48,10 @@ type olcConnRecord struct {
 	RoomID       string `json:"room_id"`
 	Transport    string `json:"transport"`
 	Count        int    `json:"count"`
+	Denied       int    `json:"denied,omitempty"`
 	First        string `json:"first"`
 	Last         string `json:"last"`
+	LastDenied   string `json:"last_denied,omitempty"`
 }
 
 var (
@@ -135,7 +140,12 @@ func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 				olcConnJournal = append(olcConnJournal, rec)
 			}
 			if rec.Last == "" || ln.Time > rec.Last {
-				rec.Count++
+				if strings.Contains(ln.Line, "allowed=false") {
+					rec.Denied++
+					rec.LastDenied = ln.Time
+				} else {
+					rec.Count++
+				}
 				rec.Last = ln.Time
 				if rec.First == "" {
 					rec.First = ln.Time

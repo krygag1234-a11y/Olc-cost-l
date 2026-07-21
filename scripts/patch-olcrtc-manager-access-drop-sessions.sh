@@ -113,7 +113,9 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 
 // olcDropForbiddenSessions — перезапускает инстансы, где подключено устройство,
 // которое больше не разрешено (по текущему ac). Вызывается после сохранения
-// access-control. Идёт по per-instance лог-буферам (device=install-…).
+// access-control. Проверяет ЖИВЫХ пиров (PeerSummary — «Current peers count»)
+// И историю per-instance лог-буферов (device=install-…) — буфер кольцевой (500
+// строк), device=-строки могли отротироваться, а peer summary всегда свежая.
 func olcDropForbiddenSessions(ac olcAccessControl) {
 	if panelSupervisor == nil {
 		return
@@ -135,19 +137,36 @@ func olcDropForbiddenSessions(ac olcAccessControl) {
 			tr := p.location.Transport.Type
 			forbidden := false
 			seen := map[string]bool{}
-			for _, ln := range p.logs.Snapshot() {
-				mm := re.FindStringSubmatch(ln.Line)
-				if mm == nil {
-					continue
+			// 1) живые пиры (последняя peer-summary строка ядра) — самый надёжный сигнал
+			if pc, devs, _, ok := p.logs.PeerSummary(); ok && pc > 0 {
+				for _, dev := range devs {
+					dev = strings.TrimSpace(dev)
+					if dev == "" || seen[dev] {
+						continue
+					}
+					seen[dev] = true
+					if !olcConnAllowed(ac, cid, room, dev) {
+						forbidden = true
+						break
+					}
 				}
-				dev := mm[1]
-				if seen[dev] {
-					continue
-				}
-				seen[dev] = true
-				if !olcConnAllowed(ac, cid, room, dev) {
-					forbidden = true
-					break
+			}
+			// 2) история device=-строк в буфере
+			if !forbidden {
+				for _, ln := range p.logs.Snapshot() {
+					mm := re.FindStringSubmatch(ln.Line)
+					if mm == nil {
+						continue
+					}
+					dev := mm[1]
+					if seen[dev] {
+						continue
+					}
+					seen[dev] = true
+					if !olcConnAllowed(ac, cid, room, dev) {
+						forbidden = true
+						break
+					}
 				}
 			}
 			if forbidden {

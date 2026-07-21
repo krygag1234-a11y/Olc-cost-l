@@ -553,8 +553,8 @@ function ClientAccessModal({ clientId, onClose }: { clientId: string; onClose: (
                 return (
                   <div key={dev + "|" + i} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-[11px]">
                     <div className="min-w-0">
-                      <div className="truncate font-mono">{dev} {known && <span className="text-sky-400">✓</span>}{Number(c.count || 1) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}</div>
-                      <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}</div>
+                      <div className="truncate font-mono">{dev} {known && <span className="text-sky-400">✓</span>}{Number(c.count || 0) > 1 && <span className="ml-1 rounded bg-muted px-1 text-muted-foreground">×{c.count}</span>}{Number(c.denied || 0) > 0 && <span className="ml-1 rounded border border-red-500/40 bg-red-500/10 px-1 text-red-400" title="Отклонённые попытки подключения (бан / не в списке) — устройство НЕ подключилось, это ретраи клиента">🚫 отклонено ×{c.denied}</span>}</div>
+                      <div className="truncate text-muted-foreground">{loc ? <>инстанс: {loc} · </> : null}последнее: {String(c.last || "").slice(0, 19)}{Number(c.count || 0) === 0 && Number(c.denied || 0) > 0 ? " · только отклонённые попытки" : ""}</div>
                     </div>
                     {dev && (
                       <div className="flex shrink-0 gap-1">
