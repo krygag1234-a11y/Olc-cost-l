@@ -76,6 +76,18 @@ func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
 	// Глобальный вкл → глобальный энфорс; выборочный per-client НЕ действует.
 	if ac.Enabled {
 		if ac.EnforceConns {
+			if ac.ConnScope == "selective" {
+				inList := false
+				for _, r := range ac.ConnInstances {
+					if strings.TrimSpace(r) == strings.TrimSpace(roomID) && roomID != "" {
+						inList = true
+						break
+					}
+				}
+				if !inList {
+					return false // глоб. selective = вайтлист инстансов: не выбран → запрет
+				}
+			}
 			return decide(ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
 		}
 		return decideBanOnly(ac.BanNoHwid, ac.ConnBan)

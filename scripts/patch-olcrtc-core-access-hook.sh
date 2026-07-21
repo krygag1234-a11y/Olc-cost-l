@@ -88,12 +88,14 @@ type olcAccClient struct {
 }
 
 type olcAccControl struct {
-	Enabled      bool                     `json:"enabled"`
-	EnforceConns bool                     `json:"enforce_connections"`
-	BanNoHwid    bool                     `json:"ban_no_hwid"`
-	ConnDevices  []olcAccDevice           `json:"conn_devices"`
-	ConnBan      []olcAccDevice           `json:"conn_ban"`
-	Clients      map[string]*olcAccClient `json:"clients"`
+	Enabled       bool                     `json:"enabled"`
+	EnforceConns  bool                     `json:"enforce_connections"`
+	BanNoHwid     bool                     `json:"ban_no_hwid"`
+	ConnDevices   []olcAccDevice           `json:"conn_devices"`
+	ConnBan       []olcAccDevice           `json:"conn_ban"`
+	ConnScope     string                   `json:"conn_scope"`
+	ConnInstances []string                 `json:"conn_instances"`
+	Clients       map[string]*olcAccClient `json:"clients"`
 }
 
 func olcAccMatch(list []olcAccDevice, dev string) bool {
@@ -175,6 +177,18 @@ func olcAccessConnDecide(deviceID string) bool {
 	// Бан-лист подключения действует ВСЕГДА (и при выключенном энфорсе).
 	if ac.Enabled {
 		if ac.EnforceConns {
+			if ac.ConnScope == "selective" {
+				inList := false
+				for _, r := range ac.ConnInstances {
+					if strings.TrimSpace(r) == room && room != "" {
+						inList = true
+						break
+					}
+				}
+				if !inList {
+					return false // глоб. selective = вайтлист инстансов: не выбран → запрет
+				}
+			}
 			return olcAccDecideConn(dev, ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
 		}
 		return olcAccDecideBanOnly(dev, ac.BanNoHwid, ac.ConnBan)

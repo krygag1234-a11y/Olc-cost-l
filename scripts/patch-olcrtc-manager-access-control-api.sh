@@ -162,6 +162,8 @@ type olcAccessControl struct {
 	EnforceConns bool                        `json:"enforce_connections"` // энфорсить на УРОВНЕ ПОДКЛЮЧЕНИЯ (AuthHook); default off
 	ConnDevices  []olcAllowedDevice          `json:"conn_devices"`      // разрешённые устройства ПОДКЛЮЧЕНИЯ (ОТДЕЛЬНО от devices)
 	ConnBan      []olcAllowedDevice          `json:"conn_ban"`          // забаненные устройства ПОДКЛЮЧЕНИЯ (ОТДЕЛЬНО от ban)
+	ConnScope     string   `json:"conn_scope,omitempty"`     // ГЛОБАЛЬНЫЙ scope контроля подключения: "all" (пусто=all) | "selective"
+	ConnInstances []string `json:"conn_instances,omitempty"` // room_id инстансов при selective (по ВСЕМ клиентам); вайтлист: невыбранный инстанс не пускает никого
 	Clients      map[string]*olcClientAccess `json:"clients,omitempty"` // per-подписка
 	AllowedHWIDs []string                    `json:"allowed_hwids,omitempty"` // legacy, мигрируется
 	AllowedIPs   []olcAllowedIP              `json:"allowed_ips,omitempty"`
@@ -410,6 +412,8 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 			EnforceConns *bool              `json:"enforce_connections"`
 			ConnDevices  []olcAllowedDevice `json:"conn_devices"`
 			ConnBan      []olcAllowedDevice `json:"conn_ban"`
+			ConnScope     *string           `json:"conn_scope"`
+			ConnInstances []string          `json:"conn_instances"`
 			AllowedIPs   []olcAllowedIP     `json:"allowed_ips"`
 			BanIPs       []olcAllowedIP     `json:"ban_ips"`
 		}
@@ -442,13 +446,23 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		if in.ConnBan != nil {
 			cur.ConnBan = olcAccessNormalizeDevices(in.ConnBan)
 		}
+		if in.ConnScope != nil {
+			s := *in.ConnScope
+			if s != "selective" {
+				s = "all"
+			}
+			cur.ConnScope = s
+		}
+		if in.ConnInstances != nil {
+			cur.ConnInstances = olcAccessDedup(in.ConnInstances)
+		}
 		if in.AllowedIPs != nil {
 			cur.AllowedIPs = olcAccessDedupIPs(in.AllowedIPs)
 		}
 		if in.BanIPs != nil {
 			cur.BanIPs = olcAccessDedupIPs(in.BanIPs)
 		}
-		log.Printf("olc-access: global saved: enabled=%t mode=%s devices=%d ban=%d ips=%d ban_ips=%d enforce_conns=%t conn_devices=%d conn_ban=%d", cur.Enabled, cur.Mode, len(cur.Devices), len(cur.Ban), len(cur.AllowedIPs), len(cur.BanIPs), cur.EnforceConns, len(cur.ConnDevices), len(cur.ConnBan))
+		log.Printf("olc-access: global saved: enabled=%t mode=%s devices=%d ban=%d ips=%d ban_ips=%d enforce_conns=%t conn_devices=%d conn_ban=%d scope=%s insts=%d", cur.Enabled, cur.Mode, len(cur.Devices), len(cur.Ban), len(cur.AllowedIPs), len(cur.BanIPs), cur.EnforceConns, len(cur.ConnDevices), len(cur.ConnBan), cur.ConnScope, len(cur.ConnInstances))
 		if err := olcAccessSave(cur); err != nil {
 			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

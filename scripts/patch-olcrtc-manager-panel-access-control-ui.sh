@@ -40,6 +40,10 @@ function AccessControlSection() {
   const [connBan, setConnBan] = useState<Array<{ hwid: string; label?: string; enabled: boolean }>>([]);
   const [newConnDev, setNewConnDev] = useState("");
   const [newConnBan, setNewConnBan] = useState("");
+  const [newBanHwid, setNewBanHwid] = useState("");
+  const [connScope, setConnScope] = useState<"all" | "selective">("all");
+  const [connInstances, setConnInstances] = useState<string[]>([]);
+  const [allInstances, setAllInstances] = useState<Array<{ client_id: string; room_id: string; name: string }>>([]);
   const [hiddenCross, setHiddenCross] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("olc-cross-hidden-g-v1") || "[]"); } catch { return []; } });
   const hideCross = (k: string) => { const nx = Array.from(new Set([...hiddenCross, k])); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-g-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
   const unhideCross = (k: string) => { const nx = hiddenCross.filter((x) => x !== k); setHiddenCross(nx); try { localStorage.setItem("olc-cross-hidden-g-v1", JSON.stringify(nx)); } catch { /* ignore */ } };
@@ -78,6 +82,16 @@ function AccessControlSection() {
       setConnBan(Array.isArray(sb.conn_ban) ? sb.conn_ban : []);
       setAllowedIps(normIps(sb.allowed_ips));
       setBanIps(normIps(sb.ban_ips));
+      setConnScope(sb.conn_scope === "selective" ? "selective" : "all");
+      setConnInstances(Array.isArray(sb.conn_instances) ? sb.conn_instances : []);
+    } catch { /* ignore */ }
+    try {
+      // Инстансы ВСЕХ клиентов — для глобального выбора «Только выбранные».
+      const st = await fetch("/api/state", { cache: "no-store" });
+      const stb = await st.json();
+      const out: Array<{ client_id: string; room_id: string; name: string }> = [];
+      for (const c of (stb.clients || [])) for (const l of (c.locations || [])) out.push({ client_id: String(c.client_id || ""), room_id: String(l.room_id || ""), name: String(l.name || l.room_id || "") });
+      setAllInstances(out);
     } catch { /* ignore */ }
     try {
       const l = await fetch("/api/settings/logs", { cache: "no-store" });
@@ -149,7 +163,7 @@ function AccessControlSection() {
     await loadAttempts(); setBusy(false);
   };
 
-  const saveSettings = async (next: { enabled?: boolean; mode?: string; devices?: any[]; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_devices?: any[]; conn_ban?: any[]; allowed_ips?: any[]; ban_ips?: any[] }) => {
+  const saveSettings = async (next: { enabled?: boolean; mode?: string; devices?: any[]; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_devices?: any[]; conn_ban?: any[]; allowed_ips?: any[]; ban_ips?: any[]; conn_scope?: string; conn_instances?: string[] }) => {
     setBusy(true); setMsg(null);
     try {
       // ЧАСТИЧНОЕ сохранение: шлём ТОЛЬКО изменённые поля (backend мержит).
@@ -167,6 +181,8 @@ function AccessControlSection() {
       setEnforceConns(!!b.enforce_connections);
       setConnDevices(Array.isArray(b.conn_devices) ? b.conn_devices : []);
       setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
+      setConnScope(b.conn_scope === "selective" ? "selective" : "all");
+      setConnInstances(Array.isArray(b.conn_instances) ? b.conn_instances : []);
       if (Array.isArray(b.allowed_ips)) setAllowedIps(normIps(b.allowed_ips));
       if (Array.isArray(b.ban_ips)) setBanIps(normIps(b.ban_ips));
       try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: { enabled: !!b.enabled } })); } catch { /* ignore */ }
@@ -179,6 +195,7 @@ function AccessControlSection() {
   const dropH = (list: Array<any>, h: string) => (list || []).filter((d) => (d.hwid || "").toLowerCase() !== (h || "").toLowerCase());
   const ipIn = (list: any[], ip: string) => (list || []).some((x: any) => x.ip === ip);
   const dropIp = (list: any[], ip: string) => (list || []).filter((x: any) => x.ip !== ip);
+  const toggleGInstance = (room: string, on: boolean) => { const nx = on ? [...connInstances, room] : connInstances.filter((r) => r !== room); setConnInstances(nx); void saveSettings({ conn_instances: nx }); };
   const setConnDevice = (hwid: string, patch: { enabled?: boolean }) => { const nx = connDevices.map((d) => d.hwid === hwid ? { ...d, ...patch } : d); setConnDevices(nx); void saveSettings({ conn_devices: nx }); };
   const addConnDevice = (hwid: string) => {
     const h = (hwid || "").trim(); if (!h || inL(connDevices, h)) return;
@@ -404,6 +421,11 @@ function AccessControlSection() {
                 ))}
               </div>
             )}
+            <div className="flex gap-2">
+              <input className="h-8 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
+                placeholder="install-… (забанить)" value={newBanHwid} onChange={(e) => setNewBanHwid(e.target.value)} />
+              <button type="button" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/20" disabled={busy || !newBanHwid.trim()} onClick={() => { banDevice(newBanHwid.trim()); setNewBanHwid(""); }}>Забанить</button>
+            </div>
             <details className="text-[11px]">
               <summary className="cursor-pointer text-muted-foreground">🌐🚫 Забаненные IP (получение подписки)</summary>
               <div className="mt-2 grid gap-2">
@@ -502,6 +524,37 @@ function AccessControlSection() {
               </button>
             </div>
             <div className="text-[10px] leading-snug text-muted-foreground">«Блокировать неизвестных»: на подключении пускаются только устройства из списка ниже (закрывает «слитый инстанс»). Если список пуст — <b className="text-foreground">не пускает никого</b>. Журнал и бан-лист действуют в ОБОИХ режимах.<span className="text-amber-500"> ⚠️ Проверьте на своём устройстве.</span></div>
+            {!connOff && (
+              <div className="grid gap-2 pl-5">
+                <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                  <label className="flex items-center gap-1">
+                    <input type="radio" name="olc-conn-scope-global" checked={connScope === "all"} disabled={busy}
+                      onChange={() => { setConnScope("all"); void saveSettings({ conn_scope: "all" }); }} />
+                    Все инстансы (всех подписок)
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input type="radio" name="olc-conn-scope-global" checked={connScope === "selective"} disabled={busy}
+                      onChange={() => { setConnScope("selective"); void saveSettings({ conn_scope: "selective" }); }} />
+                    Только выбранные
+                  </label>
+                </div>
+                {connScope === "selective" && (
+                  <div className="grid gap-1">
+                    {allInstances.length === 0 && <div className="text-[11px] text-muted-foreground">Инстансы не найдены.</div>}
+                    {allInstances.map((it) => (
+                      <label key={it.client_id + "|" + it.room_id} className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-[11px]">
+                        <input type="checkbox" checked={connInstances.includes(it.room_id)} disabled={busy}
+                          onChange={(e) => toggleGInstance(it.room_id, e.target.checked)} />
+                        <span className="shrink-0 rounded bg-muted px-1 font-mono text-muted-foreground">{it.client_id}</span>
+                        <span className="min-w-0 flex-1 truncate">{it.name}</span>
+                        <span className="shrink-0 font-mono text-muted-foreground">{it.room_id}</span>
+                      </label>
+                    ))}
+                    <div className="text-[10px] text-muted-foreground">Вайтлист инстансов: контроль по спискам — на отмеченных; <b className="text-foreground">НЕотмеченные не пускают никого</b>.</div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className={"grid gap-2" + dimCls(connOff)} title={connOff ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>
               <div className="text-xs font-semibold text-sky-400">🔌 Разрешённые устройства (подключение к инстансам){connOff ? " — не действуют в режиме «Выключено»" : ""}</div>
               <div className="text-[11px] text-muted-foreground">ОТДЕЛЬНЫЙ список от «получения подписки». <span className="text-amber-500">IP-фильтра здесь нет: на подключении виден только hwid устройства, не IP — IP-контроль работает только в разделе «получение подписки».</span></div>
