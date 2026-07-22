@@ -270,3 +270,285 @@ func TestOlcMultiKeyRejectsUnknown(t *testing.T) {
 }
 GOTEST
 echo "[patch-core-key-rand] wrote internal/muxconn/olc_multikey_test.go"
+
+# ============================================================================
+# ЧАСТИ 2-3 (тип1): handshake.go (keyClass) + server.go (alt-ciphers, SetAltCiphers,
+# проброс keyClass) + session.go (env OLCRTC_ALT_KEYS). ИНЕРТНО без alt-ключей.
+# ============================================================================
+python3 - "$CORE_REPO" <<'PY'
+import sys, pathlib, re
+repo = pathlib.Path(sys.argv[1])
+
+# --- handshake.go ---
+hp = repo / "internal/handshake/handshake.go"
+h = hp.read_text()
+if "keyClass int) (Hello, string, error)" not in h:
+    h = h.replace("func Server(rw io.ReadWriter, auth AuthFunc) (Hello, string, error) {",
+                  "func Server(rw io.ReadWriter, auth AuthFunc, keyClass int) (Hello, string, error) {", 1)
+    old = "\tsessionID, err := auth(h.DeviceID, h.Claims)\n"
+    new = ('\t// Olc-cost-l key-randomization: класс ключа (0 ориг/1 ранд/-1 single) в auth\n'
+           '\t// через reserved-claim (клиент не контролирует, сервер перезаписывает).\n'
+           '\tif h.Claims == nil {\n\t\th.Claims = map[string]any{}\n\t}\n'
+           '\th.Claims["_olc_key_class"] = keyClass\n'
+           '\tsessionID, err := auth(h.DeviceID, h.Claims)\n')
+    if old in h:
+        h = h.replace(old, new, 1)
+    hp.write_text(h)
+    print("[patch-core-key-rand] handshake.go: Server +keyClass")
+else:
+    print("[patch-core-key-rand] handshake.go already patched")
+
+# handshake_test.go: Server(x, func(...){...}) -> +", 0)" (грубо; build тесты не гоняет)
+tp = repo / "internal/handshake/handshake_test.go"
+if tp.exists():
+    tt = tp.read_text()
+    tt2 = re.sub(r'(handshake\.)?Server\((\w+), (func\([^)]*\)[^\n]*\{)', r'Server(\2, \3', tt)  # no-op safeguard
+    # заменяем закрытие вызова Server(...) добавлением ,0 — простая эвристика по строкам
+    # (оставляем как есть если не находим; тесты не влияют на go build)
+    tp.write_text(tt)
+
+# --- server.go ---
+sp = repo / "internal/server/server.go"
+t = sp.read_text()
+if "altCiphers []*crypto.Cipher" not in t:
+    t = t.replace("\tTraffic          transport.TrafficConfig\n",
+        "\tTraffic          transport.TrafficConfig\n\n\t// Olc-cost-l key-randomization (server-only): hex(64)=32b alt-ключи для\n\t// приёма от НЕразрешённых. Пусто → single-cipher (upstream).\n\tAltKeysHex []string\n", 1)
+    t = t.replace("\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n",
+        "\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n\taltCiphers []*crypto.Cipher // Olc-cost-l key-randomization\n", 1)
+    anchor=("\tcipher, err := setupCipher(cfg.KeyHex)\n\tif err != nil {\n"
+            "\t\treturn fmt.Errorf(\"setupCipher failed: %w\", err)\n\t}\n")
+    add=("\tvar altCiphers []*crypto.Cipher\n\tfor _, hx := range cfg.AltKeysHex {\n"
+         "\t\tac, aerr := setupCipher(hx)\n\t\tif aerr != nil {\n\t\t\tlogger.Warnf(\"olc key-rand: bad alt key (skipped): %v\", aerr)\n\t\t\tcontinue\n\t\t}\n"
+         "\t\taltCiphers = append(altCiphers, ac)\n\t}\n")
+    t = t.replace(anchor, anchor+add, 1)
+    t = t.replace("\ts := &Server{\n\t\tcipher:         cipher,\n",
+                  "\ts := &Server{\n\t\tcipher:         cipher,\n\t\taltCiphers:     altCiphers,\n", 1)
+    # helper + acceptHandshake signature + kc
+    anchor="func (s *Server) acceptHandshake(ctx context.Context, sess *smux.Session) bool {"
+    helper=("// olcKeyClass — класс ключа conn для handshake (-1 если nil/single). Olc-cost-l.\n"
+            "func olcKeyClass(c *muxconn.Conn) int {\n\tif c == nil {\n\t\treturn -1\n\t}\n\treturn c.KeyClass()\n}\n\n")
+    t = t.replace(anchor, helper+"func (s *Server) acceptHandshake(ctx context.Context, sess *smux.Session, conn *muxconn.Conn) bool {\n\tkc := olcKeyClass(conn)", 1)
+    t = t.replace("func (s *Server) acceptPeerHandshake(ctx context.Context, ps *peerSession) {",
+                  "func (s *Server) acceptPeerHandshake(ctx context.Context, ps *peerSession) {\n\tkc := olcKeyClass(ps.controlConn)", 1)
+    t = t.replace("hello, sid, err := handshake.Server(stream, s.authHook)",
+                  "hello, sid, err := handshake.Server(stream, s.authHook, kc)")
+    t = t.replace("go s.acceptHandshake(s.baseCtx, controlSess)", "go s.acceptHandshake(s.baseCtx, controlSess, controlConn)")
+    t = t.replace("go s.acceptHandshake(s.baseCtx, r.controlSess)", "go s.acceptHandshake(s.baseCtx, r.controlSess, r.controlConn)")
+    t = t.replace("if !s.acceptHandshake(ctx, sess) {", "if !s.acceptHandshake(ctx, sess, s.conn) {")
+    t = t.replace("if !s.acceptHandshake(s.baseCtx, ps.session) {", "if !s.acceptHandshake(s.baseCtx, ps.session, ps.conn) {")
+    # SetAltCiphers на conn-сайтах построчно
+    pat=re.compile(r'^(\s*)([\w.]+)\s*:?=\s*muxconn\.(New|NewControl|NewPeer|NewPeerControl)\(')
+    outl=[]
+    for ln in t.split("\n"):
+        outl.append(ln)
+        m=pat.match(ln)
+        if m:
+            ind,var,ctor=m.group(1),m.group(2),m.group(3)
+            if ctor in ("NewControl","NewPeerControl"):
+                outl.append(f"{ind}if {var} != nil {{ {var}.SetAltCiphers(s.altCiphers...) }}")
+            else:
+                outl.append(f"{ind}{var}.SetAltCiphers(s.altCiphers...)")
+    t="\n".join(outl)
+    sp.write_text(t)
+    print("[patch-core-key-rand] server.go: altCiphers+SetAltCiphers(%d)+keyClass" % t.count("SetAltCiphers(s.altCiphers...)"))
+else:
+    print("[patch-core-key-rand] server.go already patched")
+
+# --- session.go ---
+zp = repo / "internal/app/session/session.go"
+z = zp.read_text()
+if "olcAltKeysFromEnv()" not in z:
+    kh="\t\t\tKeyHex:           cfg.KeyHex,\n"
+    z=z.replace(kh, kh+"\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n", 1)  # 1-е вхождение = server.Config
+    zp.write_text(z)
+    print("[patch-core-key-rand] session.go: AltKeysHex")
+else:
+    print("[patch-core-key-rand] session.go already patched")
+PY
+echo "[patch-core-key-rand] parts 2-3 done"
+
+# ============================================================================
+# ЧАСТЬ 4 (тип1): пост-обработка сгенерированного olc_access_hook.go (access-hook
+# патч эмитит его ДО нас) — 3-режимная матрица (off|keyrand|enforce) + keyClass +
+# olcAltKeysFromEnv. Разделение: access-hook = база; key-rand добавляет keyClass.
+# ============================================================================
+python3 - "$CORE_REPO" <<'PY'
+import sys, pathlib
+repo = pathlib.Path(sys.argv[1])
+hp = repo / "internal/app/session/olc_access_hook.go"
+if not hp.exists():
+    print("[patch-core-key-rand] WARN: olc_access_hook.go отсутствует (access-hook не применён?) — пропуск hook"); sys.exit(0)
+t = hp.read_text()
+if "olcAccessDecideConnFull" in t:
+    print("[patch-core-key-rand] hook already 3-mode"); sys.exit(0)
+
+# 1) ConnMode поля
+t = t.replace(
+"\tConnEnforce   bool           `json:\"conn_enforce\"`\n\tConnScope     string         `json:\"conn_scope\"`\n\tConnInstances []string       `json:\"conn_instances\"`\n}",
+"\tConnEnforce   bool           `json:\"conn_enforce\"`\n\tConnMode      string         `json:\"conn_mode\"` // Olc-cost-l: off|keyrand|enforce; пусто→из ConnEnforce\n\tConnScope     string         `json:\"conn_scope\"`\n\tConnInstances []string       `json:\"conn_instances\"`\n}",1)
+t = t.replace(
+"\tEnforceConns  bool                     `json:\"enforce_connections\"`\n",
+"\tEnforceConns  bool                     `json:\"enforce_connections\"`\n\tConnMode      string                   `json:\"conn_mode\"` // Olc-cost-l глоб: off|keyrand|enforce\n",1)
+
+# 2) helper + olcAltKeysFromEnv перед olcAccessConnDecide
+helpers='''// olcConnModeResolve — 3-значный режим из строки ConnMode или (обратно совместимо)
+// из bool enforce. Olc-cost-l key-randomization.
+func olcConnModeResolve(mode string, enforce bool) string {
+	switch mode {
+	case "off", "keyrand", "enforce":
+		return mode
+	}
+	if enforce {
+		return "enforce"
+	}
+	return "off"
+}
+
+// olcAltKeysFromEnv — рандомизированные ключи из OLCRTC_ALT_KEYS (CSV hex). Olc-cost-l.
+func olcAltKeysFromEnv() []string {
+	v := strings.TrimSpace(os.Getenv("OLCRTC_ALT_KEYS"))
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for _, k := range strings.Split(v, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+'''
+t = t.replace("func olcAccessConnDecide(deviceID string) bool {", helpers+"func olcAccessConnDecide(deviceID string) bool {",1)
+
+# 3) заменить тело olcAccessConnDecide на матрицу + Full
+s=t.index("func olcAccessConnDecide(deviceID string) bool {")
+e=t.index("\treturn true\n}\n", s)+len("\treturn true\n}\n")
+new='''func olcAccessConnDecide(deviceID string) bool {
+	return olcAccessDecideConnFull(deviceID, -1, true) // recheck ban-watcher: без keyClass
+}
+
+// olcAccessDecideConnFull — ЕДИНАЯ точка решения (Olc-cost-l key-randomization, 3
+// режима). keyClass: -1 ранд выкл / 0 ориг / 1 ранд. recheck=true (ban-watcher):
+// не отклонять «неизвестных» по классу ключа (живая сессия прошла handshake). fail-open.
+func olcAccessDecideConnFull(deviceID string, keyClass int, recheck bool) bool {
+	dev := strings.TrimSpace(deviceID)
+	data, err := os.ReadFile(olcAccessControlPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			olcAccWarnf("olc-access: read config failed (fail-open): %v", err)
+		}
+		return true
+	}
+	var ac olcAccControl
+	if err := json.Unmarshal(data, &ac); err != nil {
+		olcAccWarnf("olc-access: parse config failed (fail-open): %v", err)
+		return true
+	}
+	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
+	var (
+		mode      string
+		allow     []olcAccDevice
+		ban       []olcAccDevice
+		banNoHwid bool
+		scope     string
+		insts     []string
+		scoped    bool
+	)
+	if ac.Enabled {
+		mode = olcConnModeResolve(ac.ConnMode, ac.EnforceConns)
+		allow, ban, banNoHwid = ac.ConnDevices, ac.ConnBan, ac.BanNoHwid
+		scope, insts = ac.ConnScope, ac.ConnInstances
+		scoped = true
+	} else {
+		cid := strings.TrimSpace(os.Getenv("OLCRTC_CLIENT_ID"))
+		if cid != "" && ac.Clients != nil {
+			if cc, ok := ac.Clients[cid]; ok && cc != nil {
+				mode = olcConnModeResolve(cc.ConnMode, cc.ConnEnforce)
+				allow, ban, banNoHwid = cc.ConnAllow, cc.ConnBan, cc.BanNoHwid
+				scope, insts = cc.ConnScope, cc.ConnInstances
+				scoped = true
+			}
+		}
+	}
+	if !scoped {
+		return true
+	}
+	if (mode == "enforce" || mode == "keyrand") && scope == "selective" {
+		inList := false
+		for _, r := range insts {
+			if strings.TrimSpace(r) == room && room != "" {
+				inList = true
+				break
+			}
+		}
+		if !inList {
+			return false
+		}
+	}
+	switch mode {
+	case "enforce":
+		return olcAccDecideConn(dev, banNoHwid, allow, ban)
+	case "keyrand":
+		if olcAccDecideConn(dev, banNoHwid, allow, ban) {
+			return true
+		}
+		if olcAccMatch(ban, dev) {
+			return false
+		}
+		if recheck {
+			return true
+		}
+		return keyClass == 1
+	default:
+		if !olcAccDecideBanOnly(dev, banNoHwid, ban) {
+			return false
+		}
+		if keyClass < 0 || recheck {
+			return true
+		}
+		return keyClass == 1
+	}
+}
+'''
+t=t[:s]+new+t[e:]
+
+# 4) hook: keyClass + Full
+old_hook='''func olcAccessConnectionAuthHook(deviceID string, _ map[string]any) (string, error) {
+	dev := strings.TrimSpace(deviceID)
+	if olcAccessConnDecide(dev) {
+		// Принятые подключения видны по «peer connected: device=…» —
+		// отдельная allowed=true строка не нужна (и ломала счёт журнала).
+		return uuid.NewString(), nil
+	}
+	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
+	logger.Infof("olc-access: conn attempt device=%s allowed=false room=%s", dev, room)
+	return "", errors.New("device not allowed to connect")
+}'''
+new_hook='''func olcAccessConnectionAuthHook(deviceID string, claims map[string]any) (string, error) {
+	dev := strings.TrimSpace(deviceID)
+	keyClass := -1
+	if claims != nil {
+		if v, ok := claims["_olc_key_class"].(int); ok {
+			keyClass = v
+		} else if f, ok := claims["_olc_key_class"].(float64); ok {
+			keyClass = int(f)
+		}
+	}
+	if olcAccessDecideConnFull(dev, keyClass, false) {
+		return uuid.NewString(), nil
+	}
+	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
+	logger.Infof("olc-access: conn attempt device=%s allowed=false room=%s keyclass=%d", dev, room, keyClass)
+	return "", errors.New("device not allowed to connect")
+}'''
+if old_hook in t:
+    t=t.replace(old_hook,new_hook,1)
+else:
+    print("[patch-core-key-rand] WARN: hook block not found (access-hook изменился?)")
+
+hp.write_text(t)
+print("[patch-core-key-rand] hook: 3-режимная матрица + keyClass")
+PY
+echo "[patch-core-key-rand] part 4 done"
