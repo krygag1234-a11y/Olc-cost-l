@@ -70,12 +70,10 @@ function KeyRotationSection() {
     <section className="grid gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
       <div>
         <div className="text-sm font-semibold text-amber-400">♻️ Автосмена ключей</div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          Раз в <b className="text-foreground">интервал автообновления подписки</b> (N ч) сервер перегенерирует
-          <b className="text-foreground"> оригинальные ключи шифрования</b> инстансов. Инстансы с активным туннелем
-          пропускаются до следующего круга (не рвём живые сессии). Клиент подхватывает новые ключи при автообновлении
-          подписки. Защита от <b className="text-foreground">утёкшей подписки</b> (слитый ключ протухает за N).
-          Работает независимо от рандомизации ключей/ID.
+        <div className="mt-1 grid gap-1 text-xs text-muted-foreground">
+          <div>Раз в <b className="text-foreground">N ч</b> сервер перегенерирует <b className="text-foreground">оригинальные ключи шифрования</b> инстансов. Клиент подхватывает новые ключи при автообновлении подписки. Защита от <b className="text-foreground">утёкшей подписки</b> (слитый ключ протухает за N). Работает независимо от рандомизации ключей/ID.</div>
+          <div><b className="text-foreground">N = интервал автообновления подписки</b> (заголовок <span className="font-mono">profile-update-interval</span>, который вы задаёте пикером часов): для <b className="text-foreground">глобальной</b> смены берётся интервал из <b className="text-foreground">общих настроек подписки</b>; для <b className="text-foreground">выборочной</b> (по клиенту) — интервал, заданный у этого клиента в <span className="font-mono">Edit</span>. Если интервал нигде не задан — по умолчанию <b className="text-foreground">24 ч</b>.</div>
+          <div>Инстансы с <b className="text-foreground">активным туннелем пропускаются</b> до следующего круга — их ключ не меняется, пока идёт сессия (живые подключения не рвём).</div>
         </div>
       </div>
 
@@ -117,7 +115,7 @@ function KeyRotationSection() {
             );
           })}
         </div>
-        <div className="text-[10px] leading-snug text-muted-foreground">Ротируются все инстансы выбранной подписки (кроме занятых — до следующего круга). Интервал N берётся из настройки автообновления этой подписки (Edit) или глобальной.</div>
+        <div className="text-[10px] leading-snug text-muted-foreground">Ротируются все инстансы выбранной подписки (кроме занятых — до следующего круга). Интервал N = автообновление подписки этого клиента (Edit); если у клиента не задано — глобальный интервал; если и он не задан — 24 ч.</div>
       </div>
 
       {msg && <div className="text-xs text-red-500 whitespace-pre-wrap">{msg}</div>}

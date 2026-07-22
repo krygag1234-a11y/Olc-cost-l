@@ -29,14 +29,16 @@ if 'function RefreshHoursPicker(' not in t:
   const raw = (value || "").trim();
   const m = /^(\\d+)h$/.exec(raw);
   const curHours = m ? parseInt(m[1], 10) : 0;
-  const isPreset = presets.indexOf(curHours) >= 0;
   const legacy = raw !== "" && curHours === 0;
+  // Пусто = дефолт olcbox 24ч → подсвечиваем 24ч ЯВНО (не оставляем пустым/невыбранным).
+  const effHours = curHours > 0 ? curHours : (legacy ? 0 : 24);
+  const isPreset = presets.indexOf(effHours) >= 0;
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center gap-2">
         {presets.map((h) => (
           <button key={h} type="button"
-            className={curHours === h
+            className={effHours === h
               ? "rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm text-primary"
               : "rounded-md border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"}
             onClick={() => onChange(h + "h")}>{h}ч</button>
@@ -58,7 +60,7 @@ if 'function RefreshHoursPicker(' not in t:
           ? "Текущее значение «" + raw + "» — устаревший формат; olcbox округлит до часов. Выберите часы явно."
           : curHours > 0
             ? "Клиент (olcbox) автообновляет подписку раз в " + curHours + " ч."
-            : "По умолчанию — раз в 24 ч (значение olcbox)."}
+            : "По умолчанию — раз в 24 ч (значение подставляется явно; отправляется заголовком profile-update-interval)."}
         {" "}olcbox проверяет не чаще раза в час и при заходе в приложение.
       </div>
     </div>
