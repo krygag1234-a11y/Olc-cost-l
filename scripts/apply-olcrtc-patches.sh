@@ -233,6 +233,8 @@ apply_olcrtc() {
   bash "$SCRIPT_DIR/patch-olcrtc-core.sh" "$OLCRTC_REPO"
   # Enforcement контроля доступа на подключении (safe-by-default AuthHook).
   bash "$SCRIPT_DIR/patch-olcrtc-core-access-hook.sh" "$OLCRTC_REPO"
+  # Рандомизация ключей (эпик A), часть 1: multi-key в muxconn (ИНЕРТНА без alt-ключей). После access-hook.
+  bash "$SCRIPT_DIR/patch-olcrtc-core-key-randomization.sh" "$OLCRTC_REPO"
   bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-blocked-tor.sh" \
     "$OLCRTC_REPO/internal/server/server.go" \
