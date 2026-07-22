@@ -112,27 +112,38 @@ clone_repos() {
   mgr_pin_sha="$(pin_manager_sha)"
   olc_git_safe_register "$OLCRTC_REPO"
   olc_git_safe_register "$MGR_REPO"
-  if [[ -d "$OLCRTC_REPO/.git" ]]; then
-    if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
-      log "refresh olcrtc $OLCRTC_BRANCH"
-      olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1 2>/dev/null || \
-        olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH"
-      olc_git "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
-    elif [[ -n "$pin_sha" ]]; then
-      log "checkout pinned olcrtc ${pin_sha:0:12}"
-      olc_git "$OLCRTC_REPO" fetch origin "$pin_sha" --depth 1 2>/dev/null || \
-        olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 50
-      olc_git "$OLCRTC_REPO" reset --hard "$pin_sha" 2>/dev/null || true
-    fi
-  elif [[ -e "$OLCRTC_REPO" ]]; then
+  # --- olcrtc core: ГАРАНТИРОВАННО приводим к ПИНУ (Урок 69). Раньше fresh-clone
+  # (elif -e / else) игнорировал пин → master, а `reset --hard <pin> || true`
+  # молча оставлял чужой код. master дрейфует и ломает якоря наших патчей, что
+  # критично для крипто-патчей. Теперь: клон при отсутствии, затем fetch пина по
+  # ПОЛНОМУ SHA (short SHA fetch НЕ работает) + reset --hard; провал = ЖЁСТКАЯ
+  # ошибка (set -e прервёт сборку, старый бинарь останется — свап в конце).
+  # UPSTREAM_FRESH=1 — осознанный переход на свежий master (для обновления пина).
+  if [[ ! -d "$OLCRTC_REPO/.git" ]]; then
     rm -rf "$OLCRTC_REPO"
-    git clone -b "$OLCRTC_BRANCH" --depth 1 \
-      https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
+    git clone --depth 1 https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
     olc_git_safe_register "$OLCRTC_REPO"
+  fi
+  if [[ "${UPSTREAM_FRESH:-0}" == "1" ]]; then
+    log "refresh olcrtc $OLCRTC_BRANCH (UPSTREAM_FRESH=1)"
+    olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1
+    olc_git "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
+    olc_git "$OLCRTC_REPO" clean -fd 2>/dev/null || true
+  elif [[ -n "$pin_sha" ]]; then
+    log "checkout pinned olcrtc ${pin_sha:0:12}"
+    if ! olc_git "$OLCRTC_REPO" cat-file -e "${pin_sha}^{commit}" 2>/dev/null; then
+      olc_git "$OLCRTC_REPO" fetch origin "$pin_sha" --depth 1 2>/dev/null || \
+        olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH"
+    fi
+    if ! olc_git "$OLCRTC_REPO" reset --hard "$pin_sha"; then
+      log "FATAL: cannot checkout pinned olcrtc $pin_sha — refusing to silently build a different core (Урок 69)"
+      return 1
+    fi
+    olc_git "$OLCRTC_REPO" clean -fd 2>/dev/null || true
   else
-    git clone -b "$OLCRTC_BRANCH" --depth 1 \
-      https://github.com/openlibrecommunity/olcrtc.git "$OLCRTC_REPO"
-    olc_git_safe_register "$OLCRTC_REPO"
+    log "no olcrtc pin configured; tracking $OLCRTC_BRANCH"
+    olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1
+    olc_git "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
   fi
   if [[ -d "$MGR_REPO/.git" ]]; then
     log "reset manager to clean state"

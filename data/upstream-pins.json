@@ -2,11 +2,11 @@
   "olcrtc": {
     "repo": "https://github.com/openlibrecommunity/olcrtc.git",
     "branch": "master",
-    "pinned_sha": "52aea2d79d2f4234fea9332afce779beb9a6ebfc",
-    "upstream_head": "52aea2d79d2f4234fea9332afce779beb9a6ebfc",
-    "last_sync": "2026-05-29T17:57:00+00:00",
-    "last_apply_ok": null,
-    "notes": "track pinned upstream master head"
+    "pinned_sha": "6fa08e7f907775aef4a994c6a1f06d29a5f23430",
+    "upstream_head": "6fa08e7f907775aef4a994c6a1f06d29a5f23430",
+    "last_sync": "2026-07-22T00:00:00+00:00",
+    "last_apply_ok": true,
+    "notes": "PINNED to 6fa08e7 (Урок 69): раньше сборка молча падала на master (reset||true + fresh-clone игнорировал пин), master дрейфует и ломает якоря патчей. Наши core-патчи (access-hook + key-rand) проверены на 6fa08e7. Обновлять пин ВРУЧНУЮ после проверки применимости патчей."
   },
   "olcrtc-manager": {
     "repo": "https://github.com/BigDaddy3334/olcrtc-manager-panel.git",
