@@ -149,6 +149,7 @@ type olcClientAccess struct {
 	ConnAllow     []olcAllowedDevice `json:"conn_allow"`               // разрешённые устройства ПОДКЛЮЧЕНИЯ этой подписки (ОТДЕЛЬНО)
 	ConnBan       []olcAllowedDevice `json:"conn_ban"`                 // забаненные устройства ПОДКЛЮЧЕНИЯ этой подписки (ОТДЕЛЬНО)
 	ConnEnforce   bool               `json:"conn_enforce"`
+	ConnMode      string             `json:"conn_mode,omitempty"` // Olc-cost-l 🔌 off|keyrand|enforce
 	ConnScope     string             `json:"conn_scope"`             // "all" | "selective"
 	ConnInstances []string           `json:"conn_instances,omitempty"` // room_id инстансов при selective
 }
@@ -163,6 +164,7 @@ type olcAccessControl struct {
 	ConnDevices  []olcAllowedDevice          `json:"conn_devices"`      // разрешённые устройства ПОДКЛЮЧЕНИЯ (ОТДЕЛЬНО от devices)
 	ConnBan      []olcAllowedDevice          `json:"conn_ban"`          // забаненные устройства ПОДКЛЮЧЕНИЯ (ОТДЕЛЬНО от ban)
 	ConnScope     string   `json:"conn_scope,omitempty"`     // ГЛОБАЛЬНЫЙ scope контроля подключения: "all" (пусто=all) | "selective"
+	ConnMode      string   `json:"conn_mode,omitempty"`     // Olc-cost-l 🔌 глоб: off|keyrand|enforce (при вкл рандомизации)
 	ConnInstances []string `json:"conn_instances,omitempty"` // room_id инстансов при selective (по ВСЕМ клиентам); вайтлист: невыбранный инстанс не пускает никого
 	Clients      map[string]*olcClientAccess `json:"clients,omitempty"` // per-подписка
 	AllowedHWIDs []string                    `json:"allowed_hwids,omitempty"` // legacy, мигрируется
@@ -413,6 +415,7 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 			ConnDevices  []olcAllowedDevice `json:"conn_devices"`
 			ConnBan      []olcAllowedDevice `json:"conn_ban"`
 			ConnScope     *string           `json:"conn_scope"`
+			ConnMode      *string           `json:"conn_mode"`
 			ConnInstances []string          `json:"conn_instances"`
 			AllowedIPs   []olcAllowedIP     `json:"allowed_ips"`
 			BanIPs       []olcAllowedIP     `json:"ban_ips"`
@@ -425,7 +428,7 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		if in.Enabled != nil {
 			cur.Enabled = *in.Enabled
 		}
-		if in.Mode != nil && (*in.Mode == "enforce" || *in.Mode == "monitor") {
+		if in.Mode != nil && (*in.Mode == "enforce" || *in.Mode == "monitor" || *in.Mode == "keyrand") {
 			cur.Mode = *in.Mode
 		}
 		if in.Devices != nil {
@@ -452,6 +455,13 @@ func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
 				s = "all"
 			}
 			cur.ConnScope = s
+		}
+		if in.ConnMode != nil {
+			m := *in.ConnMode
+			if m != "keyrand" && m != "enforce" {
+				m = "off"
+			}
+			cur.ConnMode = m
 		}
 		if in.ConnInstances != nil {
 			cur.ConnInstances = olcAccessDedup(in.ConnInstances)
@@ -600,6 +610,7 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 		ConnBan       []olcAllowedDevice `json:"conn_ban"`
 		ConnEnforce   *bool              `json:"conn_enforce"`
 		ConnScope     *string            `json:"conn_scope"`
+		ConnMode      *string            `json:"conn_mode"`
 		ConnInstances []string           `json:"conn_instances"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -616,7 +627,7 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 	if cc == nil {
 		cc = &olcClientAccess{Mode: "off", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []olcAllowedIP{}, BanIPs: []olcAllowedIP{}, ConnAllow: []olcAllowedDevice{}, ConnBan: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}}
 	}
-	if body.Mode != nil && (*body.Mode == "off" || *body.Mode == "monitor" || *body.Mode == "enforce") {
+	if body.Mode != nil && (*body.Mode == "off" || *body.Mode == "monitor" || *body.Mode == "enforce" || *body.Mode == "keyrand") {
 		cc.Mode = *body.Mode
 	}
 	if body.Allow != nil {
@@ -649,6 +660,13 @@ func accessClientHandler(w http.ResponseWriter, r *http.Request) {
 			s = "all"
 		}
 		cc.ConnScope = s
+	}
+	if body.ConnMode != nil {
+		m := *body.ConnMode
+		if m != "keyrand" && m != "enforce" {
+			m = "off"
+		}
+		cc.ConnMode = m
 	}
 	if body.ConnInstances != nil {
 		cc.ConnInstances = olcAccessDedup(body.ConnInstances)
