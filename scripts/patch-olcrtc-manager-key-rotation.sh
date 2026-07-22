@@ -15,6 +15,13 @@
 # клиента наступает раз в N часов; занятый инстанс на каждом раунде
 # пропускается, пока peers не станет 0.
 #
+# МОДЕЛЬ ROTATE-ON-FETCH (сессия №19): ротация происходит НЕ по серверному
+# таймеру, а В МОМЕНТ ФЕТЧА подписки клиентом (olcKeyRotationOnFetch в
+# subscriptionHandler). olcbox фетчит подписку РОВНО когда её применяет
+# (LocationsDatasource.refreshDueSubscriptions: fetch только для DUE-URL по
+# интервалу N; подтверждено кодом olcbox) → новые ключи уходят клиенту В ТОМ ЖЕ
+# ответе → ЗАЗОР НЕДОСТУПНОСТИ = 0 (клиент не остаётся со старым ключом).
+#
 # Хранение состояния — ОТДЕЛЬНЫЙ файл /var/lib/olcrtc/key-rotation.json (НЕ
 # трогаем структуру Config → нет ломки якорей, Урок 58). Ротация меняет
 # Endpoint.Key в config.json + reload() (Supervisor.Reload рестартует ТОЛЬКО
@@ -41,7 +48,8 @@ changed = False
 # --- 1. Роут глобальной настройки (после /api/access/client) ---
 route_anchor = '\thandler.Handle("/api/access/client", adminAuth(http.HandlerFunc(accessClientHandler)))'
 route_add = route_anchor + '''
-	// Olc-cost-l: автосмена ключей (Z5-B) — глобальная настройка.
+	// Olc-cost-l: автосмена ключей (Z5-B) — глоб. настройка + путь конфига для ротации.
+	olcConfigPath = configPath
 	handler.Handle("/api/settings/key-rotation", adminAuth(keyRotationHandler(configPath)))'''
 if '/api/settings/key-rotation' in t:
     print("[patch-key-rotation] global route already present")
@@ -69,35 +77,49 @@ elif cl_anchor in t:
 else:
     print("[patch-key-rotation] WARN: subscription-url route anchor not found — skip client route")
 
-# --- 3. Старт планировщика (после определения reload) ---
-sched_anchor = '''		return supervisor.Reload(ctx, reloaded)
-	}
+# --- 3. Вызов ротации НА МОМЕНТ ФЕТЧА подписки (rotate-on-fetch) в subscriptionHandler.
+# olcbox фетчит подписку РОВНО когда применяет её (refreshDueSubscriptions: fetch
+# только для DUE-URL, интервал N) → ротируем свободные инстансы клиента и отдаём
+# НОВЫЕ ключи в ЭТОМ ЖЕ ответе → зазор недоступности = 0. Ставим ПОСЛЕ резолва
+# client_id и ДО построения тела подписки (SubscriptionForClient читает свежий cfg).
+fetch_anchor = '''		resolvedClientID, err := olcResolveClientIDWithAccess(requestedID, cfg, olcActive && olcAllowedDev && !olcDeny)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
 '''
-sched_add = '''		return supervisor.Reload(ctx, reloaded)
-	}
-	// Olc-cost-l: планировщик автосмены ключей (Z5-B). Инертен, пока не включён.
-	go olcKeyRotationLoop(configPath, reload)
+fetch_add = fetch_anchor + '''
+		// Автосмена ключей (Z5-B): ротация на МОМЕНТ фетча подписки (синхронно с
+		// автообновлением olcbox — фетч==применение). Свободные инстансы клиента
+		// получают новый ключ и отдаются в ЭТОМ же ответе; занятые пропускаются.
+		olcKeyRotationOnFetch(supervisor, resolvedClientID)
 '''
-if 'go olcKeyRotationLoop(configPath, reload)' in t:
-    print("[patch-key-rotation] scheduler start already present")
-elif sched_anchor in t:
-    t = t.replace(sched_anchor, sched_add, 1); changed = True
-    print("[patch-key-rotation] started olcKeyRotationLoop goroutine")
+if 'olcKeyRotationOnFetch(supervisor, resolvedClientID)' in t:
+    print("[patch-key-rotation] rotate-on-fetch call already present")
+elif fetch_anchor in t:
+    t = t.replace(fetch_anchor, fetch_add, 1); changed = True
+    print("[patch-key-rotation] injected rotate-on-fetch into subscriptionHandler")
 else:
-    print("[patch-key-rotation] WARN: reload closure anchor not found — scheduler NOT started")
+    print("[patch-key-rotation] WARN: subscriptionHandler resolve anchor not found — rotation NOT wired")
 
 # --- 4. Реализация (перед func writeJSON) ---
 fn_anchor = 'func writeJSON(w http.ResponseWriter, v any) {'
 fn_block = r'''// ============================================================================
-// Olc-cost-l: «♻️ Автосмена ключей» (Z5-B). Периодическая перегенерация
-// ОРИГИНАЛЬНОГО ключа шифрования инстансов. Состояние — отдельный файл
-// /var/lib/olcrtc/key-rotation.json (Config не трогаем). Ротация ждёт peers=0
-// на инстансе (занятые — до следующего круга). См. хендофф Задача №5.
+// Olc-cost-l: «♻️ Автосмена ключей» (Z5-B). Перегенерация ОРИГИНАЛЬНОГО ключа
+// шифрования инстансов НА МОМЕНТ ФЕТЧА подписки клиентом (синхронно с
+// автообновлением olcbox — фетч==применение → нет зазора недоступности).
+// Состояние — отдельный файл /var/lib/olcrtc/key-rotation.json (Config не
+// трогаем). Ротация ждёт peers=0 на инстансе (занятые — до следующего круга).
+// См. хендофф Задача №5.
 // ============================================================================
 
 const olcKeyRotationPath = "/var/lib/olcrtc/key-rotation.json"
 
 var olcKeyRotationMu sync.Mutex
+
+// olcConfigPath — путь к config.json (устанавливается при регистрации роутов),
+// нужен ротации, вызываемой из subscriptionHandler (у него нет configPath).
+var olcConfigPath string
 
 // olcKeyRotationCfg — состояние автосмены ключей.
 //   GlobalEnabled — включено ГЛОБАЛЬНО (для всех клиентов+инстансов).
@@ -170,70 +192,67 @@ func olcInstancePeerCount() map[string]int {
 	return out
 }
 
-// olcKeyRotationLoop — фоновый планировщик. Тик раз в минуту; фактическая
-// ротация клиента происходит не чаще раза в N часов (интервал автообновления).
-func olcKeyRotationLoop(configPath string, reload func() error) {
-	time.Sleep(30 * time.Second) // дать инстансам подняться после старта
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("olc-keyrot: panic recovered: %v", r)
-				}
-			}()
-			olcKeyRotationTick(configPath, reload)
-		}()
+// olcKeyRotationOnFetch — ротация НА МОМЕНТ ФЕТЧА подписки клиентом. Вызывается
+// из subscriptionHandler ПОСЛЕ резолва client_id и ДО построения тела подписки.
+// olcbox фетчит подписку РОВНО когда её применяет (refreshDueSubscriptions: fetch
+// только для DUE-URL по интервалу N) → ротируем СВОБОДНЫЕ инстансы этого клиента
+// и отдаём НОВЫЕ ключи в ЭТОМ ЖЕ ответе → нет зазора недоступности. Гейт по N
+// (rounds[clientID]) защищает от лишних ротаций при частых фетчах (curl/ручной
+// refresh). ЗАНЯТЫЕ инстансы (peers>0 — клиент как раз ими пользуется)
+// пропускаются: их ключ не меняется, живой туннель не рвётся.
+func olcKeyRotationOnFetch(supervisor *Supervisor, clientID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("olc-keyrot: panic recovered: %v", r)
+		}
+	}()
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" || supervisor == nil || olcConfigPath == "" {
+		return
 	}
-}
-
-func olcKeyRotationTick(configPath string, reload func() error) {
 	olcKeyRotationMu.Lock()
 	defer olcKeyRotationMu.Unlock()
 
 	rc := olcKeyRotationLoad()
-	if !rc.GlobalEnabled && len(rc.Clients) == 0 {
-		return // ничего не включено — инертно
+	if !olcKeyRotationEnabledFor(rc, clientID) {
+		return // ротация для этого клиента не включена — инертно (только чтение мелкого файла)
 	}
-	cfg, err := loadConfig(configPath)
+	cfg, err := loadConfig(olcConfigPath)
 	if err != nil {
 		log.Printf("olc-keyrot: load config failed: %v", err)
 		return
 	}
 	cfg.ensureClientsFormat()
-	peers := olcInstancePeerCount()
+	n := subscriptionRefreshHours(cfg, clientID)
+	if n <= 0 {
+		n = 24 // дефолт olcbox
+	}
 	now := time.Now().UTC()
+	lastStr := rc.Rounds[clientID]
+	if lastStr == "" {
+		// Первый фетч под ротацией: фиксируем точку отсчёта, НЕ ротируя сразу
+		// (первый круг — на СЛЕДУЮЩЕМ фетче через N часов, синхронно с olcbox).
+		rc.Rounds[clientID] = now.Format(time.RFC3339)
+		_ = olcKeyRotationSave(rc)
+		return
+	}
+	if last, perr := time.Parse(time.RFC3339, lastStr); perr == nil {
+		// Небольшой допуск (5 мин) под расхождение часов сервер↔olcbox.
+		if now.Sub(last) < time.Duration(n)*time.Hour-5*time.Minute {
+			return // круг ещё не наступил
+		}
+	}
+	// Круг наступил: ротируем СВОБОДНЫЕ инстансы клиента (peers==0). Занятые
+	// пропускаем — они дождутся СЛЕДУЮЩЕГО круга (вместе со всеми).
+	peers := olcInstancePeerCount()
 	changed := false
-	roundsChanged := false
-
+	skipped := 0
 	for i := range cfg.Clients {
-		cid := cfg.Clients[i].ClientID
-		if !olcKeyRotationEnabledFor(rc, cid) {
+		if cfg.Clients[i].ClientID != clientID {
 			continue
 		}
-		n := subscriptionRefreshHours(cfg, cid)
-		if n <= 0 {
-			n = 24 // дефолт olcbox
-		}
-		lastStr := rc.Rounds[cid]
-		if lastStr == "" {
-			// Первое наблюдение клиента под ротацией: фиксируем точку отсчёта,
-			// НЕ ротируя сразу (первый круг — через N часов).
-			rc.Rounds[cid] = now.Format(time.RFC3339)
-			roundsChanged = true
-			continue
-		}
-		last, perr := time.Parse(time.RFC3339, lastStr)
-		if perr == nil && now.Sub(last) < time.Duration(n)*time.Hour {
-			continue // круг ещё не наступил
-		}
-		// Круг наступил: ротируем СВОБОДНЫЕ инстансы (peers==0). Занятые
-		// пропускаем — они дождутся СЛЕДУЮЩЕГО круга (вместе со всеми).
-		skipped := 0
 		for j := range cfg.Clients[i].Locations {
-			loc := cfg.Clients[i].Locations[j]
-			key := locationKey(loc)
+			key := locationKey(cfg.Clients[i].Locations[j])
 			if peers[key] > 0 {
 				skipped++
 				log.Printf("olc-keyrot: skip busy inst=%s peers=%d (defer to next round)", key, peers[key])
@@ -246,37 +265,33 @@ func olcKeyRotationTick(configPath string, reload func() error) {
 			}
 			cfg.Clients[i].Locations[j].Endpoint.Key = nk
 			changed = true
-			log.Printf("olc-keyrot: rotated key inst=%s client=%s", key, cid)
+			log.Printf("olc-keyrot: rotated key inst=%s client=%s", key, clientID)
 		}
-		// Продвигаем время круга ВСЕГДА (даже если что-то пропущено): занятые
-		// ждут следующего круга через N часов, не ротируются вне очереди.
-		rc.Rounds[cid] = now.Format(time.RFC3339)
-		roundsChanged = true
-		if skipped > 0 {
-			log.Printf("olc-keyrot: client=%s round done, %d busy instance(s) deferred", cid, skipped)
-		}
+		break
 	}
-
+	// Продвигаем время круга ВСЕГДА (даже если что-то пропущено): занятые ждут
+	// следующего круга через N, не ротируются вне очереди.
+	rc.Rounds[clientID] = now.Format(time.RFC3339)
 	if changed {
 		cfg.Normalize()
 		if verr := cfg.Validate(); verr != nil {
 			log.Printf("olc-keyrot: validate failed, NOT saving: %v", verr)
 			return
 		}
-		if serr := saveConfig(configPath, cfg); serr != nil {
+		if serr := saveConfig(olcConfigPath, cfg); serr != nil {
 			log.Printf("olc-keyrot: save config failed: %v", serr)
 			return
 		}
-		if rerr := reload(); rerr != nil {
+		// Reload рестартует ТОЛЬКО инстансы с изменившимся ключом (DeepEqual) и
+		// обновляет supervisor.cfg → тело подписки ниже отдаст НОВЫЕ ключи.
+		if rerr := supervisor.Reload(context.Background(), cfg); rerr != nil {
 			log.Printf("olc-keyrot: reload failed: %v", rerr)
 		} else {
-			log.Printf("olc-keyrot: config saved + reloaded (rotated instances restarted)")
+			log.Printf("olc-keyrot: client=%s rotated (free instances restarted); %d busy deferred", clientID, skipped)
 		}
 	}
-	if roundsChanged {
-		if serr := olcKeyRotationSave(rc); serr != nil {
-			log.Printf("olc-keyrot: save state failed: %v", serr)
-		}
+	if serr := olcKeyRotationSave(rc); serr != nil {
+		log.Printf("olc-keyrot: save state failed: %v", serr)
 	}
 }
 
