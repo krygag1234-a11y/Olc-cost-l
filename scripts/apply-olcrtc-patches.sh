@@ -464,6 +464,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-peer-summary.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Автосмена ключей (Z5-B): планировщик ротации Endpoint.Key + API; после peer-summary (нужен PeerSummary) и subscription-update-interval (subscriptionRefreshHours).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-key-rotation.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Рандомизация ключей (эпик A, часть 5a): состояние+API+вывод alt-ключа (тип1); после key-rotation (роутер /api/clients/) и access-control-api.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-key-randomization-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
