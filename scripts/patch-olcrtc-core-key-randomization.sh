@@ -153,3 +153,120 @@ if changed:
 else:
     print("[patch-core-key-rand] no changes (idempotent)")
 PY
+
+# --- white-box тест multi-key (валидация: go test ./internal/muxconn/). Пишем
+# всегда (идемпотентно перезаписываем) — путешествует с патчем, не теряется. ---
+cat > "$CORE_REPO/internal/muxconn/olc_multikey_test.go" <<'GOTEST'
+package muxconn
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/openlibrecommunity/olcrtc/internal/crypto"
+)
+
+// key32 returns a deterministic 32-byte key string for tests.
+func key32(b byte) string {
+	k := make([]byte, 32)
+	for i := range k {
+		k[i] = b + byte(i)
+	}
+	return string(k)
+}
+
+func mustCipher(t *testing.T, seed byte) *crypto.Cipher {
+	t.Helper()
+	c, err := crypto.NewCipher(key32(seed))
+	if err != nil {
+		t.Fatalf("NewCipher: %v", err)
+	}
+	return c
+}
+
+// Olc-cost-l: latches onto the ALT (randomized) cipher, keyClass=1, encrypts back with it.
+func TestOlcMultiKeyLatchOnRand(t *testing.T) {
+	orig := mustCipher(t, 1)
+	rnd := mustCipher(t, 100)
+	c := &Conn{cipher: orig, alt: []*crypto.Cipher{rnd}}
+	c.keyClass.Store(-1)
+	if c.KeyClass() != -1 {
+		t.Fatalf("initial keyClass = %d, want -1", c.KeyClass())
+	}
+	msg := []byte("hello via randomized key")
+	ct, err := rnd.Encrypt(msg)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	pt, err := c.decryptFrame(nil, ct)
+	if err != nil || !bytes.Equal(pt, msg) {
+		t.Fatalf("decryptFrame(rand): pt=%q err=%v", pt, err)
+	}
+	if c.KeyClass() != 1 {
+		t.Fatalf("keyClass = %d, want 1", c.KeyClass())
+	}
+	if c.encryptCipher() != rnd {
+		t.Fatalf("encryptCipher did not latch onto rand")
+	}
+	ctOrig, _ := orig.Encrypt(msg)
+	if _, err := c.decryptFrame(nil, ctOrig); err == nil {
+		t.Fatalf("latched conn wrongly accepted original-key frame")
+	}
+}
+
+// Olc-cost-l: latches onto the ORIGINAL cipher, keyClass=0.
+func TestOlcMultiKeyLatchOnOrig(t *testing.T) {
+	orig := mustCipher(t, 1)
+	rnd := mustCipher(t, 100)
+	c := &Conn{cipher: orig, alt: []*crypto.Cipher{rnd}}
+	c.keyClass.Store(-1)
+	msg := []byte("hello via original key")
+	ct, _ := orig.Encrypt(msg)
+	pt, err := c.decryptFrame(nil, ct)
+	if err != nil || !bytes.Equal(pt, msg) {
+		t.Fatalf("decryptFrame(orig): pt=%q err=%v", pt, err)
+	}
+	if c.KeyClass() != 0 {
+		t.Fatalf("keyClass = %d, want 0", c.KeyClass())
+	}
+	if c.encryptCipher() != orig {
+		t.Fatalf("encryptCipher did not latch onto orig")
+	}
+}
+
+// Olc-cost-l: no alt ciphers → behaves exactly like upstream, keyClass stays -1.
+func TestOlcSingleCipherUnchanged(t *testing.T) {
+	orig := mustCipher(t, 7)
+	c := &Conn{cipher: orig}
+	c.keyClass.Store(-1)
+	msg := []byte("single cipher path")
+	ct, _ := orig.Encrypt(msg)
+	pt, err := c.decryptFrame(nil, ct)
+	if err != nil || !bytes.Equal(pt, msg) {
+		t.Fatalf("decryptFrame: pt=%q err=%v", pt, err)
+	}
+	if c.KeyClass() != -1 {
+		t.Fatalf("single-cipher keyClass = %d, want -1", c.KeyClass())
+	}
+	if c.encryptCipher() != orig {
+		t.Fatalf("encryptCipher != primary on single-cipher conn")
+	}
+}
+
+// Olc-cost-l: a frame under a THIRD (unknown) key is rejected, conn stays unlatched.
+func TestOlcMultiKeyRejectsUnknown(t *testing.T) {
+	orig := mustCipher(t, 1)
+	rnd := mustCipher(t, 100)
+	other := mustCipher(t, 200)
+	c := &Conn{cipher: orig, alt: []*crypto.Cipher{rnd}}
+	c.keyClass.Store(-1)
+	ct, _ := other.Encrypt([]byte("attacker frame"))
+	if _, err := c.decryptFrame(nil, ct); err == nil {
+		t.Fatalf("decryptFrame accepted unknown-key frame")
+	}
+	if c.KeyClass() != -1 {
+		t.Fatalf("keyClass = %d after failed decrypt, want -1", c.KeyClass())
+	}
+}
+GOTEST
+echo "[patch-core-key-rand] wrote internal/muxconn/olc_multikey_test.go"
