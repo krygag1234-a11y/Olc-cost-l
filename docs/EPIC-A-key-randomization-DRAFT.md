@@ -177,41 +177,39 @@ func olcAccessConnectionAuthHook(deviceID string, claims map[string]any) (string
     // ДОП. правило key-randomization (Вариант A). Активно только когда key-rand
     // включён для инстанса (keyClass >= 0 = muxconn имел alt-ключи). keyClass==-1
     // → single-cipher → поведение НЕ меняется.
-    if !olcKeyRandDecide(dev, keyClass, base) {
+    // banned отбивается внутри olcAccessConnDecide (абсолютно). mode — 3-значный
+    // при вкл ранд: off | keyrand(«+») | enforce (читается из access-control.json).
+    if !olcKeyRandConnDecide(dev, keyClass, olcConnMode(dev), olcDevInConnAllow(dev)) {
         room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
         logger.Infof("olc-access: conn attempt device=%s allowed=false room=%s (key-rand)", dev, room)
         return "", errors.New("device not allowed to connect")
     }
-    if base {
-        return uuid.NewString(), nil
-    }
-    room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
-    logger.Infof("olc-access: conn attempt device=%s allowed=false room=%s", dev, room)
-    return "", errors.New("device not allowed to connect")
+    return uuid.NewString(), nil
 }
 
-// olcKeyRandDecide — Вариант A. Возвращает true=пропускать (по правилу key-rand),
-// false=reject. ⚠️ ЛЕГКО ПЕРЕКЛЮЧИТЬ НА ВАРИАНТ B: сделать `return true` (keyClass
-// не влияет — доступ решает только base/контроль доступа).
-//   keyClass == -1 : key-rand выкл (single-cipher) → не вмешиваемся (true).
-//   keyClass == 1  : рандомизированный ключ → пропускаем (обладание ранд-ключом =
-//                    прошёл барьер; финальный доступ решит base/контроль доступа).
-//   keyClass == 0  : оригинальный ключ → пускать ТОЛЬКО если устройство разрешено
-//                    (в conn_allow/conn_devices); иначе reject (ждём рандомизированный).
-func olcKeyRandDecide(dev string, keyClass int, base bool) bool {
-    if keyClass < 0 {
-        return true // key-rand выкл
+// olcKeyRandConnDecide — ФИНАЛ, 3-режимная матрица (уточнение юзера). banned уже
+// отбит. mode: off | keyrand(«+») | enforce. allowed = членство в
+// conn_allow/conn_devices. keyClass: -1 ранд выкл, 0 ориг, 1 ранд.
+// ⚠️ ФЛИП НА ВАРИАНТ B: убрать режим keyrand, keyClass игнорировать.
+func olcKeyRandConnDecide(dev string, keyClass int, mode string, allowed bool) bool {
+    switch mode {
+    case "keyrand": // «+» — только при вкл рандомизации
+        if allowed {
+            return true // полный доступ (ориг или ранд)
+        }
+        return keyClass == 1 // неизвестный: только рандомизированный ключ
+    case "enforce": // блокировать неизвестных
+        return allowed // только разрешённые (любой ключ; ранд = доп. мучение)
+    default: // "off"/"monitor" — Выключено (пускать всех, кроме бана)
+        if keyClass < 0 {
+            return true // ранд выкл → все
+        }
+        return keyClass == 1 // ранд вкл: только rand-ключ (ориг никому — нет разрешённых)
     }
-    if keyClass == 1 {
-        return true // рандомизированный ключ — барьер пройден
-    }
-    // keyClass == 0 (оригинальный): разрешён только для «известных» устройств.
-    // «Известное» = в списке разрешённых подключения (olcAccessConnDecide это уже
-    // учитывает при enforce; но key-rand требует явной принадлежности к allow даже
-    // без enforce). Используем отдельную проверку членства в allow-списке.
-    return olcDevInConnAllow(dev)   // РЕАЛИЗОВАТЬ: чтение conn_allow/conn_devices из
-                                    // access-control.json для текущего client_id/глоб.
 }
+// olcConnMode(dev) — читает 3-значный режим 🔌 для cid (per-client при выкл глоб) /
+// глобальный (при enabled) из access-control.json. Для 🎫 подписки — аналог в
+// olcAccessDecision. НУЖЕН 3-значный режим в конфиге (было off|enforce).
 ```
 `olcDevInConnAllow(dev)` — новый хелпер: читает access-control.json (как
 olcAccessConnDecide), возвращает true если dev в conn_devices (глоб., при enabled)
