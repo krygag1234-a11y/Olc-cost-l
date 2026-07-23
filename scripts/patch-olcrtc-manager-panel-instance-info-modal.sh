@@ -128,7 +128,7 @@ function olcFmtUptime(started?: string): string {
   return `${s}с`;
 }
 
-function InstanceInfoModal({ clientID, roomID, name, autologi, onClose }: { clientID: string; roomID: string; name?: string; autologi: boolean; onClose: () => void }) {
+function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClose }: { clientID: string; roomID: string; name?: string; transport?: string; autologi: boolean; onClose: () => void }) {
   const [runtime, setRuntime] = useState<any>(null);
   const [peers, setPeers] = useState<{ count: number; devices: string[] }>({ count: 0, devices: [] });
   const [info, setInfo] = useState<any>(null);
@@ -136,18 +136,38 @@ function InstanceInfoModal({ clientID, roomID, name, autologi, onClose }: { clie
   const [msg, setMsg] = useState("");
   const [showOrig, setShowOrig] = useState(false);
   const [showRand, setShowRand] = useState(false);
+  const [ice, setIce] = useState<{ state: string; at: string }>({ state: "", at: "" });
 
   const loadStatus = async () => {
     try {
       const r = await fetch("/api/state", { cache: "no-store" });
       const b = await r.json();
       const c = (b.clients || []).find((x: any) => x.client_id === clientID);
-      const loc = c?.locations?.find((l: any) => l.room_id === roomID);
+      const loc = c?.locations?.find((l: any) => String(l.room_id) === String(roomID));
       if (loc) {
         setRuntime(loc.runtime || null);
         const rt = loc.runtime || {};
         setPeers({ count: typeof rt.peer_count === "number" ? rt.peer_count : (Array.isArray(rt.peer_devices) ? rt.peer_devices.length : 0), devices: Array.isArray(rt.peer_devices) ? rt.peer_devices : [] });
       }
+    } catch { /* ignore */ }
+  };
+  // Живой транспортный сигнал: последнее «ICE connection state changed: X» из
+  // логов инстанса. Меняется МГНОВЕННО (до грейса ядра ~1мин), поэтому даёт
+  // немедленную обратную связь об обрыве, НЕ трогая сам грейс (peer_count —
+  // авторитетный источник, обновляется после грейса).
+  const loadIce = async () => {
+    try {
+      const q = new URLSearchParams({ client_id: clientID, room_id: String(roomID), transport: transport || "" });
+      const r = await fetch(`/api/logs/?${q.toString()}`, { cache: "no-store" });
+      const b = await r.json();
+      const lines = (b.logs || b.lines || []) as any[];
+      let st = ""; let at = "";
+      for (const ln of lines) {
+        const s = typeof ln === "string" ? ln : (ln.line || "");
+        const m = s.match(/ICE connection state changed:\s*([a-zA-Z]+)/);
+        if (m) { st = m[1].toLowerCase(); at = (ln && ln.time) || ""; }
+      }
+      setIce({ state: st, at });
     } catch { /* ignore */ }
   };
   const loadInfo = async () => {
@@ -160,22 +180,23 @@ function InstanceInfoModal({ clientID, roomID, name, autologi, onClose }: { clie
     try {
       const r = await fetch("/api/access/connections", { cache: "no-store" });
       const b = await r.json();
-      setConns((Array.isArray(b.connections) ? b.connections : []).filter((rec: any) => rec.room_id === roomID));
+      setConns((Array.isArray(b.connections) ? b.connections : []).filter((rec: any) => String(rec.room_id) === String(roomID)));
     } catch { /* ignore */ }
   };
   const clearJournal = async () => {
-    if (!window.confirm("Очистить журнал подключений этой подписки (все инстансы клиента)?")) return;
     try {
       await fetch(`/api/access/connections?clear=1&client_id=${encodeURIComponent(clientID)}`, { cache: "no-store" });
+      setConns([]);
       setMsg("Журнал очищен");
+      window.setTimeout(() => setMsg((m) => (m === "Журнал очищен" ? "" : m)), 2000);
       await loadConns();
     } catch { setMsg("Ошибка очистки"); }
   };
 
-  // Живой статус (пиры/рантайм) — всегда пока модалка открыта.
+  // Живой статус (пиры/рантайм/транспорт) — всегда пока модалка открыта, 1.5с.
   useEffect(() => {
-    void loadStatus();
-    const id = window.setInterval(() => { void loadStatus(); }, 2000);
+    void loadStatus(); void loadIce();
+    const id = window.setInterval(() => { void loadStatus(); void loadIce(); }, 1500);
     return () => window.clearInterval(id);
   }, [clientID, roomID]);
 
@@ -211,42 +232,55 @@ function InstanceInfoModal({ clientID, roomID, name, autologi, onClose }: { clie
         </div>
 
         {/* Состояние инстанса */}
-        <section className="mb-3 grid gap-2 rounded-md border border-border bg-card/40 p-3 text-xs">
-          <div className="font-semibold text-foreground">⚙️ Состояние</div>
+        <section className="mb-3 grid gap-2 rounded-md border border-border border-l-2 border-l-sky-500/50 bg-card/40 p-3 text-xs">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-400">⚙️ Состояние</div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
             <div><span className="text-muted-foreground">Статус:</span> <span className={runtime?.running ? "text-emerald-500 font-medium" : "text-muted-foreground"}>{runtime?.status || "—"}</span></div>
-            <div><span className="text-muted-foreground">Аптайм:</span> {runtime?.running ? olcFmtUptime(runtime?.started_at) : "—"}</div>
-            <div><span className="text-muted-foreground">Память:</span> {runtime?.memory_bytes ? olcFmtBytes(runtime.memory_bytes) : "—"}</div>
-            <div><span className="text-muted-foreground">PID:</span> {runtime?.pid || "—"}</div>
-            <div><span className="text-muted-foreground">Рестартов:</span> {typeof runtime?.restarts === "number" ? runtime.restarts : "—"}</div>
-            <div><span className="text-muted-foreground">Лог-строк:</span> {runtime?.log_count ?? "—"}</div>
+            <div><span className="text-muted-foreground">Аптайм:</span> <span className="font-medium text-foreground">{runtime?.running ? olcFmtUptime(runtime?.started_at) : "—"}</span></div>
+            <div><span className="text-muted-foreground">Память:</span> <span className="font-medium text-foreground">{runtime?.memory_bytes ? olcFmtBytes(runtime.memory_bytes) : "—"}</span></div>
+            <div><span className="text-muted-foreground">PID:</span> <span className="font-medium text-foreground">{runtime?.pid || "—"}</span></div>
+            <div><span className="text-muted-foreground">Рестартов:</span> <span className="font-medium text-foreground">{typeof runtime?.restarts === "number" ? runtime.restarts : "—"}</span></div>
+            <div><span className="text-muted-foreground">Лог-строк:</span> <span className="font-medium text-foreground">{runtime?.log_count ?? "—"}</span></div>
           </div>
           {runtime?.exit_error && <div className="text-destructive">Ошибка выхода: {runtime.exit_error}</div>}
         </section>
 
         {/* Трафик */}
-        <section className="mb-3 grid gap-1 rounded-md border border-border bg-card/40 p-3 text-xs">
-          <div className="font-semibold text-foreground">📊 Трафик</div>
+        <section className="mb-3 grid gap-1 rounded-md border border-border border-l-2 border-l-violet-500/50 bg-card/40 p-3 text-xs">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-400">📊 Трафик</div>
           {traffic?.available
-            ? <div><span className="text-muted-foreground">Передано (этот инстанс):</span> <span className="font-medium">{olcFmtBytes(traffic.used_bytes)}</span></div>
+            ? <div><span className="text-muted-foreground">Передано (этот инстанс):</span> <span className="font-medium text-foreground">{olcFmtBytes(traffic.used_bytes)}</span></div>
             : <div className="text-muted-foreground">Учёт по инстансу недоступен (нужны квоты/netns для инстанса). Суммарный трафик клиента — в карточке клиента.</div>}
         </section>
 
         {/* Активные подключения сейчас */}
-        <section className="mb-3 grid gap-1 rounded-md border border-border bg-card/40 p-3 text-xs">
-          <div className="flex items-center gap-2 font-semibold text-foreground">🔌 Активны сейчас <span className="rounded bg-emerald-500/15 px-1.5 text-[10px] text-emerald-500">● живой статус</span></div>
+        <section className="mb-3 grid gap-1.5 rounded-md border border-border border-l-2 border-l-emerald-500/50 bg-card/40 p-3 text-xs">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-400">🔌 Активны сейчас <span className="rounded bg-emerald-500/15 px-1.5 normal-case text-[10px] font-normal text-emerald-500">● живой статус</span></div>
+          {(() => {
+            const st = ice.state;
+            const up = st === "connected" || st === "completed";
+            const dropped = st === "disconnected" || st === "failed" || st === "closed" || st === "checking";
+            if (!st) return null;
+            return (
+              <div className={"flex items-center gap-1.5 text-[10px] " + (up ? "text-emerald-500" : "text-amber-500")}>
+                <span>{up ? "🟢" : "🟡"}</span>
+                <span>Транспорт (ICE): <b>{st}</b></span>
+                {dropped && peers.count > 0 && <span className="text-muted-foreground">— ядро держит сессию до ~1 мин (грейс), затем счётчик обновится</span>}
+              </div>
+            );
+          })()}
           {peers.count > 0
-            ? <div className="grid gap-0.5">
-                <div><span className="text-muted-foreground">Устройств онлайн:</span> <span className="font-medium">{peers.count}</span></div>
+            ? <div className="grid gap-1">
+                <div><span className="text-muted-foreground">Устройств онлайн:</span> <span className="font-medium text-foreground">{peers.count}</span></div>
                 {peers.devices.length > 0 && <div className="flex flex-wrap gap-1">{peers.devices.map((d, i) => <span key={i} className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">{d}</span>)}</div>}
               </div>
             : <div className="text-muted-foreground">Нет активных подключений</div>}
         </section>
 
         {/* Журнал по устройствам (этот инстанс) */}
-        <section className="mb-3 grid gap-2 rounded-md border border-border bg-card/40 p-3 text-xs">
+        <section className="mb-3 grid gap-2 rounded-md border border-border border-l-2 border-l-amber-500/50 bg-card/40 p-3 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <div className="font-semibold text-foreground">📖 Журнал устройств (этот инстанс)</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">📖 Журнал устройств (этот инстанс)</div>
             <div className="flex gap-1">
               {!autologi && <button type="button" className="rounded border border-border px-2 py-0.5 hover:bg-muted" onClick={() => void loadConns()}>Обновить</button>}
               <button type="button" className="rounded border border-destructive/40 px-2 py-0.5 text-destructive hover:bg-destructive/10" onClick={() => void clearJournal()}>Очистить</button>
@@ -277,8 +311,8 @@ function InstanceInfoModal({ clientID, roomID, name, autologi, onClose }: { clie
         </section>
 
         {/* Ключи + рандомизация */}
-        <section className="grid gap-2 rounded-md border border-border bg-card/40 p-3 text-xs">
-          <div className="font-semibold text-foreground">🔑 Ключи шифрования</div>
+        <section className="grid gap-2 rounded-md border border-border border-l-2 border-l-indigo-500/50 bg-card/40 p-3 text-xs">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-400">🔑 Ключи шифрования</div>
           <div className="grid gap-1">
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground shrink-0">Оригинальный:</span>
@@ -392,6 +426,7 @@ repl(
           clientID={instanceInfoTarget.clientID}
           roomID={instanceInfoTarget.location.room_id}
           name={instanceInfoTarget.location.name}
+          transport={instanceInfoTarget.location.transport}
           autologi={autologi}
           onClose={() => setInstanceInfoTarget(null)}
         />
