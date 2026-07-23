@@ -179,40 +179,46 @@ repl(
     const d = await fetch("/api/state", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ clients: [] }));
     const lc = (d.clients || []).find((x: any) => x.client_id === cid);
     const locs = (lc?.locations || []);
-    // Живой ICE-сигнал по инстансам с активными пирами (быстрее грейса ядра ~1мин).
+    // Живой сигнал здоровья по инстансам с активными пирами: ядро НЕ логирует
+    // ICE-disconnect, но логирует «control missed pong»/«unhealthy»/«reason=liveness»
+    // — ПЕРВЫЙ признак обрыва (~10-30с), раньше обнуления peer_count.
     const withPeers = locs.filter((loc: any) => (((loc.runtime && loc.runtime.peer_devices) || []).length) > 0);
-    const iceByRoom: Record<string, string> = {};
+    const badByRoom: Record<string, boolean> = {};
     await Promise.all(withPeers.map(async (loc: any) => {
       try {
         const q = new URLSearchParams({ client_id: cid, room_id: String(loc.room_id), transport: loc.transport || "" });
         const b = await fetch(`/api/logs/?${q.toString()}`, { cache: "no-store" }).then((r) => r.json());
         const lines = (b.logs || b.lines || []) as any[];
-        let st = "";
-        for (const ln of lines) { const s = typeof ln === "string" ? ln : (ln.line || ""); const m = s.match(/ICE connection state changed:\\s*([a-zA-Z]+)/); if (m) st = m[1].toLowerCase(); }
-        iceByRoom[String(loc.room_id)] = st;
+        let up = ""; let bad = "";
+        for (const ln of lines) {
+          const s = typeof ln === "string" ? ln : (ln.line || "");
+          const tm = (ln && ln.time) || "";
+          if (s.includes("peer connected: device=")) up = tm;
+          else if (s.includes("control missed pong") || s.includes("control unhealthy") || s.includes("reason=liveness")) bad = tm;
+        }
+        badByRoom[String(loc.room_id)] = !!(bad && bad > up);
       } catch { /* ignore */ }
     }));
-    const byDev: Record<string, { inst: string; at: string; ice: string }> = {};
+    const byDev: Record<string, { inst: string; at: string; bad: boolean }> = {};
     locs.forEach((loc: any) => {
       const inst = loc.name || loc.room_id;
       const at = (loc.runtime && loc.runtime.peer_at) || "";
-      const ice = iceByRoom[String(loc.room_id)] || "";
+      const bad = !!badByRoom[String(loc.room_id)];
       ((loc.runtime && loc.runtime.peer_devices) || []).forEach((dev: string) => {
-        if (!byDev[dev] || at > byDev[dev].at) byDev[dev] = { inst, at, ice };
+        if (!byDev[dev] || at > byDev[dev].at) byDev[dev] = { inst, at, bad };
       });
     });
     return Object.keys(byDev).map((dev, i) => {
-      const ice = byDev[dev].ice;
-      const dropped = ice === "disconnected" || ice === "failed" || ice === "closed" || ice === "checking";
+      const bad = byDev[dev].bad;
       return (
         <div key={"act-" + i} className="whitespace-pre-wrap break-words leading-relaxed">
-          <span className={dropped ? "text-amber-400" : "text-emerald-400"}>{dropped ? "◌" : "●"}</span> {dev} <span className="text-muted-foreground">→</span> {byDev[dev].inst}{dropped ? <span className="text-amber-500 text-[10px]"> · соединение прервано (грейс ~1мин)</span> : null}
+          <span className={bad ? "text-amber-400" : "text-emerald-400"}>{bad ? "◌" : "●"}</span> {dev} <span className="text-muted-foreground">→</span> {byDev[dev].inst}{bad ? <span className="text-amber-500 text-[10px]"> · обрыв связи (ядро подтвердит ~30с)</span> : null}
         </div>
       );
     });
   }, [cid]);''',
     "client-logs active ICE",
-    guard="Живой ICE-сигнал по инстансам с активными пирами",
+    guard="Живой сигнал здоровья по инстансам с активными пирами",
 )
 
 if changed:

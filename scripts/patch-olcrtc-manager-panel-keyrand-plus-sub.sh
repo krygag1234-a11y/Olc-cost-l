@@ -123,7 +123,7 @@ repl(
     '''          <div className={"grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-3" + dimCls(subOff)}
             title={subOff ? "Режим «Выключено»: списки разрешённых не действуют и недоступны — включите «Блокировать неизвестных»" : undefined}>
             <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые устройства (получение подписки){subOff ? " — не действуют в режиме «Выключено»" : ""}</div>''',
-    '''          <div className={"grid gap-2 rounded-md border p-3" + (subKeyrand ? " border-amber-500/50 bg-amber-500/5" : " border-emerald-600/30 bg-emerald-500/5") + dimCls(subOff)}
+    '''          <div className={"grid gap-2 rounded-md border p-3 transition-colors duration-300" + (subKeyrand ? " border-amber-500/50 bg-amber-500/5" : " border-emerald-600/30 bg-emerald-500/5") + dimCls(subOff)}
             title={subOff ? "Режим «Выключено»: списки разрешённых не действуют и недоступны — включите «Блокировать неизвестных»" : undefined}>
             <div className={"text-xs font-semibold " + (subKeyrand ? "text-amber-400" : "text-emerald-400")}>✅ Разрешённые устройства (получение подписки){subKeyrand ? " (режим «+»: у них полный доступ)" : subOff ? " — не действуют в режиме «Выключено»" : ""}</div>''',
     "G allowed border amber",
@@ -208,7 +208,7 @@ repl(
     '''          <div className={"grid gap-2 rounded-md border border-emerald-600/30 bg-emerald-500/5 p-2" + dimCls(subOff)}
             title={subOff ? "Режим «Выключено»: списки разрешённых не действуют и недоступны — включите «Блокировать неизвестных»" : undefined}>
             <div className="text-xs font-semibold text-emerald-400">✅ Разрешённые устройства{subOff ? " — не действуют в режиме «Выключено»" : ""}</div>''',
-    '''          <div className={"grid gap-2 rounded-md border p-2" + (subKeyrand ? " border-amber-500/50 bg-amber-500/5" : " border-emerald-600/30 bg-emerald-500/5") + dimCls(subOff)}
+    '''          <div className={"grid gap-2 rounded-md border p-2 transition-colors duration-300" + (subKeyrand ? " border-amber-500/50 bg-amber-500/5" : " border-emerald-600/30 bg-emerald-500/5") + dimCls(subOff)}
             title={subOff ? "Режим «Выключено»: списки разрешённых не действуют и недоступны — включите «Блокировать неизвестных»" : undefined}>
             <div className={"text-xs font-semibold " + (subKeyrand ? "text-amber-400" : "text-emerald-400")}>✅ Разрешённые устройства{subKeyrand ? " (режим «+»: полный доступ)" : subOff ? " — не действуют в режиме «Выключено»" : ""}</div>''',
     "C allowed border amber",

@@ -149,9 +149,9 @@ repl(
 # 9. Global 🔌 allowed list dim + amber
 repl(
     '<div className={"grid gap-2" + dimCls(connOff)} title={connOff ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
-    '<div className={"grid gap-2" + (connKr ? " rounded-md border border-amber-500/50 bg-amber-500/5 p-2" : "") + dimCls(connOff && !connKr)} title={(connOff && !connKr) ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
+    '<div className={"grid gap-2 rounded-md border p-2 transition-colors duration-300 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5") + dimCls(connOff && !connKr)} title={(connOff && !connKr) ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
     "G 🔌 list amber",
-    guard='(connKr ? " rounded-md border border-amber-500/50 bg-amber-500/5 p-2" : "") + dimCls(connOff && !connKr)',
+    guard='"grid gap-2 rounded-md border p-2 transition-colors duration-300 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5") + dimCls(connOff && !connKr)}',
 )
 
 # ============================ ВЫБОРОЧНО (ClientAccessModal) ============================
@@ -231,9 +231,9 @@ repl(
 # 15. per-client 🔌 list dim + amber
 repl(
     '<div className={"grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2" + dimCls(connOff)}\n                title={connOff ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
-    '<div className={"grid gap-2 rounded-md border p-2 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5") + dimCls(connOff && !connKr)}\n                title={(connOff && !connKr) ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
+    '<div className={"grid gap-2 rounded-md border p-2 transition-colors duration-300 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5") + dimCls(connOff && !connKr)}\n                title={(connOff && !connKr) ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
     "C 🔌 list amber",
-    guard='(connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5") + dimCls(connOff && !connKr)',
+    guard='"grid gap-2 rounded-md border p-2 transition-colors duration-300 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5")',
 )
 
 if changed:

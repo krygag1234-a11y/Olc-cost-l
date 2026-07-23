@@ -151,23 +151,24 @@ function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClos
       }
     } catch { /* ignore */ }
   };
-  // Живой транспортный сигнал: последнее «ICE connection state changed: X» из
-  // логов инстанса. Меняется МГНОВЕННО (до грейса ядра ~1мин), поэтому даёт
-  // немедленную обратную связь об обрыве, НЕ трогая сам грейс (peer_count —
-  // авторитетный источник, обновляется после грейса).
+  // Живой сигнал здоровья связи: ядро НЕ логирует ICE-disconnect, но логирует
+  // «control missed pong»/«control unhealthy»/«reason=liveness» — это ПЕРВЫЙ признак
+  // обрыва (~10-30с), раньше чем peer_count обнулится после liveness-таймаута. Не
+  // трогаем сам таймаут; peer_count остаётся авторитетным.
   const loadIce = async () => {
     try {
       const q = new URLSearchParams({ client_id: clientID, room_id: String(roomID), transport: transport || "" });
       const r = await fetch(`/api/logs/?${q.toString()}`, { cache: "no-store" });
       const b = await r.json();
       const lines = (b.logs || b.lines || []) as any[];
-      let st = ""; let at = "";
+      let up = ""; let bad = "";
       for (const ln of lines) {
         const s = typeof ln === "string" ? ln : (ln.line || "");
-        const m = s.match(/ICE connection state changed:\s*([a-zA-Z]+)/);
-        if (m) { st = m[1].toLowerCase(); at = (ln && ln.time) || ""; }
+        const tm = (ln && ln.time) || "";
+        if (s.includes("peer connected: device=")) up = tm;
+        else if (s.includes("control missed pong") || s.includes("control unhealthy") || s.includes("reason=liveness")) bad = tm;
       }
-      setIce({ state: st, at });
+      setIce({ state: (bad && bad > up) ? "unhealthy" : (up ? "connected" : ""), at: bad || up });
     } catch { /* ignore */ }
   };
   const loadInfo = async () => {
@@ -258,14 +259,14 @@ function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClos
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-400">🔌 Активны сейчас <span className="rounded bg-emerald-500/15 px-1.5 normal-case text-[10px] font-normal text-emerald-500">● живой статус</span></div>
           {(() => {
             const st = ice.state;
-            const up = st === "connected" || st === "completed";
-            const dropped = st === "disconnected" || st === "failed" || st === "closed" || st === "checking";
+            const up = st === "connected";
+            const dropped = st === "unhealthy";
             if (!st) return null;
             return (
               <div className={"flex items-center gap-1.5 text-[10px] " + (up ? "text-emerald-500" : "text-amber-500")}>
                 <span>{up ? "🟢" : "🟡"}</span>
-                <span>Транспорт (ICE): <b>{st}</b></span>
-                {dropped && peers.count > 0 && <span className="text-muted-foreground">— ядро держит сессию до ~1 мин (грейс), затем счётчик обновится</span>}
+                <span>Связь: <b>{up ? "активна" : "проверяется — возможен обрыв"}</b></span>
+                {dropped && peers.count > 0 && <span className="text-muted-foreground">— ядро подтвердит отключение через ~30с (liveness)</span>}
               </div>
             );
           })()}
