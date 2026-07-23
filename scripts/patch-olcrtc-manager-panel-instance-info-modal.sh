@@ -130,7 +130,7 @@ function olcFmtUptime(started?: string): string {
 
 function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClose }: { clientID: string; roomID: string; name?: string; transport?: string; autologi: boolean; onClose: () => void }) {
   const [runtime, setRuntime] = useState<any>(null);
-  const [peers, setPeers] = useState<{ count: number; devices: string[] }>({ count: 0, devices: [] });
+  const [peers, setPeers] = useState<{ count: number; sessions: number; devices: string[] }>({ count: 0, sessions: 0, devices: [] });
   const [info, setInfo] = useState<any>(null);
   const [conns, setConns] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
@@ -147,7 +147,10 @@ function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClos
       if (loc) {
         setRuntime(loc.runtime || null);
         const rt = loc.runtime || {};
-        setPeers({ count: typeof rt.peer_count === "number" ? rt.peer_count : (Array.isArray(rt.peer_devices) ? rt.peer_devices.length : 0), devices: Array.isArray(rt.peer_devices) ? rt.peer_devices : [] });
+        const devs: string[] = Array.isArray(rt.peer_devices) ? rt.peer_devices : [];
+        const uniq = Array.from(new Set(devs));
+        const sessions = typeof rt.peer_count === "number" ? rt.peer_count : devs.length;
+        setPeers({ count: uniq.length, sessions, devices: uniq });
       }
     } catch { /* ignore */ }
   };
@@ -272,7 +275,7 @@ function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClos
           })()}
           {peers.count > 0
             ? <div className="grid gap-1">
-                <div><span className="text-muted-foreground">Устройств онлайн:</span> <span className="font-medium text-foreground">{peers.count}</span></div>
+                <div><span className="text-muted-foreground">Устройств онлайн:</span> <span className="font-medium text-foreground">{peers.count}</span>{peers.sessions > peers.count && <span className="text-[10px] text-amber-500"> · сессий ядра: {peers.sessions} (вкл. переподключения/залипшие — ядро закроет по liveness ~30с)</span>}</div>
                 {peers.devices.length > 0 && <div className="flex flex-wrap gap-1">{peers.devices.map((d, i) => <span key={i} className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">{d}</span>)}</div>}
               </div>
             : <div className="text-muted-foreground">Нет активных подключений</div>}
