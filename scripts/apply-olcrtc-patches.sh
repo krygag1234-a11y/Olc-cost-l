@@ -466,6 +466,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-key-rotation.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Рандомизация ключей (эпик A, часть 5a): состояние+API+вывод alt-ключа (тип1); после key-rotation (роутер /api/clients/) и access-control-api.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-key-randomization-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-instance-info-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
@@ -532,6 +533,9 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-refresh-hours-ui.sh" "$MGR_REPO/src/main.tsx"
   # Автосмена ключей (Z5-B): секция ♻️ (глоб. + per-client тумблеры). После selective-randomization (анкор MainSettingsAutodetectLink).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-key-rotation-ui.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-collapse-hint.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-additional-randomization-section.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-instance-info-modal.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
