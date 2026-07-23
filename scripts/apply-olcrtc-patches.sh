@@ -537,6 +537,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-additional-randomization-section.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-instance-info-modal.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-keyrand-plus-sub.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-keyrand-off-warning.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
