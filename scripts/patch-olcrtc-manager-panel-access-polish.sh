@@ -212,7 +212,7 @@ repl(
       const bad = byDev[dev].bad;
       return (
         <div key={"act-" + i} className="whitespace-pre-wrap break-words leading-relaxed">
-          <span className={bad ? "text-amber-400" : "text-emerald-400"}>{bad ? "◌" : "●"}</span> {dev} <span className="text-muted-foreground">→</span> {byDev[dev].inst}{bad ? <span className="text-amber-500 text-[10px]"> · обрыв связи (ядро подтвердит ~30с)</span> : null}
+          <span className={bad ? "text-amber-400" : "text-emerald-400"}>{bad ? "◌" : "●"}</span> {dev} <span className="text-muted-foreground">→</span> {byDev[dev].inst}{bad ? <span className="text-amber-500 text-[10px]"> · обрыв связи (ядро закроет по liveness, до ~1.5 мин)</span> : null}
         </div>
       );
     });

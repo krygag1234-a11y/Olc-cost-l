@@ -269,7 +269,7 @@ function InstanceInfoModal({ clientID, roomID, name, transport, autologi, onClos
               <div className={"flex items-center gap-1.5 text-[10px] " + (up ? "text-emerald-500" : "text-amber-500")}>
                 <span>{up ? "🟢" : "🟡"}</span>
                 <span>Связь: <b>{up ? "активна" : "проверяется — возможен обрыв"}</b></span>
-                {dropped && peers.count > 0 && <span className="text-muted-foreground">— ядро подтвердит отключение через ~30с (liveness)</span>}
+                {dropped && peers.count > 0 && <span className="text-muted-foreground">— ядро закроет сессию по liveness (обычно до ~1.5 мин)</span>}
               </div>
             );
           })()}
