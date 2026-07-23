@@ -114,6 +114,7 @@ func instanceInfoHandler(configPath string) http.HandlerFunc {
 		}
 		cfg.ensureClientsFormat()
 		var found *Location
+		var foundClient Client
 		for ci := range cfg.Clients {
 			if cfg.Clients[ci].ClientID != clientID {
 				continue
@@ -121,6 +122,7 @@ func instanceInfoHandler(configPath string) http.HandlerFunc {
 			for li := range cfg.Clients[ci].Locations {
 				if strings.TrimSpace(cfg.Clients[ci].Locations[li].Endpoint.RoomID) == roomID {
 					found = &cfg.Clients[ci].Locations[li]
+					foundClient = cfg.Clients[ci]
 					break
 				}
 			}
@@ -131,9 +133,15 @@ func instanceInfoHandler(configPath string) http.HandlerFunc {
 			return
 		}
 
+		// Рандомизированная версия ключа отражает РЕАЛЬНУЮ рандомизацию клиента
+		// (client_id-рандомизация: глоб. или per-client — randTypeFor), а НЕ
+		// отдельную инертную крипто-рандомизацию ключей (эпик A). Тип2 → живой
+		// посекундный ключ (панель опрашивает раз в секунду). Значение —
+		// производная HMAC(secret, origKeyBytes[||unixSec]) для отображения.
 		keyRand := map[string]any{"enabled": false, "rand_type": 0, "randomized_key": "", "dynamic": false}
-		en, rt, secret := olcKeyRandForClient(clientID)
-		if en {
+		rt := randTypeFor(foundClient, cfg)
+		secret := cfg.RandomizationSecret
+		if rt > 0 && secret != "" {
 			keyRand["enabled"] = true
 			keyRand["rand_type"] = rt
 			if rt == 2 {
@@ -142,8 +150,8 @@ func instanceInfoHandler(configPath string) http.HandlerFunc {
 					keyRand["randomized_key"] = rk
 				}
 			} else {
-				if alt := olcAltKeysForLocation(*found); len(alt) > 0 {
-					keyRand["randomized_key"] = alt[0]
+				if rk := olcInstanceRandKeyStatic(secret, found.Endpoint.Key); rk != "" {
+					keyRand["randomized_key"] = rk
 				}
 			}
 		}
@@ -182,6 +190,22 @@ func olcInstanceRandKeyAt(secret, origKeyHex string, unixSec int64) string {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(unixSec))
 	mac.Write(b[:])
+	sum := mac.Sum(nil)
+	return hex.EncodeToString(sum[:32])
+}
+
+// olcInstanceRandKeyStatic — статичный рандомизированный ключ (тип1):
+// HMAC(secret, origKeyBytes)[:32] -> hex(64). Пусто при плохих входных.
+func olcInstanceRandKeyStatic(secret, origKeyHex string) string {
+	if secret == "" {
+		return ""
+	}
+	ob, err := hex.DecodeString(strings.TrimSpace(origKeyHex))
+	if err != nil || len(ob) != 32 {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(ob)
 	sum := mac.Sum(nil)
 	return hex.EncodeToString(sum[:32])
 }

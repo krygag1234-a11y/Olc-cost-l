@@ -76,12 +76,26 @@ repl(
     guard="await olcSafeCopy(subscriptionURL(clientID, currentSubscriptionPath));",
 )
 
-# --- 2b. Fix ClientQrModal copy (crashes on http, no fallback) ---
+# --- 2b. Fix ClientQrModal copy (crashes on http, no fallback) + copy-feedback ---
 repl(
     '  const copy = (s: string) => { if (s) void navigator.clipboard.writeText(s); };',
-    '  const copy = (s: string) => { if (s) void olcSafeCopy(s); };',
-    "fix ClientQrModal copy",
-    guard="const copy = (s: string) => { if (s) void olcSafeCopy(s); };",
+    '''  const [copiedKey, setCopiedKey] = useState("");
+  const copy = (s: string, key: string) => {
+    if (!s) return;
+    void olcSafeCopy(s);
+    setCopiedKey(key);
+    window.setTimeout(() => setCopiedKey((k) => (k === key ? "" : k)), 1500);
+  };''',
+    "fix ClientQrModal copy + feedback state",
+    guard="const [copiedKey, setCopiedKey] = useState",
+)
+
+# --- 2c. QR copy button: press animation + «Скопировано» ---
+repl(
+    '<button type="button" className="h-8 rounded-md border border-border bg-muted px-3 text-xs hover:bg-muted/80 disabled:opacity-50" disabled={!url} onClick={() => copy(url)}>Копировать</button>',
+    '<button type="button" className={"h-8 rounded-md border px-3 text-xs transition-transform active:scale-95 disabled:opacity-50 " + (copiedKey === k ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-500 font-medium" : "border-border bg-muted hover:bg-muted/80")} disabled={!url} onClick={() => copy(url, k)}>{copiedKey === k ? "✓ Скопировано" : "Копировать"}</button>',
+    "QR copy button feedback",
+    guard="{copiedKey === k ? \"✓ Скопировано\" : \"Копировать\"}",
 )
 
 # --- 3. Компонент InstanceInfoModal (перед function App) ---
@@ -293,7 +307,7 @@ function InstanceInfoModal({ clientID, roomID, name, autologi, onClose }: { clie
                     </div>}
             </div>
           </div>
-          <div className="text-[10px] leading-snug text-muted-foreground">Рандомизированный ключ — второй ключ расшифровки для неразрешённых устройств (в подписке НЕ публикуется). Оригинальный ключ инстанса ротирует только «♻️ Автосмена ключей».</div>
+          <div className="text-[10px] leading-snug text-muted-foreground">Рандомизированная версия ключа отражает текущую рандомизацию клиента (тип 1 — статичная, тип 2 — меняется каждую секунду). Оригинальный ключ инстанса ротирует только «♻️ Автосмена ключей».</div>
         </section>
 
         {msg && <div className="mt-2 text-[11px] text-amber-500">{msg}</div>}
