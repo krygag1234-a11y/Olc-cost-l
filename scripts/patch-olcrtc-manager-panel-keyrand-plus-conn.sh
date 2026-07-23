@@ -233,7 +233,6 @@ repl(
     '<div className={"grid gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2" + dimCls(connOff)}\n                title={connOff ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
     '<div className={"grid gap-2 rounded-md border p-2 transition-colors duration-300 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5") + dimCls(connOff && !connKr)}\n                title={(connOff && !connKr) ? "Режим «Выключено»: список разрешённых не действует и недоступен — включите «Блокировать неизвестных»" : undefined}>',
     "C 🔌 list amber",
-    guard='"grid gap-2 rounded-md border p-2 transition-colors duration-300 " + (connKr ? "border-amber-500/50 bg-amber-500/5" : "border-sky-500/30 bg-sky-500/5")',
 )
 
 if changed:
