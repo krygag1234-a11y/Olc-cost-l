@@ -123,6 +123,23 @@ func backupExtraFiles(configPath string) map[string]string {
 		"custom_direct_domains": "/var/lib/olcrtc/lists/custom-direct-domains.txt",
 		"ru_domains_extra":      "/var/lib/olcrtc/ru-domains-extra.txt",
 		"split_discovered":      "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
+		"split_panel_hosts":      "/var/lib/olcrtc/lists/panel-carrier-hosts.txt",
+		"split_panel_cidrs":      "/var/lib/olcrtc/lists/panel-carrier-cidrs.txt",
+		"zapret_exclude_domains": "/var/lib/olcrtc/zapret-custom/exclude-domains.txt",
+		"zapret_force_domains":   "/var/lib/olcrtc/zapret-custom/force-domains.txt",
+		"zapret_strategy":        filepath.Join(dir, "zapret.strategy"),
+		"zapret_sync_cron":       "/etc/cron.d/olcrtc-zapret-sync",
+		"tor_exit_env":           filepath.Join(dir, "tor-exit.env"),
+		"tor_exit_exclude_env":   filepath.Join(dir, "tor-exit-exclude.env"),
+		"torrc":                  "/etc/tor/torrc",
+		"tor_bridges":            "/etc/tor/bridges.conf",
+		"tor_user_bridges":       "/var/lib/olcrtc/tor-user-bridges.txt",
+		"bridge_profiles":        "/var/lib/olcrtc/bridge-profiles.json",
+		"bridge_pool_cron":       "/etc/cron.d/olcrtc-bridge-pool",
+		"install_profile":        "/var/lib/olcrtc/install-profile.json",
+		"github_env":             filepath.Join(dir, "github.env"),
+		"access_attempts":        "/var/lib/olcrtc/access-attempts.json",
+		"access_connections":     "/var/lib/olcrtc/access-connections.json",
 	}
 }
 
@@ -463,6 +480,11 @@ func TestBackupExtraFilesCompleteness(t *testing.T) {
 		"instance_defaults", "access_control", "key_rotation", "key_randomization",
 		"bridge_sources", "force_tor_domains", "ru_blocked_tor_domains",
 		"custom_direct_domains", "ru_domains_extra", "split_discovered",
+		"split_panel_hosts", "split_panel_cidrs", "zapret_exclude_domains",
+		"zapret_force_domains", "zapret_strategy", "zapret_sync_cron",
+		"tor_exit_env", "tor_exit_exclude_env", "torrc", "tor_bridges",
+		"tor_user_bridges", "bridge_profiles", "bridge_pool_cron",
+		"install_profile", "github_env", "access_attempts", "access_connections",
 	}
 	for _, key := range want {
 		if files[key] == "" {
