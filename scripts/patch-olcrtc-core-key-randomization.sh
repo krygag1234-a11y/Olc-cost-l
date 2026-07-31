@@ -448,7 +448,7 @@ if "olcAltKeysFromEnv()" not in z:
     kh="\t\t\tKeyHex:           cfg.KeyHex,\n"
     z=z.replace(kh, kh+"\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n", 1)  # 1-е вхождение = server.Config
     z=z.replace("\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n",
-        "\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n\t\t\tAltKeyMode:       olcAltKeyModeFromEnv(),\n\t\t\tAltKeySecret:     strings.TrimSpace(os.Getenv(\"OLCRTC_ALT_KEY_SECRET\")),\n", 1)
+        "\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n\t\t\tAltKeyMode:       olcAltKeyModeFromEnv(),\n\t\t\tAltKeySecret:     olcAltKeySecretFromEnv(),\n", 1)
     zp.write_text(z)
     print("[patch-core-key-rand] session.go: AltKeysHex")
 else:
@@ -513,6 +513,10 @@ func olcAltKeyModeFromEnv() int {
 		return 2
 	}
 	return 0
+}
+
+func olcAltKeySecretFromEnv() string {
+	return strings.TrimSpace(os.Getenv("OLCRTC_ALT_KEY_SECRET"))
 }
 
 '''
