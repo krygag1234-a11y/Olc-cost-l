@@ -205,58 +205,97 @@ REG_WORK="$(mktemp -d "${TMPDIR:-/tmp}/olc-install-regression.XXXXXX")"
 trap 'rm -rf "$REG_WORK"' EXIT
 SEED="$REG_WORK/seed"
 FRESH="$REG_WORK/fresh-install"
+FRESH_FULL="$REG_WORK/fresh-full-install"
+INSTALLED="$REG_WORK/installed"
 DIRTY="$REG_WORK/dirty-install"
 mkdir -p "$SEED"
 git -C "$REPO_ROOT" archive HEAD | tar -x -C "$SEED"
 # Include the working-tree install.sh so this regression runs before commit too.
 cp "$REPO_ROOT/install.sh" "$SEED/install.sh"
+cp "$REPO_ROOT/scripts/lib-olc-core.sh" "$SEED/scripts/lib-olc-core.sh"
 git -C "$SEED" init -q -b main
 git -C "$SEED" config user.email test@example.invalid
 git -C "$SEED" config user.name olc-test
 git -C "$SEED" add .
 git -C "$SEED" commit -qm seed
+git clone -q "file://$SEED" "$INSTALLED"
 
 if command -v python3 >/dev/null 2>&1; then
-  OLC_TEST_SEED="$SEED" OLC_TEST_FRESH="$FRESH" OLC_TEST_INSTALL="$REPO_ROOT/install.sh" python3 - <<'PY'
-import os, pty, select, time, re, sys, fcntl, termios, struct
-pid, fd = pty.fork()
-if pid == 0:
-    os.environ.update({
-        "TERM": "xterm-256color",
-        "OLC_INSTALL_DIR": os.environ["OLC_TEST_FRESH"],
-        "OLC_REPO_URL": "file://" + os.environ["OLC_TEST_SEED"],
-        "OLC_REPO_BRANCH": "main",
-        "OLC_ASSUME_FRESH": "1",
-        "OLC_EXIT_AFTER_PROMPT": "1",
+  OLC_TEST_SEED="$SEED" OLC_TEST_FRESH="$FRESH" OLC_TEST_FRESH_FULL="$FRESH_FULL" \
+    OLC_TEST_INSTALLED="$INSTALLED" OLC_TEST_INSTALL="$REPO_ROOT/install.sh" python3 - <<'PY'
+import os, pty, select, time, fcntl, termios, struct
+
+def run_case(name, target, args, prompts, extra_env, assertions):
+    pid, fd = pty.fork()
+    if pid == 0:
+        env = {
+            "TERM": "xterm-256color",
+            "OLC_INSTALL_DIR": target,
+            "OLC_REPO_URL": "file://" + os.environ["OLC_TEST_SEED"],
+            "OLC_REPO_BRANCH": "main",
+            "OLC_INSTALL_PROFILE_PATH": target + ".profile.json",
+        }
+        env.update(extra_env)
+        os.environ.update(env)
+        os.execvp("bash", ["bash", os.environ["OLC_TEST_INSTALL"], *args])
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 110, 0, 0))
+    raw = b""; prompt_index = 0; started = time.time()
+    while time.time() - started < 50:
+        ready, _, _ = select.select([fd], [], [], 0.2)
+        if ready:
+            try: data = os.read(fd, 65536)
+            except OSError: break
+            if not data: break
+            raw += data
+        if prompt_index < len(prompts) and prompts[prompt_index][0].encode() in raw:
+            os.write(fd, prompts[prompt_index][1].encode())
+            prompt_index += 1
+        try:
+            if os.waitpid(pid, os.WNOHANG) != (0, 0): break
+        except ChildProcessError:
+            break
+    text = raw.decode("utf-8", "replace")
+    checks = assertions(text)
+    bad = [label for label, ok in checks.items() if not ok]
+    for label, ok in checks.items(): print(("  ✓ " if ok else "  ✗ ") + name + ": " + label)
+    if prompt_index != len(prompts): bad.append("not all prompts answered")
+    if bad:
+        print(text[-3500:])
+        raise SystemExit(name + " failed: " + ", ".join(bad))
+
+fresh = os.environ["OLC_TEST_FRESH"]
+run_case(
+    "fresh selective", fresh, [],
+    [("Режим доступа к панели:", "2"), ("Компоненты для установки:", "4"),
+     ("Установить Tor?", "1"), ("Установить мосты Tor?", "2"),
+     ("Установить Split-routing?", "1"), ("Установить Zapret", "2")],
+    {"OLC_ASSUME_FRESH": "1", "OLC_EXIT_AFTER_PROMPT": "1"},
+    lambda text: {
+        "clone created": os.path.isdir(os.path.join(fresh, ".git")),
+        "shared component TUI shown": "Интерактивная установка Olc-cost-l" in text and "Компоненты для установки:" in text,
+        "selective flags preserved": "[install-postprompt]" in text and "--ssh" in text and "--no-bridges" in text and "--no-zapret" in text and "--no-tor" not in text and "--no-split" not in text,
+        "profile kept outside live state": os.path.isfile(fresh + ".profile.json"),
     })
-    os.execvp("bash", ["bash", os.environ["OLC_TEST_INSTALL"]])
-fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 110, 0, 0))
-raw = b""; sent = False; started = time.time()
-while time.time() - started < 40:
-    r, _, _ = select.select([fd], [], [], 0.2)
-    if r:
-        try: data = os.read(fd, 65536)
-        except OSError: break
-        if not data: break
-        raw += data
-    if not sent and "Ваш выбор (1-2)".encode() in raw:
-        os.write(fd, b"1\n1\n")
-        sent = True
-    try:
-        if os.waitpid(pid, os.WNOHANG) != (0, 0): break
-    except ChildProcessError:
-        break
-text = raw.decode("utf-8", "replace")
-checks = {
-    "fresh clone created": os.path.isdir(os.path.join(os.environ["OLC_TEST_FRESH"], ".git")),
-    "component menu shown": "Интерактивная установка Olc-cost-l" in text and "Компоненты для установки" in text,
-    "selection reached safe test exit": "[install-postprompt]" in text and "--ip" in text,
-}
-bad = [name for name, ok in checks.items() if not ok]
-for name, ok in checks.items(): print(("  ✓ " if ok else "  ✗ ") + name)
-if bad:
-    print(text[-2500:])
-    raise SystemExit("fresh curl-style regression failed: " + ", ".join(bad))
+
+fresh_full = os.environ["OLC_TEST_FRESH_FULL"]
+run_case(
+    "fresh --full", fresh_full, ["--full"], [("Режим доступа к панели", "2")],
+    {"OLC_ASSUME_FRESH": "1", "OLC_EXIT_AFTER_PROMPT": "1"},
+    lambda text: {
+        "early clone provides access TUI": os.path.isdir(os.path.join(fresh_full, ".git")) and "Режим доступа к панели" in text,
+        "component menu correctly skipped": "Компоненты для установки:" not in text,
+        "access selection reaches args": "[install-postprompt]" in text and "--ssh" in text,
+    })
+
+installed = os.environ["OLC_TEST_INSTALLED"]
+run_case(
+    "installed curl entry", installed, [], [("Olc-cost-l уже установлен", "2")],
+    {"OLC_ASSUME_INSTALLED": "1", "OLC_EXIT_AFTER_MODE_SELECTION": "1"},
+    lambda text: {
+        "action menu shown": "Olc-cost-l уже установлен" in text,
+        "update choice routed to update": "[install-mode] state=installed mode=update" in text,
+        "fresh component menu not shown": "Компоненты для установки:" not in text,
+    })
 PY
   fresh_pty_rc=$?
   if [[ "$fresh_pty_rc" -ne 0 ]]; then
