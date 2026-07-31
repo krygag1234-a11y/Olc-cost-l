@@ -35,6 +35,8 @@ comp_block = r'''// ============================================================
 // ============================================================================
 function BackupSection() {
   const [busy, setBusy] = useState(false);
+  const [restartBusy, setRestartBusy] = useState(false);
+  const [restartReady, setRestartReady] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -62,20 +64,65 @@ function BackupSection() {
     setBusy(true); setErr(null); setMsg(null);
     try {
       const text = await file.text();
-      const res = await fetch("/api/backup/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: text,
-      });
-      const data = await res.json().catch(() => ({} as any));
+      const send = async (confirmed: boolean) => {
+        const suffix = confirmed ? "?confirm_foreign_host=1" : "";
+        const res = await fetch("/api/backup/import" + suffix, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: text,
+        });
+        const data = await res.json().catch(() => ({} as any));
+        return { res, data };
+      };
+      let { res, data } = await send(false);
+      if (res.status === 409 && data?.code === "foreign_host_confirmation_required") {
+        const accepted = window.confirm(
+          "ВНИМАНИЕ: этот бэкап создан на другом VPS или в старой версии панели.\n\n" +
+          "Он содержит активные room+key. Если исходный сервер всё ещё работает, после запуска второго сервера клиенты могут случайно подключаться то к одному, то к другому.\n\n" +
+          "Продолжайте только если старый сервер остановлен либо вы осознанно переносите панель. Импортировать всё равно?"
+        );
+        if (!accepted) {
+          setMsg("Импорт отменён: данные на диске не изменены.");
+          return;
+        }
+        ({ res, data } = await send(true));
+      }
       if (!res.ok) throw new Error((data && data.error) || ("HTTP " + res.status));
       const restored = (data && data.restored) || [];
+      setRestartReady(true);
       setMsg("Восстановлено: " + (restored.join(", ") || "нет данных") + ". " + ((data && data.note) || ""));
     } catch (e: any) {
       setErr("Не удалось импортировать: " + (e?.message || String(e)));
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const doRestart = async () => {
+    setRestartBusy(true); setErr(null);
+    try {
+      const res = await fetch("/api/backup/restart", { method: "POST" });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(data?.error || ("HTTP " + res.status));
+      setMsg("Панель перезапускается. Ожидаю её возвращения…");
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+      let online = false;
+      for (let i = 0; i < 35; i += 1) {
+        try {
+          const probe = await fetch("/api/state", { cache: "no-store" });
+          if (probe.ok) { online = true; break; }
+        } catch (_) {}
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      if (!online) throw new Error("панель не ответила в течение 35 секунд");
+      setRestartReady(false);
+      setMsg("Панель перезапущена, восстановленные данные применены. Обновляю страницу…");
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (e: any) {
+      setErr("Не удалось подтвердить перезапуск: " + (e?.message || String(e)));
+    } finally {
+      setRestartBusy(false);
     }
   };
 
@@ -112,11 +159,21 @@ function BackupSection() {
           className="hidden"
           onChange={(e) => { const file = e.target.files && e.target.files[0]; if (file) doImport(file); }}
         />
+        {restartReady && (
+          <button
+            type="button"
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-amber-600 px-3 text-sm text-white hover:bg-amber-500 disabled:opacity-60"
+            disabled={busy || restartBusy}
+            onClick={doRestart}
+          >
+            {restartBusy ? "Перезапуск…" : "Перезапустить панель"}
+          </button>
+        )}
       </div>
       {msg && <div className="text-xs text-green-500 whitespace-pre-wrap">{msg}</div>}
       {err && <div className="text-xs text-red-500 whitespace-pre-wrap">{err}</div>}
       <div className="text-[11px] text-muted-foreground">
-        После импорта перезапустите панель, чтобы применить восстановленные данные.
+        После импорта появится кнопка перезапуска. На другом VPS импорт потребует отдельного подтверждения, чтобы случайно не запустить сервер-двойник с теми же room+key.
       </div>
     </section>
   );

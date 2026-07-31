@@ -37,7 +37,8 @@ route_add = route_anchor + '''
 	// Olc-cost-l: экспорт/импорт всех данных панели (бэкап). Данные — только у
 	// пользователя, локально. Устойчиво к смене версий (сырой JSON + deep-merge).
 	handler.Handle("/api/backup/export", adminAuth(http.HandlerFunc(backupExportHandler(configPath))))
-	handler.Handle("/api/backup/import", adminAuth(http.HandlerFunc(backupImportHandler(configPath))))'''
+	handler.Handle("/api/backup/import", adminAuth(http.HandlerFunc(backupImportHandler(configPath))))
+	handler.Handle("/api/backup/restart", adminAuth(http.HandlerFunc(backupRestartHandler(configPath))))'''
 if '/api/backup/export' in t:
     print("[patch-backup-api] routes already present")
 elif route_anchor in t:
@@ -63,6 +64,44 @@ fn_block = r'''// ==============================================================
 // ============================================================================
 
 const olcBackupSchemaVersion = 1
+
+// backupHostID binds an export to the VPS that created it.  It is deliberately
+// not used as an authentication secret; it only prevents an accidental import
+// of identical room+key bindings on another host.
+func backupHostID() string {
+	if raw, err := os.ReadFile("/etc/machine-id"); err == nil {
+		if id := strings.TrimSpace(string(raw)); id != "" {
+			return id
+		}
+	}
+	host, _ := os.Hostname()
+	return strings.TrimSpace(host)
+}
+
+func backupHasRoomKey(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		if endpoint, ok := x["endpoint"].(map[string]any); ok {
+			room, _ := endpoint["room_id"].(string)
+			key, _ := endpoint["key"].(string)
+			if strings.TrimSpace(room) != "" && strings.TrimSpace(key) != "" {
+				return true
+			}
+		}
+		for _, child := range x {
+			if backupHasRoomKey(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if backupHasRoomKey(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // backupExtraFiles: файлы настроек/состояния (кроме config.json), входящие в
 // бэкап. Ключ — стабильный ид в конверте бэкапа, значение — путь на диске.
@@ -232,6 +271,7 @@ func backupExportHandler(configPath string) http.HandlerFunc {
 			"olc_backup":     true,
 			"schema_version": olcBackupSchemaVersion,
 			"app":            "olcrtc-manager",
+			"source_host_id": backupHostID(),
 			"created_at":     time.Now().UTC().Format(time.RFC3339),
 			"note":           "Эти данные принадлежат только вам и хранятся локально на устройстве с панелью. Сервер их никуда не отправляет.",
 		}
@@ -312,6 +352,23 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 		}
 		env = migrateBackup(sv, env)
 
+		// Importing the same room+key bindings on a second VPS creates an
+		// indistinguishable live server clone.  Refuse before writing anything;
+		// the UI may retry only after an explicit, prominent confirmation.
+		sourceHost, _ := env["source_host_id"].(string)
+		currentHost := backupHostID()
+		foreignHost := sourceHost == "" || currentHost == "" || sourceHost != currentHost
+		if backupHasRoomKey(env["config"]) && foreignHost && r.URL.Query().Get("confirm_foreign_host") != "1" {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error":                 "Бэкап создан на другом VPS или не содержит идентификатор хоста. Импорт тех же room+key может запустить сервер-двойник.",
+				"code":                  "foreign_host_confirmation_required",
+				"requires_confirmation": true,
+				"source_host_id":        sourceHost,
+				"current_host_id":       currentHost,
+			})
+			return
+		}
+
 		restored := []string{}
 		// config.json — deep-merge поверх текущего (данные бэкапа выигрывают, новые
 		// дефолты новой версии сохраняются). Снимок текущего — в backups/.
@@ -345,8 +402,26 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 		writeJSON(w, map[string]any{
 			"status":   "ok",
 			"restored": restored,
-			"note":     "Данные восстановлены. Перезапустите панель, чтобы применить (Настройки → Перезапуск), или переустановите/запустите панель на новом VPS.",
+			"note":     "Данные восстановлены. Нажмите «Перезапустить панель» ниже, чтобы применить их.",
 		})
+	}
+}
+
+func backupRestartHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		appendAudit(configPath, "backup_restart", "requested from panel")
+		writeJSON(w, map[string]any{"status": "ok", "restarting": true})
+		// Same proven deferred-restart pattern as feature toggles: let the HTTP
+		// response reach the browser before systemd stops this process.
+		go func() {
+			time.Sleep(250 * time.Millisecond)
+			cmd := exec.Command("bash", "-c", "nohup bash -c 'sleep 1; systemctl restart olcrtc-manager.service' >>/var/log/olcrtc-backup-restart.log 2>&1 &")
+			_ = cmd.Run()
+		}()
 	}
 }
 
@@ -371,7 +446,10 @@ cat > "$(dirname "$MAIN_GO")/olc_backup_test.go" <<'GOTEST'
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -470,6 +548,59 @@ func TestRestoreBackupExtraAllKinds(t *testing.T) {
 	data, _ = os.ReadFile(textPath)
 	if string(data) != "a.example\nb.example\n" {
 		t.Fatalf("text not restored exactly: %q", data)
+	}
+}
+
+func TestBackupHasRoomKey(t *testing.T) {
+	withBinding := map[string]any{"clients": []any{map[string]any{
+		"locations": []any{map[string]any{"endpoint": map[string]any{"room_id": "room", "key": "secret"}}},
+	}}}
+	if !backupHasRoomKey(withBinding) {
+		t.Fatal("active room+key binding was not detected")
+	}
+	if backupHasRoomKey(map[string]any{"endpoint": map[string]any{"room_id": "room", "key": ""}}) {
+		t.Fatal("incomplete binding must not trigger foreign-host guard")
+	}
+}
+
+func TestBackupImportForeignHostRequiresExplicitConfirmation(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	original := []byte("{\"sentinel\":\"old\"}\n")
+	if err := os.WriteFile(configPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	envelope := map[string]any{
+		"olc_backup": true, "schema_version": 1, "source_host_id": "definitely-another-host",
+		"config": map[string]any{"clients": []any{map[string]any{
+			"client-id": "clone", "locations": []any{map[string]any{
+				"endpoint": map[string]any{"room_id": "same-room", "key": "same-key"},
+			}},
+		}}},
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil { t.Fatal(err) }
+
+	req := httptest.NewRequest(http.MethodPost, "/api/backup/import", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	backupImportHandler(configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed foreign import status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	after, _ := os.ReadFile(configPath)
+	if !bytes.Equal(after, original) {
+		t.Fatalf("guarded import modified config: %s", after)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/backup/import?confirm_foreign_host=1", bytes.NewReader(body))
+	rec = httptest.NewRecorder()
+	backupImportHandler(configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirmed foreign import status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	after, _ = os.ReadFile(configPath)
+	if !bytes.Contains(after, []byte("same-room")) {
+		t.Fatalf("confirmed import did not restore config: %s", after)
 	}
 }
 GOTEST
