@@ -120,11 +120,11 @@ rand_refresh = '''  useEffect(() => { void loadAll(); }, []);
   }, []);'''
 if 'window.addEventListener("olc-randomization-saved", refreshRand);' not in text:
     count = text.count(rand_mount)
-    if count != 2:
-        raise SystemExit(f"expected 2 access randomization mount anchors, got {count}")
+    if count != 1:
+        raise SystemExit(f"expected global access randomization mount anchor, got {count}")
     text = text.replace(rand_mount, rand_refresh)
-elif text.count('window.addEventListener("olc-randomization-saved", refreshRand);') != 2:
-    raise SystemExit("expected randomization refresh in both access dialogs")
+elif text.count('window.addEventListener("olc-randomization-saved", refreshRand);') != 1:
+    raise SystemExit("expected randomization refresh in global access dialog")
 
 # Both global and per-client dialogs already expose randScope/randType. Give all
 # four + buttons the same scope-aware explanation instead of a stale generic one.
