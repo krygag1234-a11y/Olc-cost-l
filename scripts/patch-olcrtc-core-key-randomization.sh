@@ -668,10 +668,10 @@ func olcAccessDecideConnFull(deviceID string, keyClass int, recheck bool) bool {
 		if !olcAccDecideBanOnly(dev, banNoHwid, ban) {
 			return false
 		}
-		if keyClass < 0 || recheck {
-			return true
-		}
-		return keyClass == 1
+		// Crypto enforcement requires explicit keyrand mode because only access
+		// control can distinguish an allowed original-key device from an unknown
+		// one. In off mode both key classes stay compatible (ban still applies).
+		return true
 	}
 }
 '''
