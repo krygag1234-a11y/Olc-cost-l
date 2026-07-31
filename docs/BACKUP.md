@@ -37,6 +37,15 @@
 | `deploy_profile` | `/etc/olcrtc-manager/deploy-profile.json` | профиль установки |
 | `notification_settings` | `/etc/olcrtc-manager/notification-settings.json` | настройки уведомлений |
 | `instance_defaults` | `/var/lib/olcrtc/instance-defaults.json` | значения по умолчанию для инстансов |
+| `access_control`, `access_attempts`, `access_connections` | `/var/lib/olcrtc/access-*.json` | правила доступа и журнал попыток/подключений |
+| `key_rotation`, `key_randomization` | `/var/lib/olcrtc/key-*.json` | автосмена и криптографическая рандомизация |
+| `bridge_sources`, `bridge_profiles`, `tor_user_bridges` | `/var/lib/olcrtc/...` | источники, профили и пользовательские мосты |
+| `torrc`, `tor_bridges`, `tor_exit_env`, `tor_exit_exclude_env` | `/etc/tor/*`, `/etc/olcrtc-manager/tor-exit*.env` | пользовательские настройки Tor и мостов |
+| `split_panel_hosts`, `split_panel_cidrs`, `split_discovered` | `/var/lib/olcrtc/lists/panel-carrier-*` | ручные/автоматические правила Split и их группы |
+| `custom_direct_domains`, `force_tor_domains`, `ru_blocked_tor_domains`, `ru_domains_extra` | `/var/lib/olcrtc/...` | пользовательские списки маршрутизации |
+| `zapret_exclude_domains`, `zapret_force_domains`, `zapret_strategy` | `/var/lib/olcrtc/zapret-custom/*`, `/etc/olcrtc-manager/zapret.strategy` | пользовательские настройки Zapret |
+| `zapret_sync_cron`, `bridge_pool_cron` | `/etc/cron.d/olcrtc-*` | включённые пользователем фоновые обновления |
+| `install_profile`, `github_env` | `/var/lib/olcrtc/install-profile.json`, `/etc/olcrtc-manager/github.env` | профиль установки и настройки обновления из GitHub |
 
 ## Почему бэкап устойчив к смене версий панели
 
@@ -111,6 +120,11 @@ curl -fsS -u admin:ПАРОЛЬ -X POST http://127.0.0.1:8888/api/backup/import 
 - `key_rotation`, `key_randomization`;
 - `bridge_sources`, `force_tor_domains`, `ru_blocked_tor_domains`;
 - `custom_direct_domains`, `ru_domains_extra`, `split_discovered`.
+- `split_panel_hosts`, `split_panel_cidrs`;
+- `zapret_exclude_domains`, `zapret_force_domains`, `zapret_strategy`, `zapret_sync_cron`;
+- `tor_exit_env`, `tor_exit_exclude_env`, `torrc`, `tor_bridges`, `tor_user_bridges`;
+- `bridge_profiles`, `bridge_pool_cron`, `install_profile`, `github_env`;
+- `access_attempts`, `access_connections`.
 
 JSON-файлы сохраняются как `kind: "json"`, env-файлы — как `kind: "env"`,
 обычные списки доменов — целиком как `kind: "text"`. Перед заменой любого

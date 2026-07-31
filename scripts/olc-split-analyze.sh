@@ -144,6 +144,13 @@ def target_value(raw):
     raw = (raw or "").strip().strip("\"'")
     if not raw:
         return ""
+    # A bare CIDR contains '/', but it is not a URL path. Preserve and
+    # canonicalize it before the generic host/path normalization below.
+    if "://" not in raw and "/" in raw:
+        try:
+            return str(ipaddress.ip_network(raw, strict=False))
+        except ValueError:
+            pass
     if "://" not in raw and "/" in raw:
         raw = raw.split("/", 1)[0]
     if "://" in raw:
@@ -404,6 +411,9 @@ def load_manifest():
     data.setdefault("schema", 1)
     data.setdefault("updated_at", now())
     data.setdefault("groups", [])
+    for group in data["groups"]:
+        if isinstance(group, dict):
+            annotate_group_family(group)
     return data
 
 
@@ -416,6 +426,27 @@ def save_manifest(data):
 def group_id(source, target):
     raw = f"{source}:{target}".encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")[:48]
+
+
+def group_family(target):
+    """Return a stable, human-readable parent family for discovery subgroups."""
+    value = target_value(target)
+    if not value:
+        return "other", "Прочее"
+    if is_cidr(value) or is_ip(value):
+        return "network:" + value, value
+    family = brand_family(value)
+    if family:
+        return "brand:" + family, family.upper()
+    base = base_domain(value)
+    return "domain:" + base, base
+
+
+def annotate_group_family(group):
+    family_id, family_label = group_family(group.get("target") or group.get("label"))
+    group["family_id"] = family_id
+    group["family_label"] = family_label
+    return group
 
 
 def upsert_group(data, source, target, domains, cidrs, label=None, replace_source=False, domain_provenance=None):
@@ -450,7 +481,7 @@ def upsert_group(data, source, target, domains, cidrs, label=None, replace_sourc
     merged_provenance = dict(existing.get("domain_provenance") or {})
     for domain, entries in (domain_provenance or {}).items():
         merged_provenance[domain] = merge_provenance_entries(merged_provenance.get(domain), entries)
-    groups.append({
+    group = {
         "id": gid,
         "source": source,
         "target": target,
@@ -462,7 +493,8 @@ def upsert_group(data, source, target, domains, cidrs, label=None, replace_sourc
         "domain_provenance": merged_provenance,
         "created_at": existing.get("created_at") or now(),
         "updated_at": now(),
-    })
+    }
+    groups.append(annotate_group_family(group))
     data["groups"] = sorted(groups, key=lambda x: (x.get("source", ""), x.get("label", "")))
 
 
@@ -940,6 +972,13 @@ def provenance_self_test():
         group = data["groups"][0]
         if group.get("domain_provenance") != result.get("domain_provenance"):
             raise AssertionError("group did not preserve domain provenance")
+        if group.get("family_id") != "domain:example.org" or group.get("family_label") != "example.org":
+            raise AssertionError("group family metadata missing")
+        if group_family("api.vk.ru") != ("brand:vk", "VK"):
+            raise AssertionError("VK subdomain was not grouped into the VK family")
+        cidr = analyze("87.240.0.0/16", deep=False)
+        if cidr.get("cidrs") != ["87.240.0.0/16"]:
+            raise AssertionError(f"CIDR was not preserved: {cidr.get('cidrs')}")
         return {"status": "ok", "domains": len(result["domains"]), "sources": sorted(set(expected.values()))}
     finally:
         for name, value in saved.items():

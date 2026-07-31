@@ -51,8 +51,6 @@ paths_new = '''func featureLogPaths(name string) []string {
 	case "split":
 		return []string{
 			"/var/log/olcrtc-split-update.log",
-			"/var/log/olcrtc-zapret-sync.log",
-			"/var/log/olcrtc-healthcheck.log",
 			"/var/log/olcrtc-component-split-install.log",
 			"/var/log/olcrtc-component-split-uninstall.log",
 		}'''
