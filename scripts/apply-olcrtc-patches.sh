@@ -453,6 +453,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-split-expand-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Access control: allowlist доступа к подписке по hwid устройства + журнал попыток.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-control-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-keyrand-gate.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Монитор подключений: устройства (device=) из логов olcrtc-core, read-only.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-connections-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Прокинуть client_id/room_id инстанса в olcrtc (env) для AuthHook per-client/instance.
@@ -554,6 +555,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-rand-scope-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-logs-scope-polish.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-scope-sync.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-device-labels.sh" "$MGR_REPO/src/main.tsx"
   # Auth: expired lockouts start a fresh counter; HTTP 429 is explained in the login form.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-lockout-ux.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
