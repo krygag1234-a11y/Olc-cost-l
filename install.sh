@@ -287,9 +287,10 @@ olc_clone_install_repo() {
 
 # In `curl | bash` on a fresh VPS SCRIPT_DIR is empty and the TUI libraries do
 # not exist until the repository is cloned. Bootstrap the repository before the
-# interactive menu; otherwise a no-flags install silently falls back to full/IP.
-if [[ "$PLAN_ONLY" -eq 0 && ! -f "$INSTALL_DIR/scripts/lib-olc-core.sh" ]] \
-   && { [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty; }; }; then
+# interactive menu; otherwise a fresh curl run with explicit flags (for example
+# --full without --ip/--ssh) cannot render the still-missing choices either.
+if [[ "$PLAN_ONLY" -eq 0 && "$SHOW_STATE" -eq 0 \
+   && ! -f "$INSTALL_DIR/scripts/lib-olc-core.sh" ]]; then
   olc_clone_install_repo
   EARLY_CLONED=1
   if [[ -f "$INSTALL_DIR/scripts/lib-tui.sh" ]]; then
@@ -311,20 +312,31 @@ if [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty;
     # На свежей системе (нет detect) меню выбора компонентов; если уже
     # установлено — этим займётся меню «выберите действие» ниже (auto-detect).
     _pre_detect="fresh"
-    [[ "$EARLY_CLONED" -ne 1 && "${OLC_ASSUME_FRESH:-0}" != "1" \
+    [[ "${OLC_ASSUME_INSTALLED:-0}" == "1" ]] && _pre_detect="installed"
+    [[ "${OLC_ASSUME_INSTALLED:-0}" != "1" && "$EARLY_CLONED" -ne 1 && "${OLC_ASSUME_FRESH:-0}" != "1" \
        && -x "$INSTALL_DIR/scripts/olc-detect-install.sh" ]] && \
       _pre_detect="$("$INSTALL_DIR/scripts/olc-detect-install.sh" 2>/dev/null || echo fresh)"
     if [[ "$CHOOSE_COMPONENTS" -eq 1 || "$_pre_detect" == "fresh" ]]; then
       source "$INSTALL_DIR/scripts/lib-olc-core.sh"
       if declare -f interactive_install_menu >/dev/null 2>&1; then
+        if [[ "$ACCESS_SET" -eq 1 ]]; then
+          for _boot_arg in "${BOOT_ARGS[@]}"; do
+            case "$_boot_arg" in
+              --ssh|--localhost|--local-panel) export OLC_INSTALL_ACCESS_PRESET="ssh" ;;
+              --ip|--public-panel) export OLC_INSTALL_ACCESS_PRESET="http" ;;
+            esac
+          done
+        fi
         interactive_install_menu || { echo "Установка отменена." >&2; exit 1; }
         # Перенести выбор меню (OLC_NO_* / OLC_INSTALL_SSH) в BOOT_ARGS
         [[ "${OLC_NO_TOR:-0}" == "1" ]]     && BOOT_ARGS+=(--no-tor)
         [[ "${OLC_NO_SPLIT:-0}" == "1" ]]   && BOOT_ARGS+=(--no-split)
         [[ "${OLC_NO_ZAPRET:-0}" == "1" ]]  && BOOT_ARGS+=(--no-zapret)
         [[ "${OLC_NO_BRIDGES:-0}" == "1" ]] && BOOT_ARGS+=(--no-bridges)
-        if [[ "${OLC_INSTALL_SSH:-0}" == "1" ]]; then BOOT_ARGS+=(--ssh); else BOOT_ARGS+=(--ip); fi
-        ACCESS_SET=1  # меню компонентов уже спросило режим доступа
+        if [[ "$ACCESS_SET" -eq 0 ]]; then
+          if [[ "${OLC_INSTALL_ACCESS_MODE:-http}" == "ssh" ]]; then BOOT_ARGS+=(--ssh); else BOOT_ARGS+=(--ip); fi
+          ACCESS_SET=1  # меню компонентов уже спросило режим доступа
+        fi
         # Меню = осознанный выбор полной конфигурации → форсируем режим full
         [[ -z "$FORCE_MODE" ]] && FORCE_MODE="--full"
       fi
@@ -357,6 +369,7 @@ fi
 # Тест-хук: заставить считать систему чистой (для PTY-проверки меню без реальной
 # установки). Только для тестов — на боевом не задаётся.
 [[ "${OLC_ASSUME_FRESH:-0}" == "1" ]] && STATE="fresh"
+[[ "${OLC_ASSUME_INSTALLED:-0}" == "1" ]] && STATE="installed"
 
 if [[ "$FORCE_MODE" == "--full" || "$FORCE_MODE" == "--fresh" ]]; then
   if [[ "$STATE" == "installed" || "$STATE" == "partial" ]]; then
@@ -408,6 +421,11 @@ else
 fi
 
 tui_log_step "Обнаружено: $STATE → режим: $MODE (full=полная, update=обновление)"
+
+if [[ "${OLC_EXIT_AFTER_MODE_SELECTION:-0}" == "1" ]]; then
+  echo "[install-mode] state=$STATE mode=$MODE"
+  exit 0
+fi
 
 # --plan: dry-run — вывести разобранный план и выйти БЕЗ клонирования/сборки.
 # Используется scripts/test-install-flags.sh для проверки, что явные флаги не

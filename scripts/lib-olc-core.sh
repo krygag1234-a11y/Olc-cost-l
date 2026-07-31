@@ -153,30 +153,48 @@ interactive_install_menu() {
     return 1
   fi
 
+  local access_mode components_mode menu_choice
   echo ""
   echo "╔═══════════════════════════════════════════════════════════╗"
   echo "║ Интерактивная установка Olc-cost-l                       ║"
   echo "╚═══════════════════════════════════════════════════════════╝"
   echo ""
 
-  # 1. Выбор режима доступа к панели
-  echo "1️⃣  Режим доступа к панели:"
-  echo "   [1] HTTP — панель доступна по IP:8888 (рекомендуется)"
-  echo "   [2] SSH  — панель только через SSH-туннель (безопаснее)"
-  echo -n "Ваш выбор (1-2) [1]: "
-  read -r access_mode </dev/tty || access_mode="1"
-  access_mode="${access_mode:-1}"
+  # Тот же tui_menu, что использует olc-update: стрелки/цифры/Enter,
+  # чтение из /dev/tty и стирание кадра после выбора.
+  case "${OLC_INSTALL_ACCESS_PRESET:-}" in
+    ssh) access_mode="2" ;;
+    http) access_mode="1" ;;
+    *)
+      if declare -f tui_menu >/dev/null 2>&1; then
+        menu_choice="$(tui_menu "Режим доступа к панели:" \
+          "HTTP — панель доступна по IP:8888 (проще)" \
+          "SSH — панель только через SSH-туннель")"
+        access_mode="$(( ${menu_choice:-0} + 1 ))"
+      else
+        echo "1) HTTP — панель доступна по IP:8888 (проще)"
+        echo "2) SSH — панель только через SSH-туннель"
+        read -r -p "Ваш выбор (1-2) [1]: " access_mode </dev/tty || access_mode="1"
+        access_mode="${access_mode:-1}"
+      fi
+      ;;
+  esac
 
-  # 2. Выбор компонентов
-  echo ""
-  echo "2️⃣  Компоненты для установки:"
-  echo "   [1] Полная установка (Tor + Split + Zapret + Мосты)"
-  echo "   [2] Без Tor (только Zapret для иностранного VPS)"
-  echo "   [3] Без Split (весь трафик через Tor)"
-  echo "   [4] Выборочная установка (выбрать компоненты)"
-  echo -n "Ваш выбор (1-4) [1]: "
-  read -r components_mode </dev/tty || components_mode="1"
-  components_mode="${components_mode:-1}"
+  if declare -f tui_menu >/dev/null 2>&1; then
+    menu_choice="$(tui_menu "Компоненты для установки:" \
+      "Полная установка (Tor + Split + Zapret + Мосты)" \
+      "Без Tor (только Zapret для иностранного VPS)" \
+      "Без Split (весь трафик через Tor)" \
+      "Выборочная установка (выбрать компоненты)")"
+    components_mode="$(( ${menu_choice:-0} + 1 ))"
+  else
+    echo "1) Полная установка (Tor + Split + Zapret + Мосты)"
+    echo "2) Без Tor (только Zapret для иностранного VPS)"
+    echo "3) Без Split (весь трафик через Tor)"
+    echo "4) Выборочная установка (выбрать компоненты)"
+    read -r -p "Ваш выбор (1-4) [1]: " components_mode </dev/tty || components_mode="1"
+    components_mode="${components_mode:-1}"
+  fi
 
   # 3. Выборочная установка
   local install_tor="1"
@@ -204,30 +222,41 @@ interactive_install_menu() {
       install_bridges="1"
       ;;
     4) # Выборочная
-      echo ""
-      echo "Выберите компоненты для установки:"
-      echo -n "  Установить Tor? (Y/n): "
-      read -r ans_tor </dev/tty || ans_tor="y"
-      [[ "${ans_tor,,}" != "n" ]] && install_tor="1" || install_tor="0"
-
-      if [[ "$install_tor" == "1" ]]; then
-        echo -n "  Установить мосты Tor? (Y/n): "
-        read -r ans_bridges </dev/tty || ans_bridges="y"
-        [[ "${ans_bridges,,}" != "n" ]] && install_bridges="1" || install_bridges="0"
-
-        echo -n "  Установить Split-routing? (Y/n): "
-        read -r ans_split </dev/tty || ans_split="y"
-        [[ "${ans_split,,}" != "n" ]] && install_split="1" || install_split="0"
+      local ans_tor ans_bridges ans_split ans_zapret
+      if declare -f tui_menu >/dev/null 2>&1; then
+        ans_tor="$(tui_menu "Установить Tor?" "Да" "Нет")"
+        [[ "${ans_tor:-0}" == "0" ]] && install_tor="1" || install_tor="0"
+      else
+        read -r -p "Установить Tor? (Y/n): " ans_tor </dev/tty || ans_tor="y"
+        [[ "${ans_tor,,}" != "n" ]] && install_tor="1" || install_tor="0"
       fi
 
-      echo -n "  Установить Zapret (DPI bypass)? (Y/n): "
-      read -r ans_zapret </dev/tty || ans_zapret="y"
-      [[ "${ans_zapret,,}" != "n" ]] && install_zapret="1" || install_zapret="0"
+      if [[ "$install_tor" == "1" ]]; then
+        if declare -f tui_menu >/dev/null 2>&1; then
+          ans_bridges="$(tui_menu "Установить мосты Tor?" "Да" "Нет")"
+          [[ "${ans_bridges:-0}" == "0" ]] && install_bridges="1" || install_bridges="0"
+          ans_split="$(tui_menu "Установить Split-routing?" "Да" "Нет")"
+          [[ "${ans_split:-0}" == "0" ]] && install_split="1" || install_split="0"
+        else
+          read -r -p "Установить мосты Tor? (Y/n): " ans_bridges </dev/tty || ans_bridges="y"
+          [[ "${ans_bridges,,}" != "n" ]] && install_bridges="1" || install_bridges="0"
+          read -r -p "Установить Split-routing? (Y/n): " ans_split </dev/tty || ans_split="y"
+          [[ "${ans_split,,}" != "n" ]] && install_split="1" || install_split="0"
+        fi
+      fi
+
+      if declare -f tui_menu >/dev/null 2>&1; then
+        ans_zapret="$(tui_menu "Установить Zapret (DPI bypass)?" "Да" "Нет")"
+        [[ "${ans_zapret:-0}" == "0" ]] && install_zapret="1" || install_zapret="0"
+      else
+        read -r -p "Установить Zapret (DPI bypass)? (Y/n): " ans_zapret </dev/tty || ans_zapret="y"
+        [[ "${ans_zapret,,}" != "n" ]] && install_zapret="1" || install_zapret="0"
+      fi
       ;;
   esac
 
   # 4. Сохранить профиль установки
-  local profile_json="/var/lib/olcrtc/install-profile.json"
+  local profile_json="${OLC_INSTALL_PROFILE_PATH:-/var/lib/olcrtc/install-profile.json}"
   mkdir -p "$(dirname "$profile_json")" 2>/dev/null || true
 
   cat > "$profile_json" <<EOF
@@ -244,7 +273,12 @@ interactive_install_menu() {
 EOF
 
   # 5. Экспортировать флаги для install.sh
-  [[ "$access_mode" == "2" ]] && export OLC_INSTALL_SSH=1
+  unset OLC_INSTALL_SSH OLC_INSTALL_ACCESS_MODE OLC_NO_TOR OLC_NO_SPLIT OLC_NO_ZAPRET OLC_NO_BRIDGES
+  if [[ "$access_mode" == "2" ]]; then
+    export OLC_INSTALL_SSH=1 OLC_INSTALL_ACCESS_MODE="ssh"
+  else
+    export OLC_INSTALL_ACCESS_MODE="http"
+  fi
   [[ "$install_tor" == "0" ]] && export OLC_NO_TOR=1
   [[ "$install_split" == "0" ]] && export OLC_NO_SPLIT=1
   [[ "$install_zapret" == "0" ]] && export OLC_NO_ZAPRET=1
