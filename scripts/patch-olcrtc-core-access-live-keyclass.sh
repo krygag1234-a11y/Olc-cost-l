@@ -87,4 +87,69 @@ PY
 
 gofmt -w "$hook" "$watcher"
 [[ ! -f "$test_file" ]] || gofmt -w "$test_file"
+
+cat > "$(dirname "$hook")/olc_access_live_keyclass_test.go" <<'GOTEST'
+package session
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestOlcAccessLiveKeyClassMatrix(t *testing.T) {
+	oldPath := olcAccessControlPath
+	oldClient := os.Getenv("OLCRTC_CLIENT_ID")
+	oldRoom := os.Getenv("OLCRTC_ROOM_ID")
+	t.Cleanup(func() {
+		olcAccessControlPath = oldPath
+		_ = os.Setenv("OLCRTC_CLIENT_ID", oldClient)
+		_ = os.Setenv("OLCRTC_ROOM_ID", oldRoom)
+	})
+	olcAccessControlPath = filepath.Join(t.TempDir(), "access-control.json")
+	_ = os.Setenv("OLCRTC_CLIENT_ID", "matrix-client")
+	_ = os.Setenv("OLCRTC_ROOM_ID", "matrix-room")
+
+	writeMode := func(mode string) {
+		t.Helper()
+		body := `{"enabled":false,"clients":{"matrix-client":{"conn_mode":"` + mode +
+			`","conn_scope":"all","conn_allow":[{"hwid":"allowed","enabled":true},{"hwid":"disabled","enabled":false}],` +
+			`"conn_ban":[{"hwid":"banned","enabled":true}]}}}`
+		if err := os.WriteFile(olcAccessControlPath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeMode("keyrand")
+	cases := []struct {
+		name     string
+		device   string
+		keyClass int
+		want     bool
+	}{
+		{"allowed original", "allowed", 0, true},
+		{"disabled original is kicked", "disabled", 0, false},
+		{"unknown original is kicked", "unknown", 0, false},
+		{"unknown randomized remains", "unknown", 1, true},
+		{"client-id-only keeps original crypto", "unknown", -1, true},
+		{"ban overrides randomized", "banned", 1, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := olcAccessDecideConnFull(tc.device, tc.keyClass, true); got != tc.want {
+				t.Fatalf("live decision=%v want=%v", got, tc.want)
+			}
+		})
+	}
+
+	writeMode("enforce")
+	if olcAccessDecideConnFull("unknown", 1, true) {
+		t.Fatal("enforce must reject an unknown device even with a randomized key")
+	}
+	if !olcAccessDecideConnFull("allowed", 0, true) {
+		t.Fatal("enforce must keep an allowed original-key device")
+	}
+}
+GOTEST
+gofmt -w "$(dirname "$hook")/olc_access_live_keyclass_test.go"
 echo "patched live access recheck with current connection key class"

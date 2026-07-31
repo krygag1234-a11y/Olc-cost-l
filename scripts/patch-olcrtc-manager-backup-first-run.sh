@@ -124,11 +124,24 @@ if 'firstRunBackupRef' not in login:
 tsx = tsx[:start] + login + tsx[end:]
 tsx_path.write_text(tsx)
 
-test_path = go_path.with_name("olc_backup_test.go")
+test_path = go_path.with_name("olc_backup_first_run_test.go")
 if test_path.exists():
     tests = test_path.read_text()
-    if "TestBackupFirstRunImportRestoresCredentialsAndSession" not in tests:
-        tests += r'''
+else:
+    tests = r'''package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+)
+'''
+if "TestBackupFirstRunImportRestoresCredentialsAndSession" not in tests:
+    tests += r'''
 
 func TestBackupFirstRunImportRestoresCredentialsAndSession(t *testing.T) {
 	dir := t.TempDir()
@@ -192,7 +205,7 @@ func TestBackupFirstRunImportRestoresCredentialsAndSession(t *testing.T) {
 	}
 }
 '''
-        test_path.write_text(tests)
+    test_path.write_text(tests)
 PY
 
 gofmt -w "$main_go"
