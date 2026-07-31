@@ -13,6 +13,14 @@ import sys
 hook_path, watcher_path, test_path = map(Path, sys.argv[1:])
 hook = hook_path.read_text()
 
+# Keep the config path injectable for deterministic matrix tests. Production
+# retains the same default value.
+hook = hook.replace(
+    'const olcAccessControlPath = "/var/lib/olcrtc/access-control.json"',
+    'var olcAccessControlPath = "/var/lib/olcrtc/access-control.json"',
+    1,
+)
+
 old_init = '''func init() {
 	server.OlcBanRecheck = olcAccessConnDecide
 }'''
