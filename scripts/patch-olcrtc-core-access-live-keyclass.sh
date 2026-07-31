@@ -73,16 +73,18 @@ for old, new in replacements:
         raise SystemExit(f"watcher anchor not found: {old[:60]}")
 watcher_path.write_text(watcher)
 
-tests = test_path.read_text()
-tests = tests.replace(
-    '{"unknown recheck", "unknown", 0, true, true},',
-    '{"unknown original recheck", "unknown", 0, true, false},\n'
-    '\t\t{"unknown randomized recheck", "unknown", 1, true, true},\n'
-    '\t\t{"client-id-only scope", "unknown", -1, true, true},',
-    1,
-)
-test_path.write_text(tests)
+if test_path.exists():
+    tests = test_path.read_text()
+    tests = tests.replace(
+        '{"unknown recheck", "unknown", 0, true, true},',
+        '{"unknown original recheck", "unknown", 0, true, false},\n'
+        '\t\t{"unknown randomized recheck", "unknown", 1, true, true},\n'
+        '\t\t{"client-id-only scope", "unknown", -1, true, true},',
+        1,
+    )
+    test_path.write_text(tests)
 PY
 
-gofmt -w "$hook" "$watcher" "$test_file"
+gofmt -w "$hook" "$watcher"
+[[ ! -f "$test_file" ]] || gofmt -w "$test_file"
 echo "patched live access recheck with current connection key class"
