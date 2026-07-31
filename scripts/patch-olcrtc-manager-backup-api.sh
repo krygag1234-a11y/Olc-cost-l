@@ -76,8 +76,50 @@ func backupExtraFiles(configPath string) map[string]string {
 		"notification_settings": notificationSettingsPath,
 		"instance_defaults":     instanceDefaultsPath,
 		"access_control":        "/var/lib/olcrtc/access-control.json",
+		"key_rotation":          "/var/lib/olcrtc/key-rotation.json",
+		"key_randomization":     "/var/lib/olcrtc/key-randomization.json",
+		"bridge_sources":        "/var/lib/olcrtc/bridge-sources.json",
+		"force_tor_domains":     "/var/lib/olcrtc/force-tor-domains.txt",
+		"ru_blocked_tor_domains": "/var/lib/olcrtc/ru-blocked-tor-domains.txt",
+		"custom_direct_domains": "/var/lib/olcrtc/lists/custom-direct-domains.txt",
+		"ru_domains_extra":      "/var/lib/olcrtc/ru-domains-extra.txt",
 		"split_discovered":      "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
 	}
+}
+
+// backupFileBeforeRestore keeps every import reversible, including auxiliary files.
+// config.json has its own backupConfig() path; this helper covers extras.
+func backupFileBeforeRestore(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	mode := os.FileMode(0o600)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	stamp := time.Now().UTC().Format("20060102-150405.000000000")
+	return os.WriteFile(path+".bak-import-"+stamp, data, mode)
+}
+
+func writeBackupFileAtomic(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := backupFileBeforeRestore(path); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // deepMergeJSON: значения src (бэкап) поверх dst (текущее). Вложенные объекты
@@ -173,13 +215,15 @@ func backupExportHandler(configPath string) http.HandlerFunc {
 				if json.Unmarshal(data, &v) == nil {
 					extras[key] = map[string]any{"kind": "json", "value": v}
 				}
-			} else {
+			} else if strings.HasSuffix(path, ".env") {
 				kv, _ := readEnvFile(path)
 				vals := map[string]any{}
 				for k, val := range kv {
 					vals[k] = val
 				}
 				extras[key] = map[string]any{"kind": "env", "values": vals}
+			} else {
+				extras[key] = map[string]any{"kind": "text", "value": string(data)}
 			}
 		}
 		env["extras"] = extras
@@ -255,18 +299,20 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 				}
 				switch kind, _ := ev["kind"].(string); kind {
 				case "json":
-					bv, ok := ev["value"].(map[string]any)
+					bv, ok := ev["value"]
 					if !ok {
 						continue
 					}
-					cur := map[string]any{}
-					if raw, err := os.ReadFile(path); err == nil {
-						_ = json.Unmarshal(raw, &cur)
+					merged := bv
+					if backupMap, isMap := bv.(map[string]any); isMap {
+						cur := map[string]any{}
+						if raw, err := os.ReadFile(path); err == nil {
+							_ = json.Unmarshal(raw, &cur)
+						}
+						merged = deepMergeJSON(cur, backupMap)
 					}
-					merged := deepMergeJSON(cur, bv)
 					if out, err := json.MarshalIndent(merged, "", "  "); err == nil {
-						_ = os.MkdirAll(filepath.Dir(path), 0o755)
-						if os.WriteFile(path, append(out, '\n'), 0o644) == nil {
+						if writeBackupFileAtomic(path, append(out, '\n'), 0o600) == nil {
 							restored = append(restored, key)
 						}
 					}
@@ -279,7 +325,18 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 					for k, v := range vals {
 						kv[k] = fmt.Sprintf("%v", v)
 					}
+					if backupFileBeforeRestore(path) != nil {
+						continue
+					}
 					if mergeEnvFile(path, kv) == nil {
+						restored = append(restored, key)
+					}
+				case "text":
+					value, ok := ev["value"].(string)
+					if !ok {
+						continue
+					}
+					if writeBackupFileAtomic(path, []byte(value), 0o600) == nil {
 						restored = append(restored, key)
 					}
 				}
@@ -311,3 +368,55 @@ if changed:
 else:
     print("[patch-backup-api] no changes (idempotent)")
 PY
+
+cat > "$(dirname "$MAIN_GO")/olc_backup_test.go" <<'GOTEST'
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestBackupExtraFilesCompleteness(t *testing.T) {
+	files := backupExtraFiles("/etc/olcrtc-manager/config.json")
+	want := []string{
+		"panel_env", "features_env", "deploy_profile", "notification_settings",
+		"instance_defaults", "access_control", "key_rotation", "key_randomization",
+		"bridge_sources", "force_tor_domains", "ru_blocked_tor_domains",
+		"custom_direct_domains", "ru_domains_extra", "split_discovered",
+	}
+	for _, key := range want {
+		if files[key] == "" {
+			t.Fatalf("backup path missing for %q", key)
+		}
+	}
+}
+
+func TestWriteBackupFileAtomicCreatesReversibleSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "domains.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBackupFileAtomic(path, []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "new\n" {
+		t.Fatalf("restored file = %q, err=%v", got, err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode not preserved: info=%v err=%v", info, err)
+	}
+	snapshots, err := filepath.Glob(path + ".bak-import-*")
+	if err != nil || len(snapshots) != 1 {
+		t.Fatalf("snapshots=%v err=%v", snapshots, err)
+	}
+	old, err := os.ReadFile(snapshots[0])
+	if err != nil || string(old) != "old\n" {
+		t.Fatalf("snapshot = %q, err=%v", old, err)
+	}
+}
+GOTEST
+echo "[patch-backup-api] wrote olc_backup_test.go"

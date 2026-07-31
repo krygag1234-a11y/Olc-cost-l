@@ -89,6 +89,21 @@ curl -fsS -u admin:ПАРОЛЬ -X POST http://127.0.0.1:8888/api/backup/import 
   -H 'Content-Type: application/json' --data-binary @olc-backup.json
 ```
 
+## Полный manifest после аудита 2026-07-31
+
+Экспорт панели сохраняет `config` и следующие дополнительные элементы:
+
+- `panel_env`, `features_env`, `deploy_profile`;
+- `notification_settings`, `instance_defaults`, `access_control`;
+- `key_rotation`, `key_randomization`;
+- `bridge_sources`, `force_tor_domains`, `ru_blocked_tor_domains`;
+- `custom_direct_domains`, `ru_domains_extra`, `split_discovered`.
+
+JSON-файлы сохраняются как `kind: "json"`, env-файлы — как `kind: "env"`,
+обычные списки доменов — целиком как `kind: "text"`. Перед заменой любого
+дополнительного файла импорт создаёт рядом копию `.bak-import-<timestamp>` и
+записывает новое содержимое атомарно через временный файл.
+
 ## Формат конверта (schema_version 1)
 
 ```json
