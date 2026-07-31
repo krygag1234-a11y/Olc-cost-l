@@ -24,6 +24,26 @@ if conn_state_count not in (0, 2):
 if conn_state_count == 0 and text.count('&& !connKr;') != 2:
     raise SystemExit("connection + active-state anchors not found")
 
+# The enforce selector used !connOff as its selected/early-return condition.
+# Once + is correctly active, that expression is also true for + and made two
+# modes look selected while preventing a switch from + to enforce.
+text, enforce_class_count = re.subn(
+    r'className=\{!connOff \?',
+    'className={(!connOff && !connKr) ?',
+    text,
+)
+text, enforce_click_count = re.subn(
+    r'onClick=\{\(\) => \{ if \(!connOff\) return;',
+    'onClick={() => { if (!connOff && !connKr) return;',
+    text,
+)
+if enforce_class_count not in (0, 2) or enforce_click_count not in (0, 2):
+    raise SystemExit(f"unexpected connection enforce selector replacements: class={enforce_class_count} click={enforce_click_count}")
+if enforce_class_count == 0 and text.count('className={(!connOff && !connKr) ?') != 2:
+    raise SystemExit("connection enforce selected-state anchors not found")
+if enforce_click_count == 0 and text.count('if (!connOff && !connKr) return;') != 2:
+    raise SystemExit("connection enforce click-state anchors not found")
+
 # Both global and per-client dialogs already expose randScope/randType. Give all
 # four + buttons the same scope-aware explanation instead of a stale generic one.
 marker = '  const dimCls = (off: boolean) => (off ? " pointer-events-none opacity-40 select-none" : "");'
