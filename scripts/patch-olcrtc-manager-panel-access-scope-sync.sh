@@ -44,6 +44,14 @@ if enforce_class_count == 0 and text.count('className={(!connOff && !connKr) ?')
 if enforce_click_count == 0 and text.count('if (!connOff && !connKr) return;') != 2:
     raise SystemExit("connection enforce click-state anchors not found")
 
+# Guard the four log-card allow actions explicitly: two subscription dialogs
+# and two connection dialogs must be gated by the effective off state, which is
+# false while + is active.
+if text.count('!known && (subOff') != 2:
+    raise SystemExit("expected two subscription log-card allow gates")
+if text.count('!known && (connOff') != 2:
+    raise SystemExit("expected two connection log-card allow gates")
+
 # Both global and per-client dialogs already expose randScope/randType. Give all
 # four + buttons the same scope-aware explanation instead of a stale generic one.
 marker = '  const dimCls = (off: boolean) => (off ? " pointer-events-none opacity-40 select-none" : "");'
@@ -101,9 +109,12 @@ if old_glob in text:
 elif new_glob not in text:
     raise SystemExit("global access snapshot anchor not found")
 
-start = text.find('  const isSynced = () =>', text.find('function ClientAccessModal('))
-end = text.find('  const setSyncHiddenPersist', start)
-if start < 0 or end < 0:
+client_modal = text.find('function ClientAccessModal(')
+is_synced_start = text.find('  const isSynced = () =>', client_modal)
+existing_modes_start = text.find('  const syncSubMode = glob.mode', client_modal)
+start = existing_modes_start if 0 <= existing_modes_start < is_synced_start else is_synced_start
+end = text.find('  const setSyncHiddenPersist', is_synced_start)
+if client_modal < 0 or is_synced_start < 0 or start < 0 or end < 0:
     raise SystemExit("per-client sync block not found")
 old_sync = text[start:end]
 new_sync = '''  const syncSubMode = glob.mode === "enforce" ? "enforce" : (glob.mode === "keyrand" && randSub ? "keyrand" : "off");
@@ -140,8 +151,7 @@ new_sync = '''  const syncSubMode = glob.mode === "enforce" ? "enforce" : (glob.
     });
   };
 '''
-if 'const syncSubMode = glob.mode' not in old_sync:
-    text = text[:start] + new_sync + text[end:]
+text = text[:start] + new_sync + text[end:]
 
 # Tell the user that synchronization now includes effective modes and scope.
 text = text.replace(
