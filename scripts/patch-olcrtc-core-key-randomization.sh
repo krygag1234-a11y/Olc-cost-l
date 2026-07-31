@@ -50,6 +50,7 @@ else:
 	// onto the authenticating cipher (used for BOTH decrypt and encrypt after);
 	// keyClass records which class matched (0 original, 1 randomized).
 	alt      []*crypto.Cipher
+	altProvider func() []*crypto.Cipher
 	active   atomic.Pointer[crypto.Cipher]
 	keyClass atomic.Int32
 '''
@@ -96,11 +97,30 @@ func (c *Conn) SetAltCiphers(alt ...*crypto.Cipher) {
 	c.keyClass.Store(-1)
 }
 
+// SetAltCipherProvider registers a dynamic source of alternate ciphers. It is
+// used by type 2 to derive current+previous-second keys at the first frame.
+func (c *Conn) SetAltCipherProvider(provider func() []*crypto.Cipher) {
+	c.altProvider = provider
+	c.keyClass.Store(-1)
+}
+
+func (c *Conn) hasAltCiphers() bool {
+	return len(c.alt) > 0 || c.altProvider != nil
+}
+
+func (c *Conn) currentAltCiphers() []*crypto.Cipher {
+	out := c.alt
+	if c.altProvider != nil {
+		out = append(append([]*crypto.Cipher(nil), out...), c.altProvider()...)
+	}
+	return out
+}
+
 // KeyClass reports which key class authenticated this conn: 0 = original key,
 // 1 = randomized key, -1 = not yet latched / single-cipher conn. The server
 // reads this after the handshake to enforce the key-randomization rule.
 func (c *Conn) KeyClass() int {
-	if len(c.alt) == 0 {
+	if !c.hasAltCiphers() {
 		return -1
 	}
 	return int(c.keyClass.Load())
@@ -110,7 +130,7 @@ func (c *Conn) KeyClass() int {
 // upstream fast path unchanged. Multi-key conns try the latched cipher first,
 // otherwise probe primary+alts and latch onto the authenticating one.
 func (c *Conn) decryptFrame(dst, ciphertext []byte) ([]byte, error) {
-	if len(c.alt) == 0 {
+	if !c.hasAltCiphers() {
 		return c.cipher.DecryptInto(dst, ciphertext)
 	}
 	if act := c.active.Load(); act != nil {
@@ -121,7 +141,10 @@ func (c *Conn) decryptFrame(dst, ciphertext []byte) ([]byte, error) {
 		c.keyClass.Store(0)
 		return pt, nil
 	}
-	for _, a := range c.alt {
+	for _, a := range c.currentAltCiphers() {
+		if a == nil {
+			continue
+		}
 		if pt, err := a.DecryptInto(dst, ciphertext); err == nil {
 			c.active.Store(a)
 			c.keyClass.Store(1)
@@ -268,6 +291,35 @@ func TestOlcMultiKeyRejectsUnknown(t *testing.T) {
 		t.Fatalf("keyClass = %d after failed decrypt, want -1", c.KeyClass())
 	}
 }
+
+// Olc-cost-l type 2: dynamic provider is evaluated only while the conn is
+// unlatched; after a match, the same cipher encrypts all replies.
+func TestOlcDynamicAltProvider(t *testing.T) {
+	orig := mustCipher(t, 1)
+	rnd := mustCipher(t, 100)
+	calls := 0
+	c := &Conn{cipher: orig}
+	c.SetAltCipherProvider(func() []*crypto.Cipher {
+		calls++
+		return []*crypto.Cipher{rnd}
+	})
+	msg := []byte("hello via dynamic randomized key")
+	ct, _ := rnd.Encrypt(msg)
+	pt, err := c.decryptFrame(nil, ct)
+	if err != nil || !bytes.Equal(pt, msg) {
+		t.Fatalf("decryptFrame(dynamic): pt=%q err=%v", pt, err)
+	}
+	if c.KeyClass() != 1 || c.encryptCipher() != rnd || calls != 1 {
+		t.Fatalf("class=%d latched=%v calls=%d", c.KeyClass(), c.encryptCipher() == rnd, calls)
+	}
+	ct2, _ := rnd.Encrypt([]byte("second frame"))
+	if _, err := c.decryptFrame(nil, ct2); err != nil {
+		t.Fatalf("latched decrypt: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("provider called after latch: %d", calls)
+	}
+}
 GOTEST
 echo "[patch-core-key-rand] wrote internal/muxconn/olc_multikey_test.go"
 
@@ -311,21 +363,54 @@ if tp.exists():
 sp = repo / "internal/server/server.go"
 t = sp.read_text()
 if "altCiphers []*crypto.Cipher" not in t:
+    for imp in ('"crypto/hmac"', '"crypto/sha256"', '"encoding/binary"', '"encoding/hex"'):
+        if imp not in t:
+            t = t.replace("import (\n", "import (\n\t" + imp + "\n", 1)
     t = t.replace("\tTraffic          transport.TrafficConfig\n",
         "\tTraffic          transport.TrafficConfig\n\n\t// Olc-cost-l key-randomization (server-only): hex(64)=32b alt-ключи для\n\t// приёма от НЕразрешённых. Пусто → single-cipher (upstream).\n\tAltKeysHex []string\n", 1)
+    t = t.replace("\tAltKeysHex []string\n",
+        "\tAltKeysHex []string\n\tAltKeyMode int\n\tAltKeySecret string\n", 1)
     t = t.replace("\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n",
-        "\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n\taltCiphers []*crypto.Cipher // Olc-cost-l key-randomization\n", 1)
+        "\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n\taltCiphers []*crypto.Cipher // Olc-cost-l key-randomization\n\taltCipherProvider func() []*crypto.Cipher // type 2 current+previous second\n", 1)
     anchor=("\tcipher, err := setupCipher(cfg.KeyHex)\n\tif err != nil {\n"
             "\t\treturn fmt.Errorf(\"setupCipher failed: %w\", err)\n\t}\n")
     add=("\tvar altCiphers []*crypto.Cipher\n\tfor _, hx := range cfg.AltKeysHex {\n"
          "\t\tac, aerr := setupCipher(hx)\n\t\tif aerr != nil {\n\t\t\tlogger.Warnf(\"olc key-rand: bad alt key (skipped): %v\", aerr)\n\t\t\tcontinue\n\t\t}\n"
          "\t\taltCiphers = append(altCiphers, ac)\n\t}\n")
     t = t.replace(anchor, anchor+add, 1)
+    t = t.replace(add, add + "\taltCipherProvider := olcDynamicAltCipherProvider(cfg.AltKeyMode, cfg.AltKeySecret, cfg.KeyHex, time.Now)\n", 1)
     t = t.replace("\ts := &Server{\n\t\tcipher:         cipher,\n",
-                  "\ts := &Server{\n\t\tcipher:         cipher,\n\t\taltCiphers:     altCiphers,\n", 1)
+                  "\ts := &Server{\n\t\tcipher:         cipher,\n\t\taltCiphers:     altCiphers,\n\t\taltCipherProvider: altCipherProvider,\n", 1)
     # helper + acceptHandshake signature + kc
     anchor="func (s *Server) acceptHandshake(ctx context.Context, sess *smux.Session) bool {"
-    helper=("// olcKeyClass — класс ключа conn для handshake (-1 если nil/single). Olc-cost-l.\n"
+    helper=('''// olcDynamicAltCipherProvider returns current+previous-second ciphers for type 2.
+// The clock is injected so boundary behavior is deterministic in tests.
+func olcDynamicAltCipherProvider(mode int, secret, keyHex string, now func() time.Time) func() []*crypto.Cipher {
+	if mode != 2 || secret == "" || now == nil {
+		return nil
+	}
+	orig, err := hex.DecodeString(strings.TrimSpace(keyHex))
+	if err != nil || len(orig) != 32 {
+		return nil
+	}
+	return func() []*crypto.Cipher {
+		sec := now().Unix()
+		out := make([]*crypto.Cipher, 0, 2)
+		for _, candidateSec := range []int64{sec, sec - 1} {
+			mac := hmac.New(sha256.New, []byte(secret))
+			_, _ = mac.Write(orig)
+			var stamp [8]byte
+			binary.BigEndian.PutUint64(stamp[:], uint64(candidateSec))
+			_, _ = mac.Write(stamp[:])
+			if c, cipherErr := setupCipher(hex.EncodeToString(mac.Sum(nil))); cipherErr == nil {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+}
+
+''' + "// olcKeyClass — класс ключа conn для handshake (-1 если nil/single). Olc-cost-l.\n"
             "func olcKeyClass(c *muxconn.Conn) int {\n\tif c == nil {\n\t\treturn -1\n\t}\n\treturn c.KeyClass()\n}\n\n")
     t = t.replace(anchor, helper+"func (s *Server) acceptHandshake(ctx context.Context, sess *smux.Session, conn *muxconn.Conn) bool {\n\tkc := olcKeyClass(conn)", 1)
     t = t.replace("func (s *Server) acceptPeerHandshake(ctx context.Context, ps *peerSession) {",
@@ -346,8 +431,10 @@ if "altCiphers []*crypto.Cipher" not in t:
             ind,var,ctor=m.group(1),m.group(2),m.group(3)
             if ctor in ("NewControl","NewPeerControl"):
                 outl.append(f"{ind}if {var} != nil {{ {var}.SetAltCiphers(s.altCiphers...) }}")
+                outl.append(f"{ind}if {var} != nil {{ {var}.SetAltCipherProvider(s.altCipherProvider) }}")
             else:
                 outl.append(f"{ind}{var}.SetAltCiphers(s.altCiphers...)")
+                outl.append(f"{ind}{var}.SetAltCipherProvider(s.altCipherProvider)")
     t="\n".join(outl)
     sp.write_text(t)
     print("[patch-core-key-rand] server.go: altCiphers+SetAltCiphers(%d)+keyClass" % t.count("SetAltCiphers(s.altCiphers...)"))
@@ -360,6 +447,8 @@ z = zp.read_text()
 if "olcAltKeysFromEnv()" not in z:
     kh="\t\t\tKeyHex:           cfg.KeyHex,\n"
     z=z.replace(kh, kh+"\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n", 1)  # 1-е вхождение = server.Config
+    z=z.replace("\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n",
+        "\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n\t\t\tAltKeyMode:       olcAltKeyModeFromEnv(),\n\t\t\tAltKeySecret:     strings.TrimSpace(os.Getenv(\"OLCRTC_ALT_KEY_SECRET\")),\n", 1)
     zp.write_text(z)
     print("[patch-core-key-rand] session.go: AltKeysHex")
 else:
@@ -417,6 +506,13 @@ func olcAltKeysFromEnv() []string {
 		}
 	}
 	return out
+}
+
+func olcAltKeyModeFromEnv() int {
+	if strings.TrimSpace(os.Getenv("OLCRTC_ALT_KEY_MODE")) == "2" {
+		return 2
+	}
+	return 0
 }
 
 '''

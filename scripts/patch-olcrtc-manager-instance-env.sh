@@ -27,8 +27,11 @@ repl = ('\t// Olc-cost-l: прокидываем идентификаторы к
         '\t\t"OLCRTC_ROOM_ID="+loc.Endpoint.RoomID,\n'
         '\t\t"OLCRTC_INSTANCE="+locationKey(loc))\n'
         '\t// Olc-cost-l key-randomization (эпик A): рандомизированные ключи расшифровки\n'
-        '\t// (тип1). Пусто, если рандомизация ключей выкл → core single-cipher.\n'
-        '\tif olcAltKeys := olcAltKeysForLocation(loc); len(olcAltKeys) > 0 {\n'
+        '\t// Тип1 передаёт статичный alt-key; тип2 передаёт режим+секрет, а core\n'
+        '\t// вычисляет current+previous-second ciphers при первом фрейме.\n'
+        '\tif enabled, randType, secret := olcKeyRandForClient(loc.ClientID); enabled && randType == 2 && secret != "" {\n'
+        '\t\tcmd.Env = append(cmd.Env, "OLCRTC_ALT_KEY_MODE=2", "OLCRTC_ALT_KEY_SECRET="+secret)\n'
+        '\t} else if olcAltKeys := olcAltKeysForLocation(loc); len(olcAltKeys) > 0 {\n'
         '\t\tcmd.Env = append(cmd.Env, "OLCRTC_ALT_KEYS="+strings.Join(olcAltKeys, ","))\n'
         '\t}\n'
         '\tlogs := newLogBuffer(500)\n\tcmd.Stdout = logWriter{stream: "stdout", buffer: logs}')
