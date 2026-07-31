@@ -52,6 +52,61 @@ if text.count('!known && (subOff') != 2:
 if text.count('!known && (connOff') != 2:
     raise SystemExit("expected two connection log-card allow gates")
 
+# A disabled allowlist row is not an active permission.  Attempt cards must
+# therefore offer "allow" again, and that action must re-enable the existing
+# row instead of being swallowed by the duplicate guard.  Keep this symmetric
+# in the global/per-client subscription and connection dialogs.
+active_replacements = {
+    'const isKnown = (hwid: string) => devices.some((d) => (d.hwid || "").toLowerCase() === hwid.toLowerCase());':
+        'const isKnown = (hwid: string) => devices.some((d) => (d.hwid || "").toLowerCase() === hwid.toLowerCase() && d.enabled !== false);',
+    'const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase());':
+        'const known = allow.some((d) => d.hwid.toLowerCase() === hwid.toLowerCase() && d.enabled !== false);',
+    'const known = connDevices.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());':
+        'const known = connDevices.some((d) => d.hwid.toLowerCase() === dev.toLowerCase() && d.enabled !== false);',
+    'const known = connAllow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase());':
+        'const known = connAllow.some((d) => d.hwid.toLowerCase() === dev.toLowerCase() && d.enabled !== false);',
+    'const ipAllowed = ipIn(allowedIps, aip);':
+        'const ipAllowed = allowedIps.some((x: any) => x.ip === aip && x.enabled !== false);',
+    'const ipAllowed = ipIn(allowIps, aip);':
+        'const ipAllowed = allowIps.some((x: any) => x.ip === aip && x.enabled !== false);',
+}
+for old, new in active_replacements.items():
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit(f"active allow-entry anchor not found: {old}")
+
+reactivate_replacements = {
+    'const h = (hwid || "").trim(); if (!h || inL(connDevices, h)) return;':
+        'const h = (hwid || "").trim(); if (!h) return;\n    const existing = connDevices.find((d) => (d.hwid || "").toLowerCase() === h.toLowerCase());\n    if (existing) { if (existing.enabled === false) void saveSettings({ conn_devices: connDevices.map((d) => d === existing ? { ...d, enabled: true } : d) }); return; }',
+    'const h = (hwid || "").trim(); if (!h || inL(devices, h)) return;':
+        'const h = (hwid || "").trim(); if (!h) return;\n    const existing = devices.find((d) => (d.hwid || "").toLowerCase() === h.toLowerCase());\n    if (existing) { if (existing.enabled === false) await saveSettings({ devices: devices.map((d) => d === existing ? { ...d, enabled: true } : d) }); return; }',
+    'const v = (ip || "").trim(); if (!v || ipIn(allowedIps, v)) return;':
+        'const v = (ip || "").trim(); if (!v) return;\n    const existing = allowedIps.find((x: any) => x.ip === v);\n    if (existing) { if (existing.enabled === false) await saveSettings({ allowed_ips: allowedIps.map((x: any) => x === existing ? { ...x, enabled: true } : x) }); return; }',
+    'h = (h || "").trim(); if (!h || inList(connAllow, h)) return;':
+        'h = (h || "").trim(); if (!h) return;\n    const existing = connAllow.find((d) => (d.hwid || "").toLowerCase() === h.toLowerCase());\n    if (existing) { if (existing.enabled === false) void save({ conn_allow: connAllow.map((d) => d === existing ? { ...d, enabled: true } : d) }); return; }',
+    'const v = (ip || "").trim(); if (!v || ipIn(allowIps, v)) return;':
+        'const v = (ip || "").trim(); if (!v) return;\n    const existing = allowIps.find((x: any) => x.ip === v);\n    if (existing) { if (existing.enabled === false) void save({ allow_ips: allowIps.map((x: any) => x === existing ? { ...x, enabled: true } : x) }); return; }',
+    'h = (h || "").trim(); if (!h || inList(allow, h)) return;':
+        'h = (h || "").trim(); if (!h) return;\n    const existing = allow.find((d) => (d.hwid || "").toLowerCase() === h.toLowerCase());\n    if (existing) { if (existing.enabled === false) void save({ allow: allow.map((d) => d === existing ? { ...d, enabled: true } : d) }); return; }',
+}
+for old, new in reactivate_replacements.items():
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit(f"allow reactivation anchor not found: {old}")
+
+# Do not let a stale raw connOff label contradict the effective + state.
+text, conn_label_count = re.subn(
+    r'\{connOff \? " — [^"]*«Выключено»" : ""\}',
+    lambda m: m.group(0).replace('{connOff ?', '{(connOff && !connKr) ?'),
+    text,
+)
+if conn_label_count not in (0, 2):
+    raise SystemExit(f"unexpected connection off-label replacements: {conn_label_count}")
+if conn_label_count == 0 and text.count('{(connOff && !connKr) ? " — ') < 2:
+    raise SystemExit("connection effective off-label anchors not found")
+
 # Both global and per-client dialogs already expose randScope/randType. Give all
 # four + buttons the same scope-aware explanation instead of a stale generic one.
 marker = '  const dimCls = (off: boolean) => (off ? " pointer-events-none opacity-40 select-none" : "");'
