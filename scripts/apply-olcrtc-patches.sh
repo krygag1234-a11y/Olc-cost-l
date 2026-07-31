@@ -235,6 +235,7 @@ apply_olcrtc() {
   bash "$SCRIPT_DIR/patch-olcrtc-core-access-hook.sh" "$OLCRTC_REPO"
   # Рандомизация ключей (эпик A), часть 1: multi-key в muxconn (ИНЕРТНА без alt-ключей). После access-hook.
   bash "$SCRIPT_DIR/patch-olcrtc-core-key-randomization.sh" "$OLCRTC_REPO"
+  bash "$SCRIPT_DIR/patch-olcrtc-core-access-live-keyclass.sh" "$OLCRTC_REPO"
   bash "$SCRIPT_DIR/patch-olcrtc-server-domains.sh" "$OLCRTC_REPO/internal/server/server.go"
   bash "$SCRIPT_DIR/patch-olcrtc-server-blocked-tor.sh" \
     "$OLCRTC_REPO/internal/server/server.go" \
@@ -452,6 +453,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-split-expand-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Access control: allowlist доступа к подписке по hwid устройства + журнал попыток.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-control-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-keyrand-gate.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Монитор подключений: устройства (device=) из логов olcrtc-core, read-only.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-connections-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Прокинуть client_id/room_id инстанса в olcrtc (env) для AuthHook per-client/instance.
@@ -552,6 +554,13 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-polish.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-rand-scope-ui.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-logs-scope-polish.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-scope-sync.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-device-labels.sh" "$MGR_REPO/src/main.tsx"
+  # Auth: expired lockouts start a fresh counter; HTTP 429 is explained in the login form.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-lockout-ux.sh" \
+    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-first-run.sh" \
+    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then

@@ -1100,6 +1100,10 @@ async function request(path: string, options?: RequestInit) {
   const res = await fetch(path, options);
   if (!res.ok) {
     if (res.status === 401) window.dispatchEvent(new Event("olcrtc-auth-required"));
+    if (res.status === 429) {
+      const retry = Number.parseInt(res.headers.get("Retry-After") || "60", 10);
+      throw new Error(`Слишком много неудачных попыток входа. Повторите через ${Number.isFinite(retry) ? retry : 60} секунд.`);
+    }
     throw new Error((await res.text()).trim() || res.statusText);
   }
   return res;

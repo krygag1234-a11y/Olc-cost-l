@@ -3836,7 +3836,8 @@ func adminAuth(next http.Handler) http.Handler {
 		}
 		remote := remoteHost(r)
 		if authLimiter.Blocked(remote) {
-			http.Error(w, "too many auth failures", http.StatusTooManyRequests)
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, "too many auth failures; retry in 60 seconds", http.StatusTooManyRequests)
 			return
 		}
 		gotUser, gotPass, ok := r.BasicAuth()
@@ -3903,7 +3904,8 @@ func loginHandler(configPath string) http.HandlerFunc {
 		}
 		remote := remoteHost(r)
 		if authLimiter.Blocked(remote) {
-			http.Error(w, "too many auth failures", http.StatusTooManyRequests)
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, "too many auth failures; retry in 60 seconds", http.StatusTooManyRequests)
 			return
 		}
 		userOK := subtle.ConstantTimeCompare([]byte(req.User), []byte(user)) == 1
@@ -4101,9 +4103,18 @@ func newAuthLimiter() *authLimiterType {
 func (l *authLimiterType) Blocked(remote string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	state := l.state[remote]
-	if time.Now().Before(state.until) {
+	state, ok := l.state[remote]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	if now.Before(state.until) {
 		return true
+	}
+	// A completed lockout starts a clean attempt window. Keeping count >= 5
+	// made the very next typo immediately lock the address for another minute.
+	if !state.until.IsZero() {
+		delete(l.state, remote)
 	}
 	return false
 }
