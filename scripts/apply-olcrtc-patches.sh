@@ -456,7 +456,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-instance-env.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Мгновенный разрыв сессий устройства при отзыве доступа (device disable/ban/remove).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-drop-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Cleanup access-control.json при удалении клиента (Баг 1): без мёртвых clients{} записей.
+  # V2 cleanup при удалении клиента/локации: access state/logs + key rotation + key randomization.
+  # Сам patch вызывается до key-* patch-скриптов, но Go-хелперы могут ссылаться на объявления ниже.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-delete-client-cleanup.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Миграция access-control.json clients{} при переименовании client_id (Этап 5A эпика).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-client-rename-access.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
