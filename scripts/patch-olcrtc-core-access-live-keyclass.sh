@@ -55,21 +55,27 @@ hook_path.write_text(hook)
 watcher = watcher_path.read_text()
 replacements = [
     ('var OlcBanRecheck func(deviceID string) bool',
+     'var OlcBanRecheck func(deviceID string, keyClass int) bool',
      'var OlcBanRecheck func(deviceID string, keyClass int) bool'),
     ('type peerRef struct{ id, dev string }',
-     'type peerRef struct {\n\t\tid, dev string\n\t\tkeyClass int\n\t}'),
+     'type peerRef struct {\n\t\tid, dev string\n\t\tkeyClass int\n\t}',
+     'keyClass int'),
     ('singleSID := s.sessionID\n\tcur := s.session',
-     'singleSID := s.sessionID\n\tsingleConn := s.controlConn\n\tif singleConn == nil {\n\t\tsingleConn = s.conn\n\t}\n\tsingleKeyClass := olcKeyClass(singleConn)\n\tcur := s.session'),
+     'singleSID := s.sessionID\n\tsingleConn := s.controlConn\n\tif singleConn == nil {\n\t\tsingleConn = s.conn\n\t}\n\tsingleKeyClass := olcKeyClass(singleConn)\n\tcur := s.session',
+     'singleKeyClass := olcKeyClass(singleConn)'),
     ('peers = append(peers, peerRef{id: id, dev: ps.deviceID})',
-     'peerConn := ps.controlConn\n\t\t\tif peerConn == nil {\n\t\t\t\tpeerConn = ps.conn\n\t\t\t}\n\t\t\tpeers = append(peers, peerRef{id: id, dev: ps.deviceID, keyClass: olcKeyClass(peerConn)})'),
-    ('if !recheck(p.dev) {', 'if !recheck(p.dev, p.keyClass) {'),
+     'peerConn := ps.controlConn\n\t\t\tif peerConn == nil {\n\t\t\t\tpeerConn = ps.conn\n\t\t\t}\n\t\t\tpeers = append(peers, peerRef{id: id, dev: ps.deviceID, keyClass: olcKeyClass(peerConn)})',
+     'keyClass: olcKeyClass(peerConn)'),
+    ('if !recheck(p.dev) {', 'if !recheck(p.dev, p.keyClass) {',
+     'if !recheck(p.dev, p.keyClass) {'),
     ('!peerDevs[singleDev] && !recheck(singleDev) {',
-     '!peerDevs[singleDev] && !recheck(singleDev, singleKeyClass) {'),
+     '!peerDevs[singleDev] && !recheck(singleDev, singleKeyClass) {',
+     '!recheck(singleDev, singleKeyClass)'),
 ]
-for old, new in replacements:
+for old, new, guard in replacements:
     if old in watcher:
         watcher = watcher.replace(old, new, 1)
-    elif new not in watcher:
+    elif guard not in watcher:
         raise SystemExit(f"watcher anchor not found: {old[:60]}")
 watcher_path.write_text(watcher)
 
