@@ -456,6 +456,69 @@ else:
 PY
 echo "[patch-core-key-rand] parts 2-3 done"
 
+cat > "$CORE_REPO/internal/server/olc_keyrand_dynamic_test.go" <<'GOTEST'
+package server
+
+import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"testing"
+	"time"
+)
+
+func TestOlcDynamicAltCipherProviderCurrentAndPrevious(t *testing.T) {
+	original := make([]byte, 32)
+	for i := range original {
+		original[i] = byte(i + 1)
+	}
+	const secret = "fixed-test-secret"
+	const nowSec int64 = 1_900_000_000
+	provider := olcDynamicAltCipherProvider(2, secret, hex.EncodeToString(original), func() time.Time {
+		return time.Unix(nowSec, 0)
+	})
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	ciphers := provider()
+	if len(ciphers) != 2 {
+		t.Fatalf("cipher count = %d, want 2", len(ciphers))
+	}
+	for i, sec := range []int64{nowSec, nowSec - 1} {
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write(original)
+		var stamp [8]byte
+		binary.BigEndian.PutUint64(stamp[:], uint64(sec))
+		_, _ = mac.Write(stamp[:])
+		expected, err := setupCipher(hex.EncodeToString(mac.Sum(nil)))
+		if err != nil {
+			t.Fatalf("setup expected cipher: %v", err)
+		}
+		message := []byte("type2-window")
+		ciphertext, err := expected.Encrypt(message)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		plaintext, err := ciphers[i].DecryptInto(nil, ciphertext)
+		if err != nil || !bytes.Equal(plaintext, message) {
+			t.Fatalf("window[%d] sec=%d plaintext=%q err=%v", i, sec, plaintext, err)
+		}
+	}
+}
+
+func TestOlcDynamicAltCipherProviderDisabled(t *testing.T) {
+	if got := olcDynamicAltCipherProvider(1, "secret", string(make([]byte, 64)), time.Now); got != nil {
+		t.Fatal("provider enabled outside type 2")
+	}
+	if got := olcDynamicAltCipherProvider(2, "", string(make([]byte, 64)), time.Now); got != nil {
+		t.Fatal("provider enabled without secret")
+	}
+}
+GOTEST
+echo "[patch-core-key-rand] wrote internal/server/olc_keyrand_dynamic_test.go"
+
 # ============================================================================
 # ЧАСТЬ 4 (тип1): пост-обработка сгенерированного olc_access_hook.go (access-hook
 # патч эмитит его ДО нас) — 3-режимная матрица (off|keyrand|enforce) + keyClass +

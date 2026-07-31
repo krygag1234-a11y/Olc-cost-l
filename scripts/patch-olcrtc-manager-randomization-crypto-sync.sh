@@ -43,15 +43,8 @@ func olcCryptoEffectiveFor(state olcKeyRandCfg, clientID string) olcCryptoEffect
 	return olcCryptoEffective{}
 }
 
-// olcSyncCryptoRandomization mirrors the visible randomization settings into
-// key-randomization.json. Scope client_id disables crypto; crypto/both enables
-// it with the same type. The subscription and original instance keys are not changed.
-func olcSyncCryptoRandomization(cfg Config) (bool, map[string]bool, error) {
+func olcDesiredCryptoState(cfg Config) olcKeyRandCfg {
 	cfg.ensureClientsFormat()
-	olcKeyRandMu.Lock()
-	defer olcKeyRandMu.Unlock()
-
-	previous := olcKeyRandLoad()
 	desired := olcKeyRandCfg{
 		Clients: map[string]olcKeyRandScope{},
 		Secret:  cfg.RandomizationSecret,
@@ -76,6 +69,19 @@ func olcSyncCryptoRandomization(cfg Config) (bool, map[string]bool, error) {
 			desired.Clients[client.ClientID] = olcKeyRandScope{Enabled: true, RandType: rt}
 		}
 	}
+	return desired
+}
+
+// olcSyncCryptoRandomization mirrors the visible randomization settings into
+// key-randomization.json. Scope client_id disables crypto; crypto/both enables
+// it with the same type. The subscription and original instance keys are not changed.
+func olcSyncCryptoRandomization(cfg Config) (bool, map[string]bool, error) {
+	cfg.ensureClientsFormat()
+	olcKeyRandMu.Lock()
+	defer olcKeyRandMu.Unlock()
+
+	previous := olcKeyRandLoad()
+	desired := olcDesiredCryptoState(cfg)
 
 	affected := map[string]bool{}
 	for _, client := range cfg.Clients {
@@ -196,3 +202,59 @@ if changed:
     path.write_text(text)
 print("[patch-rand-crypto-sync] ok")
 PY
+
+cat > "$(dirname "$MAIN_GO")/olc_crypto_sync_test.go" <<'GOTEST'
+package main
+
+import "testing"
+
+func TestOlcDesiredCryptoStatePerClientTypes(t *testing.T) {
+	for _, randType := range []int{1, 2} {
+		cfg := Config{
+			RandomizationSecret: "secret",
+			GlobalSettings: &GlobalSettings{Subscription: &SubscriptionSettings{RandScope: "both"}},
+			Clients: []Client{{
+				ClientID: "client-a",
+				Randomization: &ClientRandomization{Enabled: true, RandType: randType},
+			}},
+		}
+		state := olcDesiredCryptoState(cfg)
+		got, ok := state.Clients["client-a"]
+		if !ok || !got.Enabled || got.RandType != randType || state.Secret != "secret" {
+			t.Fatalf("type=%d state=%+v", randType, state)
+		}
+	}
+}
+
+func TestOlcDesiredCryptoStateClientIDScopeDisablesCrypto(t *testing.T) {
+	cfg := Config{
+		RandomizationSecret: "secret",
+		GlobalSettings: &GlobalSettings{Subscription: &SubscriptionSettings{
+			RandScope: "client_id", RandomizationEnabled: true, RandType: 2,
+		}},
+		Clients: []Client{{
+			ClientID: "client-a",
+			Randomization: &ClientRandomization{Enabled: true, RandType: 2},
+		}},
+	}
+	state := olcDesiredCryptoState(cfg)
+	if state.Global.Enabled || len(state.Clients) != 0 {
+		t.Fatalf("crypto remained enabled: %+v", state)
+	}
+}
+
+func TestOlcDesiredCryptoStateGlobalType2(t *testing.T) {
+	cfg := Config{
+		RandomizationSecret: "secret",
+		GlobalSettings: &GlobalSettings{Subscription: &SubscriptionSettings{
+			RandScope: "crypto", RandomizationEnabled: true, RandType: 2,
+		}},
+		Clients: []Client{{ClientID: "client-a"}},
+	}
+	state := olcDesiredCryptoState(cfg)
+	if !state.Global.Enabled || state.Global.RandType != 2 {
+		t.Fatalf("global type2 not mirrored: %+v", state)
+	}
+}
+GOTEST
+echo "[patch-rand-crypto-sync] wrote olc_crypto_sync_test.go"
