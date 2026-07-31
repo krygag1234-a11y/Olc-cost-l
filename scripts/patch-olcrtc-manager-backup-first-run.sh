@@ -167,7 +167,6 @@ func TestBackupFirstRunImportRestoresCredentialsAndSession(t *testing.T) {
 	envelope := map[string]any{
 		"olc_backup": true,
 		"schema_version": 1,
-		"source_host_id": backupHostID(),
 		"config": map[string]any{},
 		"extras": map[string]any{
 			"panel_env": map[string]any{
