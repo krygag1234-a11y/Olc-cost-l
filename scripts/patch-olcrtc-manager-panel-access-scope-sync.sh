@@ -107,6 +107,25 @@ if conn_label_count not in (0, 2):
 if conn_label_count == 0 and text.count('{(connOff && !connKr) ? " — ') < 2:
     raise SystemExit("connection effective off-label anchors not found")
 
+# Randomization can be changed while either access dialog remains mounted.
+# Refresh its effective global/per-client type and scope so all four + hints
+# cannot keep a stale type from the previously active randomization source.
+rand_mount = '  useEffect(() => { void loadAll(); }, []);'
+rand_refresh = '''  useEffect(() => { void loadAll(); }, []);
+  useEffect(() => {
+    const refreshRand = () => { void loadRand(); };
+    window.addEventListener("olc-randomization-saved", refreshRand);
+    const id = window.setInterval(refreshRand, 1500);
+    return () => { window.removeEventListener("olc-randomization-saved", refreshRand); window.clearInterval(id); };
+  }, []);'''
+if 'window.addEventListener("olc-randomization-saved", refreshRand);' not in text:
+    count = text.count(rand_mount)
+    if count != 2:
+        raise SystemExit(f"expected 2 access randomization mount anchors, got {count}")
+    text = text.replace(rand_mount, rand_refresh)
+elif text.count('window.addEventListener("olc-randomization-saved", refreshRand);') != 2:
+    raise SystemExit("expected randomization refresh in both access dialogs")
+
 # Both global and per-client dialogs already expose randScope/randType. Give all
 # four + buttons the same scope-aware explanation instead of a stale generic one.
 marker = '  const dimCls = (off: boolean) => (off ? " pointer-events-none opacity-40 select-none" : "");'
