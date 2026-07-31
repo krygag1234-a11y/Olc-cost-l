@@ -665,6 +665,10 @@ fi
 clone_repos
 run_quiet "apply olcrtc patches" apply_olcrtc
 run_quiet "apply manager patches + UI" apply_manager
+if [[ "${OLC_PATCH_ONLY:-0}" == "1" ]]; then
+  log "patch-only done"
+  exit 0
+fi
 if [[ "${BUILD:-1}" == "1" ]]; then
   bash "$SCRIPT_DIR/install-go-toolchain.sh" 2>/dev/null || true
   build_binaries || tui_fatal "Сборка Go-бинарников (olcrtc/olcrtc-manager) завершилась с ошибкой" "Возможно: Go toolchain не установлен или GOPATH повреждён" "Проверьте: /usr/local/go/bin/go version && export GOTOOLCHAIN=auto"
