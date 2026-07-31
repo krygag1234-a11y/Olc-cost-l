@@ -122,6 +122,44 @@ func writeBackupFileAtomic(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
+func restoreBackupExtra(path string, ev map[string]any) bool {
+	switch kind, _ := ev["kind"].(string); kind {
+	case "json":
+		bv, ok := ev["value"]
+		if !ok {
+			return false
+		}
+		merged := bv
+		if backupMap, isMap := bv.(map[string]any); isMap {
+			cur := map[string]any{}
+			if raw, err := os.ReadFile(path); err == nil {
+				_ = json.Unmarshal(raw, &cur)
+			}
+			merged = deepMergeJSON(cur, backupMap)
+		}
+		out, err := json.MarshalIndent(merged, "", "  ")
+		return err == nil && writeBackupFileAtomic(path, append(out, '\n'), 0o600) == nil
+	case "env":
+		vals, ok := ev["values"].(map[string]any)
+		if !ok {
+			return false
+		}
+		kv := map[string]string{}
+		for k, v := range vals {
+			kv[k] = fmt.Sprintf("%v", v)
+		}
+		if backupFileBeforeRestore(path) != nil {
+			return false
+		}
+		return mergeEnvFile(path, kv) == nil
+	case "text":
+		value, ok := ev["value"].(string)
+		return ok && writeBackupFileAtomic(path, []byte(value), 0o600) == nil
+	default:
+		return false
+	}
+}
+
 // deepMergeJSON: значения src (бэкап) поверх dst (текущее). Вложенные объекты
 // сливаются по ключам; массивы и скаляры src ЗАМЕНЯЮТ dst целиком (список
 // клиентов/локаций/инстансов восстанавливается как есть). Схемо-независимо.
@@ -297,48 +335,8 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 				if !ok {
 					continue
 				}
-				switch kind, _ := ev["kind"].(string); kind {
-				case "json":
-					bv, ok := ev["value"]
-					if !ok {
-						continue
-					}
-					merged := bv
-					if backupMap, isMap := bv.(map[string]any); isMap {
-						cur := map[string]any{}
-						if raw, err := os.ReadFile(path); err == nil {
-							_ = json.Unmarshal(raw, &cur)
-						}
-						merged = deepMergeJSON(cur, backupMap)
-					}
-					if out, err := json.MarshalIndent(merged, "", "  "); err == nil {
-						if writeBackupFileAtomic(path, append(out, '\n'), 0o600) == nil {
-							restored = append(restored, key)
-						}
-					}
-				case "env":
-					vals, ok := ev["values"].(map[string]any)
-					if !ok {
-						continue
-					}
-					kv := map[string]string{}
-					for k, v := range vals {
-						kv[k] = fmt.Sprintf("%v", v)
-					}
-					if backupFileBeforeRestore(path) != nil {
-						continue
-					}
-					if mergeEnvFile(path, kv) == nil {
-						restored = append(restored, key)
-					}
-				case "text":
-					value, ok := ev["value"].(string)
-					if !ok {
-						continue
-					}
-					if writeBackupFileAtomic(path, []byte(value), 0o600) == nil {
-						restored = append(restored, key)
-					}
+				if restoreBackupExtra(path, ev) {
+					restored = append(restored, key)
 				}
 			}
 		}
@@ -373,8 +371,10 @@ cat > "$(dirname "$MAIN_GO")/olc_backup_test.go" <<'GOTEST'
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -416,6 +416,60 @@ func TestWriteBackupFileAtomicCreatesReversibleSnapshot(t *testing.T) {
 	old, err := os.ReadFile(snapshots[0])
 	if err != nil || string(old) != "old\n" {
 		t.Fatalf("snapshot = %q, err=%v", old, err)
+	}
+}
+
+func TestRestoreBackupExtraAllKinds(t *testing.T) {
+	dir := t.TempDir()
+
+	objectPath := filepath.Join(dir, "object.json")
+	_ = os.WriteFile(objectPath, []byte(`{"keep":1,"replace":"old"}`), 0o600)
+	if !restoreBackupExtra(objectPath, map[string]any{
+		"kind": "json", "value": map[string]any{"replace": "new"},
+	}) {
+		t.Fatal("json object restore failed")
+	}
+	var object map[string]any
+	data, _ := os.ReadFile(objectPath)
+	_ = json.Unmarshal(data, &object)
+	if object["keep"] == nil || object["replace"] != "new" {
+		t.Fatalf("json object not merged: %#v", object)
+	}
+
+	arrayPath := filepath.Join(dir, "array.json")
+	_ = os.WriteFile(arrayPath, []byte(`{"old":true}`), 0o600)
+	if !restoreBackupExtra(arrayPath, map[string]any{
+		"kind": "json", "value": []any{"a", "b"},
+	}) {
+		t.Fatal("json array restore failed")
+	}
+	var array []string
+	data, _ = os.ReadFile(arrayPath)
+	if json.Unmarshal(data, &array) != nil || len(array) != 2 || array[1] != "b" {
+		t.Fatalf("json array not restored: %q", data)
+	}
+
+	envPath := filepath.Join(dir, "panel.env")
+	_ = os.WriteFile(envPath, []byte("KEEP=1\nCHANGE=old\n"), 0o600)
+	if !restoreBackupExtra(envPath, map[string]any{
+		"kind": "env", "values": map[string]any{"CHANGE": "new", "ADD": "2"},
+	}) {
+		t.Fatal("env restore failed")
+	}
+	data, _ = os.ReadFile(envPath)
+	envText := string(data)
+	if !strings.Contains(envText, "KEEP=1") || !strings.Contains(envText, `CHANGE="new"`) || !strings.Contains(envText, `ADD="2"`) {
+		t.Fatalf("env not merged: %q", envText)
+	}
+
+	textPath := filepath.Join(dir, "domains.txt")
+	_ = os.WriteFile(textPath, []byte("old.example\n"), 0o600)
+	if !restoreBackupExtra(textPath, map[string]any{"kind": "text", "value": "a.example\nb.example\n"}) {
+		t.Fatal("text restore failed")
+	}
+	data, _ = os.ReadFile(textPath)
+	if string(data) != "a.example\nb.example\n" {
+		t.Fatalf("text not restored exactly: %q", data)
 	}
 }
 GOTEST
