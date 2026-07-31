@@ -71,7 +71,7 @@ import (
 	"github.com/openlibrecommunity/olcrtc/internal/server"
 )
 
-const olcAccessControlPath = "/var/lib/olcrtc/access-control.json"
+var olcAccessControlPath = "/var/lib/olcrtc/access-control.json"
 
 type olcAccDevice struct {
 	HWID    string `json:"hwid"`
@@ -362,6 +362,85 @@ if anchor in t:
 else:
     print("[patch-olcrtc-core-access-hook] WARN: OnSessionOpen anchor not found — hook file present but not wired")
 PY
+
+cat > "$(dirname "$SESSION_GO")/olc_access_keyrand_test.go" <<'GOTEST'
+package session
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestOlcAccessKeyrandMatrix(t *testing.T) {
+	oldPath := olcAccessControlPath
+	oldClient := os.Getenv("OLCRTC_CLIENT_ID")
+	oldRoom := os.Getenv("OLCRTC_ROOM_ID")
+	t.Cleanup(func() {
+		olcAccessControlPath = oldPath
+		_ = os.Setenv("OLCRTC_CLIENT_ID", oldClient)
+		_ = os.Setenv("OLCRTC_ROOM_ID", oldRoom)
+	})
+	olcAccessControlPath = filepath.Join(t.TempDir(), "access-control.json")
+	_ = os.Setenv("OLCRTC_CLIENT_ID", "test-client")
+	_ = os.Setenv("OLCRTC_ROOM_ID", "room-a")
+
+	writeConfig := func(mode, scope, instances string) {
+		t.Helper()
+		body := `{"enabled":false,"clients":{"test-client":{"conn_mode":"` + mode +
+			`","conn_scope":"` + scope + `","conn_instances":` + instances +
+			`,"conn_allow":[{"hwid":"allowed","enabled":true}],"conn_ban":[{"hwid":"banned","enabled":true}]}}}`
+		if err := os.WriteFile(olcAccessControlPath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeConfig("keyrand", "all", `[]`)
+	cases := []struct {
+		name     string
+		device   string
+		keyClass int
+		recheck  bool
+		want     bool
+	}{
+		{"allowed original", "allowed", 0, false, true},
+		{"unknown original", "unknown", 0, false, false},
+		{"unknown randomized", "unknown", 1, false, true},
+		{"banned randomized", "banned", 1, false, false},
+		{"unknown recheck", "unknown", 0, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := olcAccessDecideConnFull(tc.device, tc.keyClass, tc.recheck); got != tc.want {
+				t.Fatalf("decision=%v want=%v", got, tc.want)
+			}
+		})
+	}
+
+	writeConfig("off", "all", `[]`)
+	if !olcAccessDecideConnFull("unknown", 0, false) || !olcAccessDecideConnFull("unknown", 1, false) {
+		t.Fatal("off mode must keep original and randomized keys compatible")
+	}
+	if olcAccessDecideConnFull("banned", 1, false) {
+		t.Fatal("ban must still apply in off mode")
+	}
+
+	writeConfig("enforce", "all", `[]`)
+	if !olcAccessDecideConnFull("allowed", 0, false) || olcAccessDecideConnFull("unknown", 1, false) {
+		t.Fatal("enforce mode must use allowlist regardless of key class")
+	}
+
+	writeConfig("keyrand", "selective", `["other-room"]`)
+	if olcAccessDecideConnFull("unknown", 1, false) {
+		t.Fatal("non-selected room must reject even a randomized key")
+	}
+	writeConfig("keyrand", "selective", `["room-a"]`)
+	if !olcAccessDecideConnFull("unknown", 1, false) {
+		t.Fatal("selected room must allow an unknown randomized-key device")
+	}
+}
+GOTEST
+echo "[patch-olcrtc-core-access-hook] wrote olc_access_keyrand_test.go"
 
 # 4. Запуск ban-watcher: ленивый старт при первом открытии сессии (trackPeerOpen
 #    вызывается ОБОИМИ путями handshake — singleton и per-peer).
