@@ -469,6 +469,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-key-randomization-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-instance-info-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-rand-scope-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  # Make visible type/scope settings authoritative for crypto and restart affected instances.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-randomization-crypto-sync.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
   _olc_substep "Применение патчей frontend" 2>/dev/null || true
   # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).

@@ -127,7 +127,7 @@ if 'Область действия рандомизации' not in t:
               {scopeBtn("client_id", "Только client_id (🎫)")}
               {scopeBtn("crypto", "Только ключи (🔌)")}
             </div>
-            <div className="text-[10px] leading-snug text-muted-foreground">Определяет, где доступны режим «+» и предупреждения: client_id → 🎫 (подписка), ключи → 🔌 (подключение). Энфорсмент крипто-ключей — в разработке.</div>
+            <div className="text-[10px] leading-snug text-muted-foreground">Определяет применение выбранного типа: client_id → 🎫 подписка, ключи → 🔌 альтернативный ключ подключения, оба → обе защиты. Изменение крипто-режима перезапускает затронутые инстансы.</div>
           </div>
           <KeyRotationSection />
         </div>'''
