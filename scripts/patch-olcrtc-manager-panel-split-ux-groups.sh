@@ -188,7 +188,9 @@ new_section = r'''                <section className="rounded-md border border-b
                 <section className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
                   <div className="font-medium">{t("splitAdvancedTitle")}</div>'''
 if 'family.groups.map((g)' not in text:
-    text, count = section_re.subn(new_section, text, count=1)
+    # Callable replacement keeps JSX string escapes such as "\\n" literal;
+    # re.sub(string) would interpret them and inject a real newline in TSX.
+    text, count = section_re.subn(lambda _match: new_section, text, count=1)
     if count:
         changed = True
 
