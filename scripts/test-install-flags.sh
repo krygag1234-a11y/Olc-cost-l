@@ -199,4 +199,91 @@ PY
 else
   echo "  (skip PTY-тест добора: нет python3)"
 fi
+
+echo "== install.sh: fresh curl-style menu bootstraps its own TUI libraries =="
+REG_WORK="$(mktemp -d "${TMPDIR:-/tmp}/olc-install-regression.XXXXXX")"
+trap 'rm -rf "$REG_WORK"' EXIT
+SEED="$REG_WORK/seed"
+FRESH="$REG_WORK/fresh-install"
+DIRTY="$REG_WORK/dirty-install"
+mkdir -p "$SEED"
+git -C "$REPO_ROOT" archive HEAD | tar -x -C "$SEED"
+# Include the working-tree install.sh so this regression runs before commit too.
+cp "$REPO_ROOT/install.sh" "$SEED/install.sh"
+git -C "$SEED" init -q -b main
+git -C "$SEED" config user.email test@example.invalid
+git -C "$SEED" config user.name olc-test
+git -C "$SEED" add .
+git -C "$SEED" commit -qm seed
+
+if command -v python3 >/dev/null 2>&1; then
+  OLC_TEST_SEED="$SEED" OLC_TEST_FRESH="$FRESH" OLC_TEST_INSTALL="$REPO_ROOT/install.sh" python3 - <<'PY'
+import os, pty, select, time, re, sys, fcntl, termios, struct
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ.update({
+        "TERM": "xterm-256color",
+        "OLC_INSTALL_DIR": os.environ["OLC_TEST_FRESH"],
+        "OLC_REPO_URL": "file://" + os.environ["OLC_TEST_SEED"],
+        "OLC_REPO_BRANCH": "main",
+        "OLC_ASSUME_FRESH": "1",
+        "OLC_EXIT_AFTER_PROMPT": "1",
+    })
+    os.execvp("bash", ["bash", os.environ["OLC_TEST_INSTALL"]])
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 110, 0, 0))
+raw = b""; sent = False; started = time.time()
+while time.time() - started < 40:
+    r, _, _ = select.select([fd], [], [], 0.2)
+    if r:
+        try: data = os.read(fd, 65536)
+        except OSError: break
+        if not data: break
+        raw += data
+    if not sent and "Ваш выбор (1-2)".encode() in raw:
+        os.write(fd, b"1\n1\n")
+        sent = True
+    try:
+        if os.waitpid(pid, os.WNOHANG) != (0, 0): break
+    except ChildProcessError:
+        break
+text = raw.decode("utf-8", "replace")
+checks = {
+    "fresh clone created": os.path.isdir(os.path.join(os.environ["OLC_TEST_FRESH"], ".git")),
+    "component menu shown": "Интерактивная установка Olc-cost-l" in text and "Компоненты для установки" in text,
+    "selection reached safe test exit": "[install-postprompt]" in text and "--ip" in text,
+}
+bad = [name for name, ok in checks.items() if not ok]
+for name, ok in checks.items(): print(("  ✓ " if ok else "  ✗ ") + name)
+if bad:
+    print(text[-2500:])
+    raise SystemExit("fresh curl-style regression failed: " + ", ".join(bad))
+PY
+  fresh_pty_rc=$?
+  if [[ "$fresh_pty_rc" -ne 0 ]]; then
+    exit "$fresh_pty_rc"
+  fi
+else
+  echo "  (skip fresh curl-style PTY: нет python3)"
+fi
+
+echo "== install.sh: dirty installed repository is never reset =="
+git clone -q "file://$SEED" "$DIRTY"
+printf '\nlocal-user-change\n' >> "$DIRTY/README.md"
+DIRTY_BEFORE="$(sha256sum "$DIRTY/README.md" | awk '{print $1}')"
+dirty_out="$(OLC_INSTALL_DIR="$DIRTY" OLC_REPO_URL="file://$SEED" OLC_REPO_BRANCH=main \
+  OLC_EXIT_AFTER_REPO_SYNC=1 bash "$REPO_ROOT/install.sh" --update --ip 2>&1)"
+DIRTY_AFTER="$(sha256sum "$DIRTY/README.md" | awk '{print $1}')"
+if [[ "$DIRTY_BEFORE" == "$DIRTY_AFTER" && "$dirty_out" == *"dirty=1"* \
+   && "$dirty_out" == *"автоматическое обновление репозитория пропущено"* ]]; then
+  pass "dirty worktree сохранён байт-в-байт; reset не выполнялся"
+else
+  fail "dirty worktree был изменён или защитная ветка не сработала"
+  echo "$dirty_out" | tail -20
+fi
+
+if [[ "$fails" -ne 0 ]]; then
+  echo "[install-flags-test] FAIL after repository-safety regressions: $fails"
+  exit 1
+fi
+echo "[install-flags-test] OK: fresh curl-menu и сохранение dirty worktree"
 exit 0

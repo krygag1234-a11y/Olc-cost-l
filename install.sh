@@ -251,6 +251,57 @@ if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
   fi
 fi
 
+resilient_git() {
+  local op="$1"; shift
+  local attempt rc
+  for attempt in 1 2 3; do
+    rc=0
+    timeout 90 git \
+      -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+      -c http.postBuffer=524288000 \
+      "$@" || rc=$?
+    if [[ $rc -eq 0 ]]; then
+      return 0
+    fi
+    echo "[install] git $op: попытка $attempt не удалась (код $rc), повтор…" >&2
+    sleep $((attempt * 5))
+  done
+  echo "[install] git $op: три попытки исчерпаны — проверьте сеть и DNS" >&2
+  return 1
+}
+
+EARLY_CLONED=0
+olc_clone_install_repo() {
+  if [[ -e "$INSTALL_DIR" ]]; then
+    fatal_early "Каталог установки уже существует, но не является git-репозиторием" \
+      "$INSTALL_DIR" "Переместите его в сторону и повторите установку"
+  fi
+  local partial="${INSTALL_DIR}.partial.$$"
+  tui_log_step "Клонирование $REPO_URL → $INSTALL_DIR"
+  if ! resilient_git clone clone --depth 1 -b "$BRANCH" "$REPO_URL" "$partial"; then
+    fatal_early "Не удалось клонировать репозиторий" \
+      "Незавершённая копия сохранена: $partial" "Проверьте сеть/DNS и повторите"
+  fi
+  mv "$partial" "$INSTALL_DIR"
+}
+
+# In `curl | bash` on a fresh VPS SCRIPT_DIR is empty and the TUI libraries do
+# not exist until the repository is cloned. Bootstrap the repository before the
+# interactive menu; otherwise a no-flags install silently falls back to full/IP.
+if [[ "$PLAN_ONLY" -eq 0 && ! -f "$INSTALL_DIR/scripts/lib-olc-core.sh" ]] \
+   && { [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty; }; }; then
+  olc_clone_install_repo
+  EARLY_CLONED=1
+  if [[ -f "$INSTALL_DIR/scripts/lib-tui.sh" ]]; then
+    source "$INSTALL_DIR/scripts/lib-tui.sh"
+    TUI_AVAILABLE=1
+    tui_clear
+    tui_banner "Olc-cost-l Installer"
+    tui_log_info "Репозиторий загружен; доступен полный интерактивный выбор"
+    tui_divider
+  fi
+fi
+
 # ── Основная интерактивная команда (без флагов, свежая система) ──────────────
 # Запуск без флагов на чистой системе → предложить меню выбора конфигурации.
 # С --full и прочими флагами это меню НЕ показывается (TUI-прогресс всё равно
@@ -260,7 +311,8 @@ if [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty;
     # На свежей системе (нет detect) меню выбора компонентов; если уже
     # установлено — этим займётся меню «выберите действие» ниже (auto-detect).
     _pre_detect="fresh"
-    [[ -x "$INSTALL_DIR/scripts/olc-detect-install.sh" ]] && \
+    [[ "$EARLY_CLONED" -ne 1 && "${OLC_ASSUME_FRESH:-0}" != "1" \
+       && -x "$INSTALL_DIR/scripts/olc-detect-install.sh" ]] && \
       _pre_detect="$("$INSTALL_DIR/scripts/olc-detect-install.sh" 2>/dev/null || echo fresh)"
     if [[ "$CHOOSE_COMPONENTS" -eq 1 || "$_pre_detect" == "fresh" ]]; then
       source "$INSTALL_DIR/scripts/lib-olc-core.sh"
@@ -296,25 +348,6 @@ if [[ "$SHOW_STATE" -eq 1 ]]; then
   fi
   exit 0
 fi
-
-resilient_git() {
-  local op="$1"; shift
-  local attempt rc
-  for attempt in 1 2 3; do
-    rc=0
-    timeout 90 git \
-      -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
-      -c http.postBuffer=524288000 \
-      "$@" || rc=$?
-    if [[ $rc -eq 0 ]]; then
-      return 0
-    fi
-    echo "[install] git $op: попытка $attempt не удалась (код $rc), повтор…" >&2
-    sleep $((attempt * 5))
-  done
-  echo "[install] git $op: три попытки исчерпаны — проверьте сеть и DNS" >&2
-  return 1
-}
 
 DETECT="$INSTALL_DIR/scripts/olc-detect-install.sh"
 STATE="fresh"
@@ -418,29 +451,25 @@ fi
 
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_step "Клонирование репозитория..."
-  tui_log_step "Клонирование $REPO_URL → $INSTALL_DIR"
-  rm -rf "$INSTALL_DIR.partial"
-  resilient_git clone clone --depth 1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR.partial" || {
-    [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Не удалось клонировать репозиторий" "URL: $REPO_URL, ветка: $BRANCH" "Проверьте сеть/DNS: ping github.com && curl -I https://github.com" || \
-      fatal_early "Не удалось клонировать репозиторий" "Сеть/DNS недоступны" "Проверьте подключение и повторите"
-    rm -rf "$INSTALL_DIR.partial"
-  }
+  olc_clone_install_repo
   [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_log_success "Репозиторий склонирован успешно"
-  mv "$INSTALL_DIR.partial" "$INSTALL_DIR"
-else
+elif [[ "$EARLY_CLONED" -ne 1 ]]; then
   tui_log_step "Git fetch+обновление $INSTALL_DIR (с повторами при обрыве)"
   if ! resilient_git fetch -C "$INSTALL_DIR" fetch --depth 50 origin "$BRANCH"; then
     echo "[install] внимание: fetch не удался — продолжаем с локальной копией на VPS" >&2
   fi
-  if git -C "$INSTALL_DIR" diff --quiet 2>/dev/null && git -C "$INSTALL_DIR" diff --cached --quiet 2>/dev/null; then
-    git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH" 2>/dev/null \
-      || git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null \
-      || true
+  if [[ -z "$(git -C "$INSTALL_DIR" status --porcelain 2>/dev/null)" ]]; then
+    git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH" 2>/dev/null || \
+      tui_log_warning "Не удалось выполнить fast-forward; локальный HEAD сохранён без reset"
   else
-    tui_log_warning "На VPS были локальные правки — сброс к origin/$BRANCH"
-    git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH" 2>/dev/null || \
-      git -C "$INSTALL_DIR" reset --hard "$BRANCH" 2>/dev/null || true
+    tui_log_warning "В $INSTALL_DIR есть локальные правки — автоматическое обновление репозитория пропущено"
+    tui_log_info "Ни один файл не сброшен. Сохраните/закоммитьте изменения и повторите обновление."
   fi
+fi
+
+if [[ "${OLC_EXIT_AFTER_REPO_SYNC:-0}" == "1" ]]; then
+  echo "[install-repo-sync] head=$(git -C "$INSTALL_DIR" rev-parse HEAD) dirty=$(test -n "$(git -C "$INSTALL_DIR" status --porcelain)" && echo 1 || echo 0)"
+  exit 0
 fi
 
 export OLC_REPO_ROOT="$INSTALL_DIR"
