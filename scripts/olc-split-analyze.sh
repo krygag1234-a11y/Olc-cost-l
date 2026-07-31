@@ -123,6 +123,23 @@ def ordered_unique(items):
     return out
 
 
+def merge_provenance_entries(*groups):
+    out, seen = [], set()
+    for entries in groups:
+        for raw in entries or []:
+            if not isinstance(raw, dict):
+                continue
+            entry = {"source": str(raw.get("source") or "unknown")}
+            if raw.get("detail"):
+                entry["detail"] = str(raw["detail"])
+            key = (entry["source"], entry.get("detail", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(entry)
+    return out
+
+
 def target_value(raw):
     raw = (raw or "").strip().strip("\"'")
     if not raw:
@@ -309,6 +326,20 @@ def whois_summary(value):
 def analyze(raw, deep=True):
     value = target_value(raw)
     domains, cidrs, ips = [], [], []
+    provenance = {}
+
+    def remember(items, source, detail=""):
+        for item in items:
+            item = str(item or "").strip().lower().lstrip("*.").rstrip(".")
+            if not item or is_ip(item) or is_cidr(item):
+                continue
+            entry = {"source": source}
+            if detail:
+                entry["detail"] = detail
+            bucket = provenance.setdefault(item, [])
+            if entry not in bucket:
+                bucket.append(entry)
+
     if not value:
         return {"input": raw, "normalized": "", "error": "empty target"}
     if is_cidr(value):
@@ -317,16 +348,28 @@ def analyze(raw, deep=True):
         ips = [value]
         cidrs = [value + ("/32" if ":" not in value else "/128")]
     else:
-        domains = domain_candidates(value)
+        discovered = domain_candidates(value)
+        domains.extend(discovered)
+        remember(discovered, "target", value)
         resolved, cname = resolve_host(value)
         ips.extend(resolved)
         if cname:
-            domains.extend(domain_candidates(cname))
-        domains.extend(related_runtime_log_hosts([value]))
-        domains.extend(brand_sibling_domains([value]))
+            discovered = domain_candidates(cname)
+            domains.extend(discovered)
+            remember(discovered, "cname", cname)
+        discovered = related_runtime_log_hosts([value])
+        domains.extend(discovered)
+        remember(discovered, "runtime_log", value)
+        discovered = brand_sibling_domains([value])
+        domains.extend(discovered)
+        remember(discovered, "brand_family", base_domain(value))
         if deep:
-            domains.extend(cert_names(value))
-            domains.extend(crtsh_names(value))
+            discovered = cert_names(value)
+            domains.extend(discovered)
+            remember(discovered, "certificate", value)
+            discovered = crtsh_names(value)
+            domains.extend(discovered)
+            remember(discovered, "crt.sh", base_domain(value))
     ip_cidrs = []
     for ip in ips:
         try:
@@ -344,6 +387,7 @@ def analyze(raw, deep=True):
         "ips": ordered_unique(ips)[:40],
         "cidrs": cidrs[:40],
         "classifications": classifications,
+        "domain_provenance": {d: provenance.get(d, []) for d in domains[:120]},
         "whois": whois_summary(value) if deep else "",
         "recommendation": "direct" if not classifications or any(v["route"].startswith("direct") for v in classifications.values()) else "review",
         "generated_at": now(),
@@ -374,7 +418,7 @@ def group_id(source, target):
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")[:48]
 
 
-def upsert_group(data, source, target, domains, cidrs, label=None, replace_source=False):
+def upsert_group(data, source, target, domains, cidrs, label=None, replace_source=False, domain_provenance=None):
     target = target_value(target)
     if source == "analyzer":
         inst = next(
@@ -386,6 +430,10 @@ def upsert_group(data, source, target, domains, cidrs, label=None, replace_sourc
             source = "instance"
             domains = ordered_unique((inst.get("domains") or []) + list(domains or []))
             cidrs = ordered_unique((inst.get("cidrs") or []) + list(cidrs or []))
+            merged_provenance = dict(inst.get("domain_provenance") or {})
+            for domain, entries in (domain_provenance or {}).items():
+                merged_provenance[domain] = merge_provenance_entries(merged_provenance.get(domain), entries)
+            domain_provenance = merged_provenance
     gid = group_id(source, target)
     groups = []
     for g in data.get("groups", []):
@@ -399,6 +447,9 @@ def upsert_group(data, source, target, domains, cidrs, label=None, replace_sourc
     existing = next((g for g in data.get("groups", []) if g.get("id") == gid), {})
     selected_domains = ordered_unique(existing.get("selected_domains") or domains)
     selected_cidrs = ordered_unique(existing.get("selected_cidrs") or cidrs)
+    merged_provenance = dict(existing.get("domain_provenance") or {})
+    for domain, entries in (domain_provenance or {}).items():
+        merged_provenance[domain] = merge_provenance_entries(merged_provenance.get(domain), entries)
     groups.append({
         "id": gid,
         "source": source,
@@ -408,6 +459,7 @@ def upsert_group(data, source, target, domains, cidrs, label=None, replace_sourc
         "cidrs": ordered_unique(cidrs),
         "selected_domains": selected_domains,
         "selected_cidrs": selected_cidrs,
+        "domain_provenance": merged_provenance,
         "created_at": existing.get("created_at") or now(),
         "updated_at": now(),
     })
@@ -671,6 +723,8 @@ def sync_config(path):
                     g["selected_cidrs"] = ordered_unique((g.get("selected_cidrs") or []) + prev["selected_cidrs"])
                 if prev.get("expanded_at"):
                     g["expanded_at"] = prev["expanded_at"]
+                if prev.get("domain_provenance"):
+                    g["domain_provenance"] = prev["domain_provenance"]
                 if prev.get("created_at"):
                     g["created_at"] = prev["created_at"]
                 break
@@ -680,12 +734,15 @@ def sync_config(path):
         visible_hosts.extend(res.get("domains", []))
         visible_cidrs.extend(res.get("cidrs", []))
         dom, cid, prev = _merge_prev(target, res.get("domains", []), res.get("cidrs", []))
-        upsert_group(data, "instance", target, dom, cid, label=target)
+        upsert_group(data, "instance", target, dom, cid, label=target,
+                     domain_provenance=res.get("domain_provenance"))
         _restore_prev(target, prev)
     for host in log_hosts:
         domains = domain_candidates(host)
         dom, cid, prev = _merge_prev(host, domains, [])
-        upsert_group(data, "instance", host, dom, cid, label=host)
+        log_provenance = {d: [{"source": "runtime_log", "detail": host}] for d in domains}
+        upsert_group(data, "instance", host, dom, cid, label=host,
+                     domain_provenance=log_provenance)
         _restore_prev(host, prev)
         visible_hosts.extend(domains)
     visible_hosts = ordered_unique(visible_hosts + instance_targets + log_hosts)
@@ -758,7 +815,9 @@ def apply_analysis(payload):
         out = rebuild()
         out["target_list"] = "custom_direct"
         return out
-    upsert_group(data, payload.get("source", "analyzer"), target, domains, cidrs, label=payload.get("label") or target)
+    upsert_group(data, payload.get("source", "analyzer"), target, domains, cidrs,
+                 label=payload.get("label") or target,
+                 domain_provenance=payload.get("domain_provenance"))
     save_manifest(data)
     out = rebuild()
     out["target_list"] = "direct"
@@ -827,6 +886,10 @@ def expand_all(force=False, only_target=None, limit=None):
         # авто-выбор новинок — иначе rebuild их не подхватит
         g["selected_domains"] = ordered_unique((g.get("selected_domains") or []) + gained_d)
         g["selected_cidrs"] = ordered_unique((g.get("selected_cidrs") or []) + gained_c)
+        merged_provenance = dict(g.get("domain_provenance") or {})
+        for domain, entries in (res.get("domain_provenance") or {}).items():
+            merged_provenance[domain] = merge_provenance_entries(merged_provenance.get(domain), entries)
+        g["domain_provenance"] = merged_provenance
         g["expanded_at"] = now()
         g["updated_at"] = now()
         expanded += 1
@@ -846,9 +909,46 @@ def expand_all(force=False, only_target=None, limit=None):
     return out
 
 
+def provenance_self_test():
+    names = ["domain_candidates", "resolve_host", "related_runtime_log_hosts",
+             "brand_sibling_domains", "cert_names", "crtsh_names", "whois_summary"]
+    saved = {name: globals()[name] for name in names}
+    try:
+        globals()["domain_candidates"] = lambda host: [host, base_domain(host)]
+        globals()["resolve_host"] = lambda host: (["203.0.113.10"], "edge.cdn.example.net")
+        globals()["related_runtime_log_hosts"] = lambda anchors: ["runtime.cdn.example.net"]
+        globals()["brand_sibling_domains"] = lambda anchors: ["brand.cdn.example.net"]
+        globals()["cert_names"] = lambda host: ["cert.cdn.example.net"]
+        globals()["crtsh_names"] = lambda host: ["crt.cdn.example.net"]
+        globals()["whois_summary"] = lambda value: ""
+        result = analyze("video.example.org", deep=True)
+        expected = {
+            "video.example.org": "target",
+            "edge.cdn.example.net": "cname",
+            "runtime.cdn.example.net": "runtime_log",
+            "brand.cdn.example.net": "brand_family",
+            "cert.cdn.example.net": "certificate",
+            "crt.cdn.example.net": "crt.sh",
+        }
+        for domain, source in expected.items():
+            actual = {entry.get("source") for entry in result.get("domain_provenance", {}).get(domain, [])}
+            if source not in actual:
+                raise AssertionError(f"{domain}: missing {source}, got {sorted(actual)}")
+        data = {"schema": 1, "groups": []}
+        upsert_group(data, "instance", "video.example.org", result["domains"], result["cidrs"],
+                     domain_provenance=result["domain_provenance"])
+        group = data["groups"][0]
+        if group.get("domain_provenance") != result.get("domain_provenance"):
+            raise AssertionError("group did not preserve domain provenance")
+        return {"status": "ok", "domains": len(result["domains"]), "sources": sorted(set(expected.values()))}
+    finally:
+        for name, value in saved.items():
+            globals()[name] = value
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("command", choices=["analyze", "sync-config", "sync-logs", "rebuild", "apply-analysis", "manifest", "expand-all"])
+    p.add_argument("command", choices=["analyze", "sync-config", "sync-logs", "rebuild", "apply-analysis", "manifest", "expand-all", "self-test-provenance"])
     p.add_argument("target", nargs="?")
     p.add_argument("--config", default="/etc/olcrtc-manager/config.json")
     p.add_argument("--shallow", action="store_true")
@@ -871,6 +971,8 @@ def main():
         print(json.dumps(load_manifest(), ensure_ascii=False, indent=2))
     elif args.command == "expand-all":
         print(json.dumps(expand_all(force=args.force, only_target=args.target, limit=args.limit), ensure_ascii=False, indent=2))
+    elif args.command == "self-test-provenance":
+        print(json.dumps(provenance_self_test(), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

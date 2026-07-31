@@ -518,6 +518,8 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backup-ui.sh" "$MGR_REPO/src/main.tsx"
   # Split "expand" UI: кнопка «Расширить субдомены» в discovery (Phase 2E/2D).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-expand-ui.sh" "$MGR_REPO/src/main.tsx"
+  # Split provenance: показать для каждого CDN/домена источник обнаружения.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-provenance-ui.sh" "$MGR_REPO/src/main.tsx"
   # Access control UI: секция «Контроль доступа» (allowlist hwid + журнал попыток).
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-control-ui.sh" "$MGR_REPO/src/main.tsx"
   # Per-client контроль доступа: шестерёнка у 🎲 на карточке клиента → модалка доступа
