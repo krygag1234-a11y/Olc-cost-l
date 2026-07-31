@@ -421,7 +421,9 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v23.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v24-lang-defaults.sh" "$MGR_REPO"
+  # v24 legacy diff targets an old upstream tree and is fully superseded by
+  # apply-golden-panel.sh immediately below. Running it on a clean pinned clone
+  # can leave 100+ rejected hunks and abort a fresh install before golden copy.
   # Патчим эталон панели перед копированием (добавляем randomization UI)
   bash "$SCRIPT_DIR/patch-golden-panel-randomization-ui.sh"
   # Эталон панели — финальное выравнивание UI и main.go (поверх всех hotfix).
