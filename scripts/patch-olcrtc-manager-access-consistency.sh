@@ -97,7 +97,7 @@ elif tsx.count('const saveQueueRef = useRef<Promise<void>>(Promise.resolve());')
     raise SystemExit('[access-consistency] busy anchors')
 
 global_re = re.compile(r'''  const saveSettings = async \(next: \{.*?\n  \};\n  // .*?Конфликт''', re.S)
-global_new = '''  const saveSettings = (next: { enabled?: boolean; mode?: string; devices?: any[]; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_devices?: any[]; conn_ban?: any[]; allowed_ips?: any[]; ban_ips?: any[]; conn_scope?: string; conn_instances?: string[] }) => {
+global_new = '''  const saveSettings = (next: { enabled?: boolean; mode?: string; devices?: any[]; ban?: any[]; ban_no_hwid?: boolean; enforce_connections?: boolean; conn_mode?: string; conn_devices?: any[]; conn_ban?: any[]; allowed_ips?: any[]; ban_ips?: any[]; conn_scope?: string; conn_instances?: string[] }) => {
     const version = ++saveVersionRef.current;
     pendingSavesRef.current += 1; setBusy(true); setMsg(null);
     const run = async () => {
@@ -105,9 +105,9 @@ global_new = '''  const saveSettings = (next: { enabled?: boolean; mode?: string
         const res = await fetch("/api/access/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...next }) });
         const b = await res.json(); if (!res.ok) throw new Error(b.error || ("HTTP " + res.status));
         if (version === saveVersionRef.current) {
-          setEnabled(!!b.enabled); setMode(b.mode === "enforce" ? "enforce" : "monitor");
+          setEnabled(!!b.enabled); setMode(b.mode === "enforce" ? "enforce" : b.mode === "keyrand" ? "keyrand" : "monitor");
           setDevices(Array.isArray(b.devices) ? b.devices : []); setBan(Array.isArray(b.ban) ? b.ban : []);
-          setBanNoHwid(!!b.ban_no_hwid); setEnforceConns(!!b.enforce_connections);
+          setBanNoHwid(!!b.ban_no_hwid); setEnforceConns(!!b.enforce_connections); setConnKeyrand(b.conn_mode === "keyrand");
           setConnDevices(Array.isArray(b.conn_devices) ? b.conn_devices : []); setConnBan(Array.isArray(b.conn_ban) ? b.conn_ban : []);
           setConnScope(b.conn_scope === "selective" ? "selective" : "all"); setConnInstances(Array.isArray(b.conn_instances) ? b.conn_instances : []);
           setAllowedIps(normIps(b.allowed_ips)); setBanIps(normIps(b.ban_ips));
@@ -124,7 +124,7 @@ if tsx.count('pendingSavesRef.current += 1; setBusy(true); setMsg(null);') == 0:
     if n != 1: raise SystemExit(f'[access-consistency] global save: {n}')
 
 client_re = re.compile(r'''  const save = async \(next\?: \{.*?\n  \};\n  // .*?Конфликт''', re.S)
-client_new = '''  const save = (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: any[]; ban_ips?: any[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_scope?: string; conn_instances?: string[] }) => {
+client_new = '''  const save = (next?: { mode?: string; allow?: Dev[]; ban?: Dev[]; allow_ips?: any[]; ban_ips?: any[]; ban_no_hwid?: boolean; conn_allow?: Dev[]; conn_ban?: Dev[]; conn_enforce?: boolean; conn_mode?: string; conn_scope?: string; conn_instances?: string[] }) => {
     const version = ++saveVersionRef.current;
     pendingSavesRef.current += 1; setBusy(true); setMsg(null);
     const run = async () => {
@@ -133,10 +133,10 @@ client_new = '''  const save = (next?: { mode?: string; allow?: Dev[]; ban?: Dev
         const b = await r.json(); if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
         const cc = (b.clients || {})[clientId] || {};
         if (version === saveVersionRef.current) {
-          setMode(cc.mode === "enforce" ? "enforce" : "off"); setAllow(Array.isArray(cc.allow) ? cc.allow : []); setBan(Array.isArray(cc.ban) ? cc.ban : []);
+          setMode(cc.mode === "enforce" ? "enforce" : cc.mode === "keyrand" ? "keyrand" : "off"); setAllow(Array.isArray(cc.allow) ? cc.allow : []); setBan(Array.isArray(cc.ban) ? cc.ban : []);
           setConnAllow(Array.isArray(cc.conn_allow) ? cc.conn_allow : []); setConnBan(Array.isArray(cc.conn_ban) ? cc.conn_ban : []);
           setAllowIps(normIps(cc.allow_ips)); setBanIps(normIps(cc.ban_ips)); setBanNoHwid(!!cc.ban_no_hwid);
-          setConnEnforce(!!cc.conn_enforce); setConnScope(cc.conn_scope === "selective" ? "selective" : "all"); setConnInstances(Array.isArray(cc.conn_instances) ? cc.conn_instances : []);
+          setConnEnforce(!!cc.conn_enforce); setConnKeyrand(cc.conn_mode === "keyrand"); setConnScope(cc.conn_scope === "selective" ? "selective" : "all"); setConnInstances(Array.isArray(cc.conn_instances) ? cc.conn_instances : []);
         }
         try { window.dispatchEvent(new CustomEvent("olc-access-saved", { detail: {} })); } catch { /* ignore */ }
       } catch (e: any) { if (version === saveVersionRef.current) setMsg("Ошибка: " + (e?.message || String(e))); }
@@ -160,6 +160,21 @@ g0, c0, c1 = tsx.index('function AccessControlSection()'), tsx.index('function C
 g, c = tsx[g0:c0], tsx[c0:c1]
 g = g.replace('{ hwid: h, enabled: true }', 'namedGlobalDevice(h)')
 c = c.replace('{ hwid: h, enabled: true }', 'namedClientDevice(h)')
+# With the optional UI lock disabled, controlled checkboxes must reflect every
+# click immediately. The ordered save queue persists those snapshots in order.
+optimistic = {
+    '  const rmConnAllow = (h: string) => void save({ conn_allow: connAllow.filter((d) => d.hwid !== h) });': '  const rmConnAllow = (h: string) => { const nx = connAllow.filter((d) => d.hwid !== h); setConnAllow(nx); void save({ conn_allow: nx }); };',
+    '  const rmConnBan = (h: string) => void save({ conn_ban: connBan.filter((d) => d.hwid !== h) });': '  const rmConnBan = (h: string) => { const nx = connBan.filter((d) => d.hwid !== h); setConnBan(nx); void save({ conn_ban: nx }); };',
+    '  const toggleConnAllow = (h: string, en: boolean) => void save({ conn_allow: connAllow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });': '  const toggleConnAllow = (h: string, en: boolean) => { const nx = connAllow.map((d) => d.hwid === h ? { ...d, enabled: en } : d); setConnAllow(nx); void save({ conn_allow: nx }); };',
+    '  const toggleConnBan = (h: string, en: boolean) => void save({ conn_ban: connBan.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });': '  const toggleConnBan = (h: string, en: boolean) => { const nx = connBan.map((d) => d.hwid === h ? { ...d, enabled: en } : d); setConnBan(nx); void save({ conn_ban: nx }); };',
+    '  const rmAllow = (h: string) => void save({ allow: allow.filter((d) => d.hwid !== h) });': '  const rmAllow = (h: string) => { const nx = allow.filter((d) => d.hwid !== h); setAllow(nx); void save({ allow: nx }); };',
+    '  const rmBan = (h: string) => void save({ ban: ban.filter((d) => d.hwid !== h) });': '  const rmBan = (h: string) => { const nx = ban.filter((d) => d.hwid !== h); setBan(nx); void save({ ban: nx }); };',
+    '  const toggleAllow = (h: string, en: boolean) => void save({ allow: allow.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });': '  const toggleAllow = (h: string, en: boolean) => { const nx = allow.map((d) => d.hwid === h ? { ...d, enabled: en } : d); setAllow(nx); void save({ allow: nx }); };',
+    '  const toggleBan = (h: string, en: boolean) => void save({ ban: ban.map((d) => d.hwid === h ? { ...d, enabled: en } : d) });': '  const toggleBan = (h: string, en: boolean) => { const nx = ban.map((d) => d.hwid === h ? { ...d, enabled: en } : d); setBan(nx); void save({ ban: nx }); };',
+}
+for old, new in optimistic.items():
+    if c.count(old) != 1: raise SystemExit(f'[access-consistency] optimistic anchor: {old[:40]}')
+    c = c.replace(old, new, 1)
 # Keep every global UI mutation on the same ordered /settings queue.  The old
 # per-item endpoints bypassed it and could still race a ban/mode save.
 g, n = re.subn(r'''  const setDevice = async \(hwid: string, patch: \{ label\?: string; enabled\?: boolean \}\) => \{.*?\n  \};''', '''  const setDevice = (hwid: string, patch: { label?: string; enabled?: boolean }) => { const nx = devices.map((d) => d.hwid === hwid ? { ...d, ...patch } : d); setDevices(nx); void saveSettings({ devices: nx }); };''', g, count=1, flags=re.S)
