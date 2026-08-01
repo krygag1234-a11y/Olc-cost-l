@@ -87,7 +87,7 @@ go = one(go, '''\t\t\tif peers[key] > 0 {
 
 # Both modals remain clickable while saving, but writes are serialized and old
 # responses are forbidden from rolling newer optimistic state back.
-busy = '  const [busy, setBusy] = useState(false);'
+busy = '  const [busyRaw, setBusy] = useState(false);\n  const busy = busyRaw && readStoredBool("olc-ctrl-lock-v1", true);'
 if tsx.count(busy) == 2:
     tsx = tsx.replace(busy, busy + '''
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
