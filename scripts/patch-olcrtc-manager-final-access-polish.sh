@@ -179,6 +179,8 @@ tsx = tsx.replace('<div className="truncate text-muted-foreground">инстан�
 note = 'Изменения доступа во время активного подключения применяются сразу, но восстановление туннеля после переключения может занять некоторое время. При проверке смотрите логи нужного инстанса.'
 anchor = '<div className="text-[11px] text-muted-foreground">Устройства (device), реально подключавшиеся к инстансам'
 tsx = tsx.replace(anchor, f'<div className="rounded border border-sky-500/25 bg-sky-500/5 px-2 py-1 text-[10px] text-sky-200">{note}</div>\n            {anchor}')
+selective_anchor = '<div className="text-xs font-semibold text-foreground">🔌 Журнал подключений (эта подписка)</div>'
+tsx = tsx.replace(selective_anchor, selective_anchor + f'\n              <div className="rounded border border-sky-500/25 bg-sky-500/5 px-2 py-1 text-[10px] text-sky-200">{note}</div>')
 
 if tsx.count('olc-plain-enter-blur') != 1: raise SystemExit('[final-access] plain Enter guard missing')
 if tsx.count('Разрешённый</span>') != 2: raise SystemExit(f'[final-access] allowed badges: {tsx.count("Разрешённый</span>")}')
