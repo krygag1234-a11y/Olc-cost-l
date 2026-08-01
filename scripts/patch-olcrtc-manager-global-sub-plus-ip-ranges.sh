@@ -133,6 +133,13 @@ elif go.count('olcAccessIPMatches(aip.IP, ipt)') != 2:
 
 # Global '+' was restored from the PUT response as monitor even though the
 # backend had persisted keyrand. This is the global-only autosave regression.
+old_load_ui = 'setMode(sb.mode === "enforce" ? "enforce" : "monitor");'
+new_load_ui = 'setMode(sb.mode === "enforce" ? "enforce" : sb.mode === "keyrand" ? "keyrand" : "monitor");'
+if old_load_ui in tsx:
+    tsx = tsx.replace(old_load_ui, new_load_ui, 1)
+elif new_load_ui not in tsx:
+    raise SystemExit('[patch-access-plus-ip] global initial-load mode anchor not found')
+
 old_mode = 'setEnabled(!!b.enabled); setMode(b.mode === "enforce" ? "enforce" : "monitor");'
 new_mode = 'setEnabled(!!b.enabled); setMode(b.mode === "enforce" ? "enforce" : b.mode === "keyrand" ? "keyrand" : "monitor");'
 if old_mode in tsx:
