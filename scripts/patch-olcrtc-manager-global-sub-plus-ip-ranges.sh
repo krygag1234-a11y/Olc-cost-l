@@ -78,18 +78,18 @@ elif new_mode not in tsx:
 # The persisted access mode is authoritative. With selective-only
 # randomization a transient rand-state refresh could be false and the old
 # predicate then redrew an already saved global '+' as Off.
-old_keyrand = '''  const subKeyrand = mode === "keyrand" && randOn;
+old_keyrand = '''  const subKeyrand = mode === "keyrand" && randSub;
   const subOff = mode !== "enforce" && !subKeyrand;'''
 new_keyrand = '''  const subKeyrand = mode === "keyrand";
-  const subKeyrandAvailable = randOn || subKeyrand;
+  const subKeyrandAvailable = randSub || subKeyrand;
   const subOff = mode !== "enforce" && !subKeyrand;'''
 if old_keyrand in tsx:
     tsx = tsx.replace(old_keyrand, new_keyrand, 1)
 elif new_keyrand not in tsx:
     raise SystemExit('[patch-access-plus-ip] global keyrand state anchor not found')
-if tsx.count('{randOn && (') < 2:
+if tsx.count('{randSub && (') < 2:
     raise SystemExit('[patch-access-plus-ip] expected global and per-client plus buttons')
-tsx = tsx.replace('{randOn && (', '{subKeyrandAvailable && (', 1)
+tsx = tsx.replace('{randSub && (', '{subKeyrandAvailable && (', 1)
 
 # The global subscription journal had min-w-0 without flex-1, so a long UA
 # could enlarge the row and produce a horizontal scrollbar.
