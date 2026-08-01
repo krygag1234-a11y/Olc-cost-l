@@ -13,7 +13,7 @@ q=chr(96)
 g=rep(g,'\tRandomizationSecret string          '+q+'json:"randomization_secret,omitempty"'+q,
  '\tRandomizationSecret       string          '+q+'json:"randomization_secret,omitempty"'+q+'\n\tCryptoRandomizationSecret string          '+q+'json:"crypto_randomization_secret,omitempty"'+q,'Config secret')
 g=rep(g,'\ts.cfg.RandomizationSecret = cfg.RandomizationSecret','\ts.cfg.RandomizationSecret = cfg.RandomizationSecret\n\ts.cfg.CryptoRandomizationSecret = cfg.CryptoRandomizationSecret','Supervisor secret')
-helpers=r'''func olcNewRandomizationSecret() (string, error) {
+helpers='''func olcNewRandomizationSecret() (string, error) {
 \tbuf := make([]byte, 32)
 \tif _, err := rand.Read(buf); err != nil { return "", err }
 \treturn hex.EncodeToString(buf), nil
@@ -73,7 +73,7 @@ if 'func olcApplyRandScopeTransition(' not in g:g=rep(g,'// randomizationScopeHa
 g=rep(g,'func randTypeFor(client Client, cfg Config) int {\n\tif globalRandomizationEnabled(cfg) {','func randTypeFor(client Client, cfg Config) int {\n\tif olcRandScope(cfg) == "crypto" { return 0 }\n\tif globalRandomizationEnabled(cfg) {','subscription gate')
 g=g.replace('Secret:  cfg.RandomizationSecret,','Secret:  olcCryptoRandomizationSecret(cfg),').replace('rc.Secret = cfg.RandomizationSecret','rc.Secret = olcCryptoRandomizationSecret(cfg)')
 g=rep(g,'\t\trt := randTypeFor(foundClient, cfg)\n\t\tsecret := cfg.RandomizationSecret','\t\trt := olcCryptoRandTypeFor(foundClient, cfg)\n\t\tsecret := olcCryptoRandomizationSecret(cfg)','instance crypto')
-canonical=r'''func olcCanonicalClientID(requestedID string, cfg Config) string {
+canonical='''func olcCanonicalClientID(requestedID string, cfg Config) string {
 \tfor _, client := range cfg.Clients { if client.ClientID == requestedID { return client.ClientID } }
 \tif resolved, err := resolveClientID(requestedID, cfg); err == nil { return resolved }
 \treturn requestedID
