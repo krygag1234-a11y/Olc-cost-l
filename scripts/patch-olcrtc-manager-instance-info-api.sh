@@ -146,11 +146,11 @@ func instanceInfoHandler(configPath string) http.HandlerFunc {
 			keyRand["rand_type"] = rt
 			if rt == 2 {
 				keyRand["dynamic"] = true
-				if rk := olcInstanceRandKeyAt(secret, found.Endpoint.Key, time.Now().Unix()); rk != "" {
+				if rk := olcInstanceRandKeyAt(secret, olcKeyRandSeed(*found), time.Now().Unix()); rk != "" {
 					keyRand["randomized_key"] = rk
 				}
 			} else {
-				if rk := olcInstanceRandKeyStatic(secret, found.Endpoint.Key); rk != "" {
+				if rk := olcInstanceRandKeyStatic(secret, olcKeyRandSeed(*found)); rk != "" {
 					keyRand["randomized_key"] = rk
 				}
 			}
@@ -177,16 +177,12 @@ func instanceInfoHandler(configPath string) http.HandlerFunc {
 
 // olcInstanceRandKeyAt — посекундный рандомизированный ключ (тип2):
 // HMAC(secret, origKeyBytes || unixSec)[:32] -> hex(64). Пусто при плохих входных.
-func olcInstanceRandKeyAt(secret, origKeyHex string, unixSec int64) string {
-	if secret == "" {
-		return ""
-	}
-	ob, err := hex.DecodeString(strings.TrimSpace(origKeyHex))
-	if err != nil || len(ob) != 32 {
+func olcInstanceRandKeyAt(secret, seed string, unixSec int64) string {
+	if secret == "" || seed == "\x00" {
 		return ""
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(ob)
+	mac.Write([]byte(seed))
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(unixSec))
 	mac.Write(b[:])
@@ -196,16 +192,12 @@ func olcInstanceRandKeyAt(secret, origKeyHex string, unixSec int64) string {
 
 // olcInstanceRandKeyStatic — статичный рандомизированный ключ (тип1):
 // HMAC(secret, origKeyBytes)[:32] -> hex(64). Пусто при плохих входных.
-func olcInstanceRandKeyStatic(secret, origKeyHex string) string {
-	if secret == "" {
-		return ""
-	}
-	ob, err := hex.DecodeString(strings.TrimSpace(origKeyHex))
-	if err != nil || len(ob) != 32 {
+func olcInstanceRandKeyStatic(secret, seed string) string {
+	if secret == "" || seed == "\x00" {
 		return ""
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(ob)
+	mac.Write([]byte(seed))
 	sum := mac.Sum(nil)
 	return hex.EncodeToString(sum[:32])
 }

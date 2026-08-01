@@ -47,6 +47,29 @@ fetch_zapret() {
   rm -rf "$tmp"
 }
 
+# Older revisions tried to make install_easy non-interactive with broad sed
+# replacements of `ask_yes_no ...`.  Those replacements could leave the closing
+# brace of an `|| { ...; }` block behind and corrupt both installer scripts.
+# Restore only the upstream installer sources when their syntax is invalid;
+# user config, lists, strategies and compiled binaries remain untouched.
+repair_installer_sources() {
+  local need=0 tmp=""
+  sh -n "$OPT/install_easy.sh" >/dev/null 2>&1 || need=1
+  sh -n "$OPT/common/installer.sh" >/dev/null 2>&1 || need=1
+  [[ "$need" == "1" ]] || return 0
+
+  tmp="$(mktemp -d)"
+  log "repair corrupted zapret installer sources (v${ZAPRET_VER})"
+  curl -fsSL --max-time 180 \
+    "https://github.com/bol-van/zapret/releases/download/v${ZAPRET_VER}/zapret-v${ZAPRET_VER}.tar.gz" \
+    | tar -xz -C "$tmp"
+  install -m 0755 "$tmp/zapret-v${ZAPRET_VER}/install_easy.sh" "$OPT/install_easy.sh"
+  install -m 0644 "$tmp/zapret-v${ZAPRET_VER}/common/installer.sh" "$OPT/common/installer.sh"
+  rm -rf "$tmp"
+  sh -n "$OPT/install_easy.sh"
+  sh -n "$OPT/common/installer.sh"
+}
+
 ensure_z4r_src() {
   if [[ -f "$Z4R_SRC/config.default" ]] && [[ "${OLCRTC_ZAPRET_SYNC:-1}" == "0" ]]; then
     return 0
@@ -96,18 +119,7 @@ apply_config() {
 }
 
 noninteractive_install() {
-  if [[ -f "$OPT/common/installer.sh" ]]; then
-    sed -i 's/if \[ -n "\$1" \] || ask_yes_no N "do you want to continue";/if true;/' \
-      "$OPT/common/installer.sh" 2>/dev/null || true
-    sed -i 's/ask_yes_no [YN] .*/true/' \
-      "$OPT/common/installer.sh" 2>/dev/null || true
-  fi
-  if [[ -f "$OPT/install_easy.sh" ]]; then
-    sed -i 's/ask_yes_no [YN] .*/true/' \
-      "$OPT/install_easy.sh" 2>/dev/null || true
-    sed -i '/read -r.*REPLY\|read -p/d' \
-      "$OPT/install_easy.sh" 2>/dev/null || true
-  fi
+  repair_installer_sources
   export INIT_APPLY_FW=1
   export PRESS_ENTER_TO_CONTINUE=0
   cd "$OPT"
@@ -142,6 +154,7 @@ main() {
   safety_require_root
   install_deps
   fetch_zapret
+  repair_installer_sources
   apply_config
   olc_run_with_progress "настройка zapret install_easy" noninteractive_install
   olc_run_with_progress "запуск zapret/nfqws" enable_service
