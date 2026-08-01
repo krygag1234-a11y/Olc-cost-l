@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Final access-control fixes:
 # - global subscription '+' must remain keyrand after autosave;
+# - backend must preserve keyrand and only bypass original client-id in +/enforce;
 # - subscription attempt cards wrap rather than forcing horizontal scrolling;
 # - allow/ban IP rules accept exact IP, CIDR and inclusive IP ranges.
 set -euo pipefail
@@ -54,6 +55,70 @@ if 'func olcAccessIPMatches(rule, observed string)' not in go:
     if helper_anchor not in go:
         raise SystemExit('[patch-access-plus-ip] access decision anchor not found')
     go = go.replace(helper_anchor, helper + helper_anchor, 1)
+
+# keyrand is a real persisted access mode. The original loader only accepted
+# enforce and silently normalized every other value back to monitor.
+old_load_mode = '''\tif ac.Mode != "enforce" {
+\t\tac.Mode = "monitor"
+\t}'''
+new_load_mode = '''\tif ac.Mode != "enforce" && ac.Mode != "keyrand" {
+\t\tac.Mode = "monitor"
+\t}'''
+if old_load_mode in go:
+    go = go.replace(old_load_mode, new_load_mode, 1)
+elif new_load_mode not in go:
+    raise SystemExit('[patch-access-plus-ip] access loader mode anchor not found')
+
+old_global_mode = '''\t\tmode = "monitor"
+\t\tif ac.Mode == "enforce" {
+\t\t\tmode = "enforce"
+\t\t}'''
+new_global_mode = '''\t\tmode = "monitor"
+\t\tif ac.Mode == "enforce" || ac.Mode == "keyrand" {
+\t\t\tmode = ac.Mode
+\t\t}'''
+if old_global_mode in go:
+    go = go.replace(old_global_mode, new_global_mode, 1)
+elif new_global_mode not in go:
+    raise SystemExit('[patch-access-plus-ip] global decision mode anchor not found')
+
+old_client_mode = '''\t\t\tif cc.Mode == "enforce" {
+\t\t\t\tmode = "enforce"
+\t\t\t}'''
+new_client_mode = '''\t\t\tif cc.Mode == "enforce" || cc.Mode == "keyrand" {
+\t\t\t\tmode = cc.Mode
+\t\t\t}'''
+if old_client_mode in go:
+    go = go.replace(old_client_mode, new_client_mode, 1)
+elif new_client_mode not in go:
+    raise SystemExit('[patch-access-plus-ip] per-client decision mode anchor not found')
+
+bypass_anchor = 'func olcResolveClientIDWithAccess(requestedID string, cfg Config, bypass bool)'
+bypass_helper = '''func olcAccessOriginalIDBypass(mode string, active, allowed, deny bool) bool {
+\treturn active && allowed && !deny && (mode == "keyrand" || mode == "enforce")
+}
+
+'''
+if 'func olcAccessOriginalIDBypass(' not in go:
+    if bypass_anchor not in go:
+        raise SystemExit('[patch-access-plus-ip] original id bypass anchor not found')
+    go = go.replace(bypass_anchor, bypass_helper + bypass_anchor, 1)
+
+old_resolve = 'olcResolveClientIDWithAccess(requestedID, cfg, olcActive && olcAllowedDev && !olcDeny)'
+new_resolve = 'olcResolveClientIDWithAccess(requestedID, cfg, olcAccessOriginalIDBypass(olcMode, olcActive, olcAllowedDev, olcDeny))'
+if old_resolve in go:
+    go = go.replace(old_resolve, new_resolve, 1)
+elif new_resolve not in go:
+    raise SystemExit('[patch-access-plus-ip] subscription bypass call anchor not found')
+
+# Keep the production default while allowing isolated persistence tests to use
+# a temporary path instead of /var/lib/olcrtc.
+old_path = 'const olcAccessControlPath = "/var/lib/olcrtc/access-control.json"'
+new_path = 'var olcAccessControlPath = "/var/lib/olcrtc/access-control.json"'
+if old_path in go:
+    go = go.replace(old_path, new_path, 1)
+elif new_path not in go:
+    raise SystemExit('[patch-access-plus-ip] access control path anchor not found')
 
 old = 'bip.Enabled && bip.IP != "" && strings.TrimSpace(bip.IP) == ipt'
 if old in go:
@@ -165,6 +230,42 @@ func TestOlcAccessIPRules(t *testing.T) {
 			t.Fatalf("rule %q, ip %q: got %t want %t", tc.rule, tc.ip, got, tc.want)
 		}
 	}
+}
+EOF
+fi
+
+KEYRAND_TEST_GO="$(dirname "$MAIN_GO")/olc_access_keyrand_runtime_test.go"
+if [[ ! -f "$KEYRAND_TEST_GO" ]] || ! grep -q TestOlcAccessGlobalKeyrandPersists "$KEYRAND_TEST_GO"; then
+  cat > "$KEYRAND_TEST_GO" <<EOF
+package main
+
+import (
+  "path/filepath"
+  "testing"
+)
+
+func TestOlcAccessGlobalKeyrandPersists(t *testing.T) {
+  oldPath := olcAccessControlPath
+  olcAccessControlPath = filepath.Join(t.TempDir(), "access-control.json")
+  t.Cleanup(func() { olcAccessControlPath = oldPath })
+  if err := olcAccessSave(olcAccessControl{Enabled: true, Mode: "keyrand"}); err != nil { t.Fatal(err) }
+  got := olcAccessLoad()
+  if !got.Enabled || got.Mode != "keyrand" { t.Fatalf("loaded enabled=%t mode=%q", got.Enabled, got.Mode) }
+}
+
+func TestOlcAccessKeyrandDecisionAndOriginalBypass(t *testing.T) {
+  known := olcAllowedDevice{HWID: "known", Enabled: true}
+  cases := []struct { name string; ac olcAccessControl; wantMode string; wantAllowed, wantBypass bool }{
+    {"global-known-plus", olcAccessControl{Enabled: true, Mode: "keyrand", Devices: []olcAllowedDevice{known}}, "keyrand", true, true},
+    {"global-unknown-plus", olcAccessControl{Enabled: true, Mode: "keyrand", Devices: []olcAllowedDevice{known}}, "keyrand", false, false},
+    {"global-known-off", olcAccessControl{Enabled: true, Mode: "monitor", Devices: []olcAllowedDevice{known}}, "monitor", true, false},
+    {"client-known-plus", olcAccessControl{Clients: map[string]*olcClientAccess{"c": &olcClientAccess{Mode: "keyrand", Allow: []olcAllowedDevice{known}}}}, "keyrand", true, true},
+  }
+  for _, tc := range cases {
+    active, allowed, deny, mode := olcAccessDecision(tc.ac, "c", map[bool]string{true: "unknown", false: "known"}[tc.name == "global-unknown-plus"], "")
+    if mode != tc.wantMode || allowed != tc.wantAllowed { t.Fatalf("%s: mode=%q allowed=%t", tc.name, mode, allowed) }
+    if got := olcAccessOriginalIDBypass(mode, active, allowed, deny); got != tc.wantBypass { t.Fatalf("%s: bypass=%t", tc.name, got) }
+  }
 }
 EOF
 fi
