@@ -268,8 +268,9 @@ apply_olcrtc() {
 
 apply_manager() {
   _olc_substep "Применение патчей backend" 2>/dev/null || true
-  tui_spinner_start "Применение патчей для olcrtc-manager (132 патча)"
+  tui_spinner_start "Применение патчей для olcrtc-manager (134 патча)"
   find "$MGR_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-go-version.sh" "$MGR_REPO"
   # Always run idempotent core patch (upstream main may already have logs API partial)
   bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
   if ! grep -q 'exitProxyReachable' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
@@ -566,6 +567,10 @@ apply_manager() {
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-first-run.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  # Native browser confirms are forbidden: every confirmation uses the same
+  # in-panel mini-modal, including first-run/import and destructive actions.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-confirm-dialogs.sh" \
+    "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then
