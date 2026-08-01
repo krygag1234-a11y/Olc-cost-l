@@ -571,6 +571,12 @@ apply_manager() {
   # survive allow<->ban and selective journals wrap long values.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-access-consistency.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  # Final access UX/data consistency: retained device labels in all four logs,
+  # plain Enter for every input, counter reset on allow and reconnect notes.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-final-access-polish.sh" \
+    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  grep -q 'olc-plain-enter-blur' "$MGR_REPO/src/main.tsx"
+  grep -q 'device_labels,omitempty' "$MGR_REPO/cmd/olcrtc-manager/main.go"
   # Native browser confirms are forbidden: every confirmation uses the same
   # in-panel mini-modal, including first-run/import and destructive actions.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-confirm-dialogs.sh" \

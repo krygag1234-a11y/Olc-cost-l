@@ -369,7 +369,7 @@ if "altCiphers []*crypto.Cipher" not in t:
     t = t.replace("\tTraffic          transport.TrafficConfig\n",
         "\tTraffic          transport.TrafficConfig\n\n\t// Olc-cost-l key-randomization (server-only): hex(64)=32b alt-ключи для\n\t// приёма от НЕразрешённых. Пусто → single-cipher (upstream).\n\tAltKeysHex []string\n", 1)
     t = t.replace("\tAltKeysHex []string\n",
-        "\tAltKeysHex []string\n\tAltKeyMode int\n\tAltKeySecret string\n", 1)
+        "\tAltKeysHex []string\n\tAltKeyMode int\n\tAltKeySecret string\n\tAltKeySeed string\n", 1)
     t = t.replace("\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n",
         "\tln      transport.Transport\n\tpeerLn  transport.PeerTransport\n\tcipher  *crypto.Cipher\n\taltCiphers []*crypto.Cipher // Olc-cost-l key-randomization\n\taltCipherProvider func() []*crypto.Cipher // type 2 current+previous second\n", 1)
     anchor=("\tcipher, err := setupCipher(cfg.KeyHex)\n\tif err != nil {\n"
@@ -378,19 +378,15 @@ if "altCiphers []*crypto.Cipher" not in t:
          "\t\tac, aerr := setupCipher(hx)\n\t\tif aerr != nil {\n\t\t\tlogger.Warnf(\"olc key-rand: bad alt key (skipped): %v\", aerr)\n\t\t\tcontinue\n\t\t}\n"
          "\t\taltCiphers = append(altCiphers, ac)\n\t}\n")
     t = t.replace(anchor, anchor+add, 1)
-    t = t.replace(add, add + "\taltCipherProvider := olcDynamicAltCipherProvider(cfg.AltKeyMode, cfg.AltKeySecret, cfg.KeyHex, time.Now)\n", 1)
+    t = t.replace(add, add + "\taltCipherProvider := olcDynamicAltCipherProvider(cfg.AltKeyMode, cfg.AltKeySecret, cfg.AltKeySeed, time.Now)\n", 1)
     t = t.replace("\ts := &Server{\n\t\tcipher:         cipher,\n",
                   "\ts := &Server{\n\t\tcipher:         cipher,\n\t\taltCiphers:     altCiphers,\n\t\taltCipherProvider: altCipherProvider,\n", 1)
     # helper + acceptHandshake signature + kc
     anchor="func (s *Server) acceptHandshake(ctx context.Context, sess *smux.Session) bool {"
     helper=('''// olcDynamicAltCipherProvider returns current+previous-second ciphers for type 2.
 // The clock is injected so boundary behavior is deterministic in tests.
-func olcDynamicAltCipherProvider(mode int, secret, keyHex string, now func() time.Time) func() []*crypto.Cipher {
-	if mode != 2 || secret == "" || now == nil {
-		return nil
-	}
-	orig, err := hex.DecodeString(strings.TrimSpace(keyHex))
-	if err != nil || len(orig) != 32 {
+func olcDynamicAltCipherProvider(mode int, secret, seed string, now func() time.Time) func() []*crypto.Cipher {
+	if mode != 2 || secret == "" || seed == "" || now == nil {
 		return nil
 	}
 	return func() []*crypto.Cipher {
@@ -398,7 +394,7 @@ func olcDynamicAltCipherProvider(mode int, secret, keyHex string, now func() tim
 		out := make([]*crypto.Cipher, 0, 2)
 		for _, candidateSec := range []int64{sec, sec - 1} {
 			mac := hmac.New(sha256.New, []byte(secret))
-			_, _ = mac.Write(orig)
+			_, _ = mac.Write([]byte(seed))
 			var stamp [8]byte
 			binary.BigEndian.PutUint64(stamp[:], uint64(candidateSec))
 			_, _ = mac.Write(stamp[:])
@@ -448,7 +444,7 @@ if "olcAltKeysFromEnv()" not in z:
     kh="\t\t\tKeyHex:           cfg.KeyHex,\n"
     z=z.replace(kh, kh+"\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n", 1)  # 1-е вхождение = server.Config
     z=z.replace("\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n",
-        "\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n\t\t\tAltKeyMode:       olcAltKeyModeFromEnv(),\n\t\t\tAltKeySecret:     olcAltKeySecretFromEnv(),\n", 1)
+        "\t\t\tAltKeysHex:       olcAltKeysFromEnv(), // Olc-cost-l key-randomization (OLCRTC_ALT_KEYS)\n\t\t\tAltKeyMode:       olcAltKeyModeFromEnv(),\n\t\t\tAltKeySecret:     olcAltKeySecretFromEnv(),\n\t\t\tAltKeySeed:       olcAltKeySeedFromEnv(),\n", 1)
     zp.write_text(z)
     print("[patch-core-key-rand] session.go: AltKeysHex")
 else:
@@ -470,13 +466,10 @@ import (
 )
 
 func TestOlcDynamicAltCipherProviderCurrentAndPrevious(t *testing.T) {
-	original := make([]byte, 32)
-	for i := range original {
-		original[i] = byte(i + 1)
-	}
+	const seed = "client-a\x00room-a"
 	const secret = "fixed-test-secret"
 	const nowSec int64 = 1_900_000_000
-	provider := olcDynamicAltCipherProvider(2, secret, hex.EncodeToString(original), func() time.Time {
+	provider := olcDynamicAltCipherProvider(2, secret, seed, func() time.Time {
 		return time.Unix(nowSec, 0)
 	})
 	if provider == nil {
@@ -488,7 +481,7 @@ func TestOlcDynamicAltCipherProviderCurrentAndPrevious(t *testing.T) {
 	}
 	for i, sec := range []int64{nowSec, nowSec - 1} {
 		mac := hmac.New(sha256.New, []byte(secret))
-		_, _ = mac.Write(original)
+		_, _ = mac.Write([]byte(seed))
 		var stamp [8]byte
 		binary.BigEndian.PutUint64(stamp[:], uint64(sec))
 		_, _ = mac.Write(stamp[:])
@@ -509,10 +502,10 @@ func TestOlcDynamicAltCipherProviderCurrentAndPrevious(t *testing.T) {
 }
 
 func TestOlcDynamicAltCipherProviderDisabled(t *testing.T) {
-	if got := olcDynamicAltCipherProvider(1, "secret", string(make([]byte, 64)), time.Now); got != nil {
+	if got := olcDynamicAltCipherProvider(1, "secret", "seed", time.Now); got != nil {
 		t.Fatal("provider enabled outside type 2")
 	}
-	if got := olcDynamicAltCipherProvider(2, "", string(make([]byte, 64)), time.Now); got != nil {
+	if got := olcDynamicAltCipherProvider(2, "", "seed", time.Now); got != nil {
 		t.Fatal("provider enabled without secret")
 	}
 }
@@ -580,6 +573,10 @@ func olcAltKeyModeFromEnv() int {
 
 func olcAltKeySecretFromEnv() string {
 	return strings.TrimSpace(os.Getenv("OLCRTC_ALT_KEY_SECRET"))
+}
+
+func olcAltKeySeedFromEnv() string {
+	return os.Getenv("OLCRTC_ALT_KEY_SEED")
 }
 
 '''

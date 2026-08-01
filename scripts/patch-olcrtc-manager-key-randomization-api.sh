@@ -130,8 +130,14 @@ func olcKeyRandForClient(clientID string) (bool, int, string) {
 	return false, 0, rc.Secret
 }
 
+// olcKeyRandSeed is stable across original-key rotations.  The randomized key
+// belongs to an instance identity, not to the current primary key.
+func olcKeyRandSeed(loc Location) string {
+	return strings.TrimSpace(loc.ClientID) + "\x00" + strings.TrimSpace(loc.Endpoint.RoomID)
+}
+
 // olcAltKeysForLocation — рандомизированные ключи для инстанса (env OLCRTC_ALT_KEYS).
-// Тип1: один статичный ключ HMAC(secret, origKeyBytes)[:32] → hex(64). Тип2:
+// Тип1: один статичный ключ HMAC(secret, clientID\x00roomID)[:32] → hex(64). Тип2:
 // посекундный — деривит САМ core (часть 6), тут пусто. Оригинальный ключ инстанса
 // (loc.Endpoint.Key) НЕ меняется — это второй, производный ключ расшифровки.
 func olcAltKeysForLocation(loc Location) []string {
@@ -139,12 +145,12 @@ func olcAltKeysForLocation(loc Location) []string {
 	if !en || secret == "" || rt == 2 {
 		return nil
 	}
-	ob, err := hex.DecodeString(strings.TrimSpace(loc.Endpoint.Key))
-	if err != nil || len(ob) != 32 {
+	seed := olcKeyRandSeed(loc)
+	if seed == "\x00" {
 		return nil
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(ob)
+	mac.Write([]byte(seed))
 	sum := mac.Sum(nil) // 32 байта
 	return []string{hex.EncodeToString(sum[:32])}
 }
