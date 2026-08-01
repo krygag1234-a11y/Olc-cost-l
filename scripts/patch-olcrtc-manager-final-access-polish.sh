@@ -187,6 +187,21 @@ function AccessControlSection() {''', 'history reset helper')
 tsx = tsx.replace('{knownDev?.label?.trim() || hwid ||', '{a.label?.trim() || knownDev?.label?.trim() || hwid ||')
 tsx = tsx.replace('{knownDev?.label?.trim() && <span', '{(a.label?.trim() || knownDev?.label?.trim()) && <span')
 tsx = tsx.replace('dev: gdev,\n              rows:', 'dev: gdev,\n              label: rows.map((r: any) => String(r.label || "").trim()).find(Boolean) || "",\n              rows:')
+
+# The compact per-client log modal is separate from both access-control
+# modals. Prefer the server-hydrated label there as well.
+tsx = one(tsx, '{a.hwid ||', '{a.label?.trim() || a.hwid ||', 'client subscription log label')
+tsx = one(tsx, '{c.device ||', '{c.label?.trim() || c.device ||', 'client connection log label')
+
+# Grouped connection logs use the group label, not an attempt-loop variable.
+bad_group_label = '{knownDev?.label?.trim() || dev || "—"}{(a.label?.trim() || knownDev?.label?.trim()) && <span'
+good_group_label = '{g.label || knownDev?.label?.trim() || dev || "—"}{(g.label || knownDev?.label?.trim()) && <span'
+if bad_group_label in tsx:
+    if tsx.count(bad_group_label) != 2:
+        raise SystemExit(f'[final-access] grouped connection labels: expected 2, got {tsx.count(bad_group_label)}')
+    tsx = tsx.replace(bad_group_label, good_group_label)
+elif tsx.count(good_group_label) != 2:
+    raise SystemExit(f'[final-access] grouped connection label anchor missing: {tsx.count(good_group_label)}')
 tsx = tsx.replace('▷ {dev || "—"}', '▷ {g.label || dev || "—"}')
 
 # Allowed is a full blue status, not stale denied/kicked counters.  Removing it
@@ -212,6 +227,9 @@ tsx = tsx.replace(selective_anchor, selective_anchor + f'\n              <div cl
 if tsx.count('olc-plain-enter-blur') != 1: raise SystemExit('[final-access] plain Enter guard missing')
 if tsx.count('Разрешённый</span>') != 2: raise SystemExit(f'[final-access] allowed badges: {tsx.count("Разрешённый</span>")}')
 if tsx.count(note) != 2: raise SystemExit(f'[final-access] stabilization notes: {tsx.count(note)}')
+if tsx.count('{a.label?.trim() || a.hwid ||') != 1: raise SystemExit('[final-access] client subscription label guard missing')
+if tsx.count('{c.label?.trim() || c.device ||') != 1: raise SystemExit('[final-access] client connection label guard missing')
+if tsx.count(good_group_label) != 2: raise SystemExit('[final-access] grouped connection label guard missing')
 
 gp.write_text(go); tp.write_text(tsx)
 print('[final-access] labels TTL, log cards, Enter and stabilization notes applied')
