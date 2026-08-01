@@ -146,14 +146,41 @@ if 'olcClearDeviceHistory' not in tsx:
 
 function AccessControlSection() {''', 'history reset helper')
     # Direct and confirmed transitions in both global and selective sections.
-    tsx = tsx.replace('run: () => void saveSettings({ conn_ban:', 'run: () => { olcClearDeviceHistory(h); void saveSettings({ conn_ban:', 1).replace('conn_devices: [...connDevices, { hwid: h, enabled: true }] }) });', 'conn_devices: [...connDevices, { hwid: h, enabled: true }] }); } });', 1)
-    tsx = tsx.replace('void saveSettings({ conn_devices: [...connDevices, { hwid: h, enabled: true }] });', 'olcClearDeviceHistory(h); void saveSettings({ conn_devices: [...connDevices, { hwid: h, enabled: true }] });', 1)
-    tsx = tsx.replace('run: () => { setNewHwid(""); void saveSettings({ ban:', 'run: () => { setNewHwid(""); olcClearDeviceHistory(h); void saveSettings({ ban:', 1)
-    tsx = tsx.replace('await saveSettings({ devices:', 'olcClearDeviceHistory(h); await saveSettings({ devices:', 1)
-    tsx = tsx.replace('run: () => void save({ conn_ban:', 'run: () => { olcClearDeviceHistory(h); void save({ conn_ban:', 1).replace('conn_allow: [...connAllow, { hwid: h, enabled: true }] }) });', 'conn_allow: [...connAllow, { hwid: h, enabled: true }] }); } });', 1)
-    tsx = tsx.replace('void save({ conn_allow: [...connAllow, { hwid: h, enabled: true }] });', 'olcClearDeviceHistory(h); void save({ conn_allow: [...connAllow, { hwid: h, enabled: true }] });', 1)
-    tsx = tsx.replace('run: () => { setNewAllow(""); void save({ ban:', 'run: () => { setNewAllow(""); olcClearDeviceHistory(h); void save({ ban:', 1)
-    tsx = tsx.replace('setNewAllow(""); void save({ allow:', 'setNewAllow(""); olcClearDeviceHistory(h); void save({ allow:', 1)
+    # These anchors intentionally match the output of the earlier device-label
+    # patch (namedGlobalDevice/namedClientDevice), so a partial callback rewrite
+    # cannot leave invalid TSX behind.
+    tsx = one(tsx,
+        'run: () => void saveSettings({ conn_ban: dropH(connBan, h), conn_devices: [...connDevices, namedGlobalDevice(h)] })',
+        'run: () => { olcClearDeviceHistory(h); void saveSettings({ conn_ban: dropH(connBan, h), conn_devices: [...connDevices, namedGlobalDevice(h)] }); }',
+        'global confirmed connection allow')
+    tsx = one(tsx,
+        'void saveSettings({ conn_devices: [...connDevices, namedGlobalDevice(h)] });',
+        'olcClearDeviceHistory(h); void saveSettings({ conn_devices: [...connDevices, namedGlobalDevice(h)] });',
+        'global direct connection allow')
+    tsx = one(tsx,
+        'run: () => { setNewHwid(""); void saveSettings({ ban: dropH(ban, h), devices: [...devices, namedGlobalDevice(h)] }); }',
+        'run: () => { setNewHwid(""); olcClearDeviceHistory(h); void saveSettings({ ban: dropH(ban, h), devices: [...devices, namedGlobalDevice(h)] }); }',
+        'global confirmed subscription allow')
+    tsx = one(tsx,
+        'setNewHwid("");\n    await saveSettings({ devices: [...devices, namedGlobalDevice(h)] });',
+        'setNewHwid("");\n    olcClearDeviceHistory(h); await saveSettings({ devices: [...devices, namedGlobalDevice(h)] });',
+        'global direct subscription allow')
+    tsx = one(tsx,
+        'run: () => void save({ conn_ban: dropHwid(connBan, h), conn_allow: [...connAllow, namedClientDevice(h)] })',
+        'run: () => { olcClearDeviceHistory(h); void save({ conn_ban: dropHwid(connBan, h), conn_allow: [...connAllow, namedClientDevice(h)] }); }',
+        'selective confirmed connection allow')
+    tsx = one(tsx,
+        'void save({ conn_allow: [...connAllow, namedClientDevice(h)] });',
+        'olcClearDeviceHistory(h); void save({ conn_allow: [...connAllow, namedClientDevice(h)] });',
+        'selective direct connection allow')
+    tsx = one(tsx,
+        'run: () => { setNewAllow(""); void save({ ban: dropHwid(ban, h), allow: [...allow, namedClientDevice(h)] }); }',
+        'run: () => { setNewAllow(""); olcClearDeviceHistory(h); void save({ ban: dropHwid(ban, h), allow: [...allow, namedClientDevice(h)] }); }',
+        'selective confirmed subscription allow')
+    tsx = one(tsx,
+        'setNewAllow(""); void save({ allow: [...allow, namedClientDevice(h)] });',
+        'setNewAllow(""); olcClearDeviceHistory(h); void save({ allow: [...allow, namedClientDevice(h)] });',
+        'selective direct subscription allow')
 
 # Names are returned with log records, so they remain visible even when a device
 # currently lives only in a ban list or in the 30-day retained registry.
