@@ -222,11 +222,24 @@ note = 'Изменения доступа во время активного п�
 anchor = '<div className="text-[11px] text-muted-foreground">Устройства (device), реально подключавшиеся к инстансам'
 tsx = tsx.replace(anchor, f'<div className="rounded border border-sky-500/25 bg-sky-500/5 px-2 py-1 text-[10px] text-sky-200">{note}</div>\n            {anchor}')
 selective_anchor = '<div className="text-xs font-semibold text-foreground">🔌 Журнал подключений (эта подписка)</div>'
-tsx = tsx.replace(selective_anchor, selective_anchor + f'\n              <div className="rounded border border-sky-500/25 bg-sky-500/5 px-2 py-1 text-[10px] text-sky-200">{note}</div>')
+selective_start = tsx.find(selective_anchor)
+if selective_start < 0:
+    raise SystemExit('[final-access] selective connection journal anchor missing')
+# The title and the action buttons share one flex row. Put the explanatory
+# block after that row so it spans the card instead of squeezing the title.
+selective_header_close = '\n            </div>'
+selective_end = tsx.find(selective_header_close, selective_start)
+if selective_end < 0:
+    raise SystemExit('[final-access] selective connection journal header close missing')
+selective_end += len(selective_header_close)
+selective_note = f'\n            <div className="w-full rounded border border-sky-500/25 bg-sky-500/5 px-2 py-1 text-[10px] leading-relaxed text-sky-200">{note}</div>'
+if tsx[selective_end:selective_end + len(selective_note)] != selective_note:
+    tsx = tsx[:selective_end] + selective_note + tsx[selective_end:]
 
 if tsx.count('olc-plain-enter-blur') != 1: raise SystemExit('[final-access] plain Enter guard missing')
 if tsx.count('Разрешённый</span>') != 2: raise SystemExit(f'[final-access] allowed badges: {tsx.count("Разрешённый</span>")}')
 if tsx.count(note) != 2: raise SystemExit(f'[final-access] stabilization notes: {tsx.count(note)}')
+if tsx.count('w-full rounded border border-sky-500/25 bg-sky-500/5 px-2 py-1 text-[10px] leading-relaxed text-sky-200') != 1: raise SystemExit('[final-access] selective note layout guard missing')
 if tsx.count('{a.label?.trim() || a.hwid ||') != 1: raise SystemExit('[final-access] client subscription label guard missing')
 if tsx.count('{c.label?.trim() || c.device ||') != 1: raise SystemExit('[final-access] client connection label guard missing')
 if tsx.count(good_group_label) != 2: raise SystemExit('[final-access] grouped connection label guard missing')
