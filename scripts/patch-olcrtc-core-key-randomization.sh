@@ -597,17 +597,23 @@ new='''func olcAccessConnDecide(deviceID string) bool {
 // не отклонять «неизвестных» по классу ключа (живая сессия прошла handshake). fail-open.
 func olcAccessDecideConnFull(deviceID string, keyClass int, recheck bool) bool {
 	dev := strings.TrimSpace(deviceID)
+	// keyClass is produced by the transport, independently from access-control:
+	// -1 means no alternate crypto key is configured, 0 means the original key
+	// authenticated the connection, 1 means a randomized key did. Therefore
+	// access mode "off" must still reject class 0 whenever crypto randomization
+	// is active; an inactive allowlist must never bypass key randomization.
+	cryptoDefaultAllow := keyClass != 0
 	data, err := os.ReadFile(olcAccessControlPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			olcAccWarnf("olc-access: read config failed (fail-open): %v", err)
+			olcAccWarnf("olc-access: read config failed (access fail-open, crypto preserved): %v", err)
 		}
-		return true
+		return cryptoDefaultAllow
 	}
 	var ac olcAccControl
 	if err := json.Unmarshal(data, &ac); err != nil {
-		olcAccWarnf("olc-access: parse config failed (fail-open): %v", err)
-		return true
+		olcAccWarnf("olc-access: parse config failed (access fail-open, crypto preserved): %v", err)
+		return cryptoDefaultAllow
 	}
 	room := strings.TrimSpace(os.Getenv("OLCRTC_ROOM_ID"))
 	var (
@@ -636,7 +642,7 @@ func olcAccessDecideConnFull(deviceID string, keyClass int, recheck bool) bool {
 		}
 	}
 	if !scoped {
-		return true
+		return cryptoDefaultAllow
 	}
 	if (mode == "enforce" || mode == "keyrand") && scope == "selective" {
 		inList := false
@@ -660,7 +666,10 @@ func olcAccessDecideConnFull(deviceID string, keyClass int, recheck bool) bool {
 		if olcAccMatch(ban, dev) {
 			return false
 		}
-		if recheck {
+		// keyClass < 0 means crypto-key randomization is not active for this
+		// instance (scope=client_id or randomization disabled). In that case the
+		// + mode restricts only client_id and keeps original crypto keys valid.
+		if keyClass < 0 {
 			return true
 		}
 		return keyClass == 1
@@ -668,10 +677,11 @@ func olcAccessDecideConnFull(deviceID string, keyClass int, recheck bool) bool {
 		if !olcAccDecideBanOnly(dev, banNoHwid, ban) {
 			return false
 		}
-		// Crypto enforcement requires explicit keyrand mode because only access
-		// control can distinguish an allowed original-key device from an unknown
-		// one. In off mode both key classes stay compatible (ban still applies).
-		return true
+		// Access control is off: the allowlist is intentionally ignored. Crypto
+		// randomization remains authoritative, so only a randomized key is valid
+		// when alternate ciphers are active. Without crypto randomization
+		// keyClass is -1 and the upstream original-key path remains compatible.
+		return cryptoDefaultAllow
 	}
 }
 '''

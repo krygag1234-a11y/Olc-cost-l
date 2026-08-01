@@ -87,15 +87,9 @@ g=rep(g,'\t\tolcIP := remoteHost(r)\n\t\tolcActive, olcAllowedDev, olcDeny, olcM
 g=rep(g,'ClientID: requestedID, Path: r.URL.Path, Allowed: olcPass,','ClientID: olcCanonicalID, Path: r.URL.Path, Allowed: olcPass,','canonical log')
 g=rep(g,'\t\tcfg.GlobalSettings.Subscription.RandScope = sc\n\t\tif err := saveConfig(configPath, cfg); err != nil {\n\t\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n\t\t\treturn\n\t\t}','\t\toldCfg := cfg\n\t\tac := olcAccessLoad()\n\t\tsubReset, connReset, transitionErr := olcApplyRandScopeTransition(&cfg, &ac, sc)\n\t\tif transitionErr != nil { http.Error(w, transitionErr.Error(), http.StatusInternalServerError); return }\n\t\tif err := saveConfig(configPath, cfg); err != nil { http.Error(w, err.Error(), http.StatusInternalServerError); return }\n\t\tif subReset > 0 || connReset > 0 {\n\t\t\tif err := olcAccessSave(ac); err != nil { _ = saveConfig(configPath, oldCfg); http.Error(w, err.Error(), http.StatusInternalServerError); return }\n\t\t}','scope transaction')
 g=rep(g,'writeJSONStatus(w, http.StatusOK, map[string]any{"rand_scope": sc})','writeJSONStatus(w, http.StatusOK, map[string]any{"rand_scope": sc, "subscription_plus_reset": subReset, "connection_plus_reset": connReset})','scope response')
-t=rep(t,'  const [randScopeSel, setRandScopeSel] = useState("both");','  const [randScopeSel, setRandScopeSel] = useState("both");\n  const [randScopeSaving, setRandScopeSaving] = useState(false);\n  const [randScopeMsg, setRandScopeMsg] = useState("");','scope UI state')
+t=rep(t,'  const [randScopeSel, setRandScopeSel] = useState("both");','  const [randScopeSel, setRandScopeSel] = useState("both");\n  const [randScopeSaving, setRandScopeSaving] = useState(false);\n  const [randScopeMsg, setRandScopeMsg] = useState("");\n  const [randScopePending, setRandScopePending] = useState<null | "crypto" | "client_id">(null);','scope UI state')
 t=rep(t,'  const saveRandScope = (s: string) => { setRandScopeSel(s); void fetch("/api/settings/randomization/scope", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rand_scope: s }) }).catch(() => {}); };','''  const saveRandScope = async (s: string) => {
     if (s === randScopeSel || randScopeSaving) return;
-    const warning = s === "crypto"
-      ? "Переключить на «Только ключи»? Старые рандомизированные client_id станут недействительны без восстановления. Режим «+» для 🎫 будет сброшен на «Выкл» глобально и у отдельных клиентов."
-      : s === "client_id"
-        ? "Переключить на «Только client_id»? Старые рандомизированные криптоключи станут недействительны без восстановления. Режим «+» для 🔌 будет сброшен на «Выкл» глобально и у отдельных клиентов."
-        : "";
-    if (warning && !window.confirm(warning)) return;
     setRandScopeSaving(true); setRandScopeMsg("");
     try {
       const r = await fetch("/api/settings/randomization/scope", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rand_scope: s }) });
@@ -104,8 +98,45 @@ t=rep(t,'  const saveRandScope = (s: string) => { setRandScopeSel(s); void fetch
       window.dispatchEvent(new Event("olc-randomization-saved"));
     } catch (e: any) { setRandScopeMsg(e?.message || "Не удалось сохранить область рандомизации"); }
     finally { setRandScopeSaving(false); }
+  };
+  const requestRandScope = (s: string) => {
+    if (s === randScopeSel || randScopeSaving) return;
+    if (s === "crypto" || s === "client_id") {
+      setRandScopePending(s);
+      return;
+    }
+    void saveRandScope(s);
   };''','scope save')
-t=rep(t,'<button type="button" onClick={() => saveRandScope(val)}','<button type="button" disabled={randScopeSaving} onClick={() => void saveRandScope(val)}','scope button')
+t=rep(t,'<button type="button" onClick={() => saveRandScope(val)}','<button type="button" disabled={randScopeSaving} onClick={() => requestRandScope(val)}','scope button')
+t=rep(t,'  const toggle = () => { const v = !open; setOpen(v); writeStoredBool("olc-addrand-open-v1", v); };\n  return (\n    <div className="grid gap-2 rounded-md border border-border bg-card/30 p-3">','''  const toggle = () => { const v = !open; setOpen(v); writeStoredBool("olc-addrand-open-v1", v); };
+  const pendingTitle = randScopePending === "crypto"
+    ? "Переключение на «Только ключи»"
+    : "Переключение на «Только client_id»";
+  const pendingText = randScopePending === "crypto"
+    ? "Старые статические и динамические рандомизированные client_id станут недействительны без восстановления. Режим 🎫 «+» будет постоянно сброшен на «Выкл» глобально и у отдельных клиентов. Крипто-рандомизация останется включена: при режиме 🔌 «Выкл» список разрешённых выключен, оригинальные ключи не принимаются. Используйте рандомизированные ключи, настройте «+»/«Блокировать неизвестных» либо отключите рандомизацию."
+    : "Старые статические и динамические рандомизированные криптоключи станут недействительны без восстановления. Режим 🔌 «+» будет постоянно сброшен на «Выкл» глобально и у отдельных клиентов. Рандомизация client_id останется включена: при режиме 🎫 «Выкл» список разрешённых выключен, оригинальный client_id не принимается. Используйте рандомизированный URL, настройте «+»/«Блокировать неизвестных» либо отключите рандомизацию.";
+  return (
+    <>
+    {randScopePending && (
+      <div className="fixed inset-0 z-[80] grid place-items-center bg-black/65 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setRandScopePending(null); }}>
+        <div className="w-full max-w-lg rounded-lg border border-amber-500/40 bg-card p-4 shadow-2xl">
+          <div className="text-base font-semibold text-foreground">{pendingTitle}</div>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{pendingText}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted" onClick={() => setRandScopePending(null)}>Отмена</button>
+            <button type="button" className="rounded-md border border-amber-500/60 bg-amber-500/15 px-3 py-1.5 text-sm text-amber-300 hover:bg-amber-500/25" onClick={() => { const next = randScopePending; setRandScopePending(null); if (next) void saveRandScope(next); }}>Переключить</button>
+          </div>
+        </div>
+      </div>
+    )}
+    <div className="grid gap-2 rounded-md border border-border bg-card/30 p-3">''','scope mini-modal')
+t=rep(t,'    </div>\n  );\n}\n\n// ============================================================================\n// Olc-cost-l: Info-модалка отдельного инстанса.','''    </div>
+    </>
+  );
+}
+
+// ============================================================================
+// Olc-cost-l: Info-модалка отдельного инстанса.''','scope mini-modal close')
 t=rep(t,'            <div className="text-[10px] leading-snug text-muted-foreground">Определяет применение','            {randScopeMsg && <div className="text-[11px] text-red-500">{randScopeMsg}</div>}\n            <div className="text-[10px] leading-snug text-muted-foreground">Определяет применение','scope error')
 t=rep(t,'  const [globalRandomizationEnabled, setGlobalRandomizationEnabled] = useState(false);','  const [globalRandomizationEnabled, setGlobalRandomizationEnabled] = useState(false);\n  const [globalRandomizationScope, setGlobalRandomizationScope] = useState("both");','App scope')
 t=rep(t,'      const randBody = (await randRes.json()) as { enabled: boolean };\n      setGlobalRandomizationEnabled(randBody.enabled ?? false);','      const randBody = (await randRes.json()) as { enabled: boolean; rand_scope?: string };\n      setGlobalRandomizationEnabled(randBody.enabled ?? false);\n      setGlobalRandomizationScope(randBody.rand_scope === "crypto" || randBody.rand_scope === "client_id" ? randBody.rand_scope : "both");','load scope')

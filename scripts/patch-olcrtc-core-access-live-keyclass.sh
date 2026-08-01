@@ -163,6 +163,27 @@ func TestOlcAccessLiveKeyClassMatrix(t *testing.T) {
 	if !olcAccessDecideConnFull("allowed", 0, true) {
 		t.Fatal("enforce must keep an allowed original-key device")
 	}
+
+	writeMode("off")
+	for _, tc := range []struct {
+		name     string
+		device   string
+		keyClass int
+		want     bool
+	}{
+		{"allowlist ignored for original", "allowed", 0, false},
+		{"unknown original rejected", "unknown", 0, false},
+		{"allowed randomized accepted", "allowed", 1, true},
+		{"unknown randomized accepted", "unknown", 1, true},
+		{"no crypto randomization keeps upstream key", "unknown", -1, true},
+		{"ban overrides randomized", "banned", 1, false},
+	} {
+		t.Run("off "+tc.name, func(t *testing.T) {
+			if got := olcAccessDecideConnFull(tc.device, tc.keyClass, true); got != tc.want {
+				t.Fatalf("live decision=%v want=%v", got, tc.want)
+			}
+		})
+	}
 }
 GOTEST
 gofmt -w "$(dirname "$hook")/olc_access_live_keyclass_test.go"

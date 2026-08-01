@@ -113,7 +113,10 @@ if conn_label_count == 0 and text.count('{(connOff && !connKr) ? " — ') < 2:
 rand_mount = '  useEffect(() => { void loadAll(); }, []);'
 rand_refresh = '''  useEffect(() => { void loadAll(); }, []);
   useEffect(() => {
-    const refreshRand = () => { void loadRand(); };
+    // Scope transitions may atomically reset global access modes as well as
+    // randomization. Reload both snapshots so a stale global '+' cannot appear
+    // again when the scope later returns to "both".
+    const refreshRand = () => { void loadSettings(); void loadRand(); };
     window.addEventListener("olc-randomization-saved", refreshRand);
     const id = window.setInterval(refreshRand, 1500);
     return () => { window.removeEventListener("olc-randomization-saved", refreshRand); window.clearInterval(id); };

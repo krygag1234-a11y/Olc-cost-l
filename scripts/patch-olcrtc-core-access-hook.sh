@@ -395,6 +395,13 @@ func TestOlcAccessKeyrandMatrix(t *testing.T) {
 		}
 	}
 
+	if olcAccessDecideConnFull("unknown", 0, false) {
+		t.Fatal("missing access config must not bypass an active randomized crypto key")
+	}
+	if !olcAccessDecideConnFull("unknown", 1, false) || !olcAccessDecideConnFull("unknown", -1, false) {
+		t.Fatal("missing access config must allow randomized or non-randomized crypto paths")
+	}
+
 	writeConfig("keyrand", "all", `[]`)
 	cases := []struct {
 		name     string
@@ -418,8 +425,20 @@ func TestOlcAccessKeyrandMatrix(t *testing.T) {
 	}
 
 	writeConfig("off", "all", `[]`)
-	if !olcAccessDecideConnFull("unknown", 0, false) || !olcAccessDecideConnFull("unknown", 1, false) {
-		t.Fatal("off mode must keep original and randomized keys compatible")
+	for _, tc := range []struct {
+		name     string
+		keyClass int
+		want     bool
+	}{
+		{"type1 original", 0, false},
+		{"type1 randomized", 1, true},
+		{"type2 original", 0, false},
+		{"type2 randomized", 1, true},
+		{"crypto disabled", -1, true},
+	} {
+		if got := olcAccessDecideConnFull("allowed", tc.keyClass, false); got != tc.want {
+			t.Fatalf("off %s decision=%v want=%v", tc.name, got, tc.want)
+		}
 	}
 	if olcAccessDecideConnFull("banned", 1, false) {
 		t.Fatal("ban must still apply in off mode")
