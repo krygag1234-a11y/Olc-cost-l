@@ -567,6 +567,10 @@ apply_manager() {
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-first-run.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  # Ordered access-control saves without blocking rapid interaction; labels
+  # survive allow<->ban and selective journals wrap long values.
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-consistency.sh" \
+    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
   # Native browser confirms are forbidden: every confirmation uses the same
   # in-panel mini-modal, including first-run/import and destructive actions.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-confirm-dialogs.sh" \
