@@ -3,15 +3,17 @@ set -euo pipefail
 MAIN_GO="${1:?usage: $0 <main.go> <main.tsx>}"
 MAIN_TSX="${2:?usage: $0 <main.go> <main.tsx>}"
 python3 - "$MAIN_GO" "$MAIN_TSX" <<'PY'
-import pathlib, sys
+import pathlib, re, sys
 gp,tp=map(pathlib.Path,sys.argv[1:3]);g,t=gp.read_text(),tp.read_text()
 def rep(s,o,n,label):
     if n in s:return s
     if o not in s:raise SystemExit(f"[scope-transition] missing {label}")
     return s.replace(o,n,1)
 q=chr(96)
-g=rep(g,'\tRandomizationSecret string          '+q+'json:"randomization_secret,omitempty"'+q,
- '\tRandomizationSecret       string          '+q+'json:"randomization_secret,omitempty"'+q+'\n\tCryptoRandomizationSecret string          '+q+'json:"crypto_randomization_secret,omitempty"'+q,'Config secret')
+if 'crypto_randomization_secret,omitempty' not in g:
+    g,n=re.subn(r'(?m)^(\tRandomizationSecret\s+string\s+.*randomization_secret,omitempty.*)$',
+                r'\1\n\tCryptoRandomizationSecret string          '+q+'json:"crypto_randomization_secret,omitempty"'+q,g,count=1)
+    if n != 1: raise SystemExit('[scope-transition] missing Config secret')
 g=rep(g,'\ts.cfg.RandomizationSecret = cfg.RandomizationSecret','\ts.cfg.RandomizationSecret = cfg.RandomizationSecret\n\ts.cfg.CryptoRandomizationSecret = cfg.CryptoRandomizationSecret','Supervisor secret')
 helpers='''func olcNewRandomizationSecret() (string, error) {
 \tbuf := make([]byte, 32)
