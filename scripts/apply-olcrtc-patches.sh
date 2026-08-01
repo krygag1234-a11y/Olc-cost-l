@@ -559,6 +559,8 @@ apply_manager() {
   # Final global 🎫 autosave, wrapped subscription journal and IP/CIDR/range rules.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-global-sub-plus-ip-ranges.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-rand-scope-transitions.sh" \
+    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
   # Auth: expired lockouts start a fresh counter; HTTP 429 is explained in the login form.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-lockout-ux.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
