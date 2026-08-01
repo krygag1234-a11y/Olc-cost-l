@@ -30,10 +30,12 @@ if 'type olcDeviceLabelState struct {' not in go:
 }
 
 type olcAccessControl struct {''', 'label state type')
-    go = one(go,
-        '\tClients      map[string]*olcClientAccess `json:"clients,omitempty"`',
-        '\tClients      map[string]*olcClientAccess `json:"clients,omitempty"`\n\tDeviceLabels map[string]olcDeviceLabelState `json:"device_labels,omitempty"`',
-        'label state field')
+    go, n = re.subn(
+        r'(?m)^(\s*AllowedHWIDs\s+\[\]string\s+`json:"allowed_hwids,omitempty"`.*)$',
+        '\tDeviceLabels map[string]olcDeviceLabelState `json:"device_labels,omitempty"`\n' + r'\1',
+        go, count=1,
+    )
+    if n != 1: raise SystemExit('[final-access] label state field: anchor missing')
     go = one(go, '\tAllowed  bool   `json:"allowed"`', '\tAllowed  bool   `json:"allowed"`\n\tLabel    string `json:"label,omitempty"`', 'attempt label')
     go = one(go, '\tDevice       string `json:"device"`', '\tDevice       string `json:"device"`\n\tLabel        string `json:"label,omitempty"`', 'connection label')
 
