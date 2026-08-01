@@ -56,7 +56,9 @@ var adminAssets embed.FS
 var managerStartedAt = time.Now()
 
 var authLimiter = newAuthLimiter()
-var adminSessions *sessionStore
+// Keep handlers safe before main() installs the config-specific persistent store.
+// This also preserves the package-level contract used by upstream handler tests.
+var adminSessions = newSessionStore()
 var adminConfigPath string
 
 var (
@@ -7180,4 +7182,3 @@ func preflightJitsiRoom(roomID string) jitsiPreflightResponse {
 	}
 	return out
 }
-

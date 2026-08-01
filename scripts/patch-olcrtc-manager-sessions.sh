@@ -90,7 +90,9 @@ func newSessionStoreForConfig(configPath string) *sessionStore {
     1,
 )
 
-t = t.replace("var adminSessions = newSessionStore()", "var adminSessions *sessionStore", 1)
+# Keep a usable store before main() replaces it with the config-specific
+# persistent store. Handlers and package tests may run before main().
+t = t.replace("var adminSessions *sessionStore", "var adminSessions = newSessionStore()", 1)
 
 if "adminSessions = newSessionStoreForConfig" not in t:
     t = t.replace(

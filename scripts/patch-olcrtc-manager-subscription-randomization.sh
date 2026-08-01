@@ -189,6 +189,16 @@ func resolveClientID(requestedID string, cfg Config) (string, error) {
 \t\t}
 \t}
 
+\t// Legacy/upstream configs may expose clients only through the flat
+\t// cfg.Locations list. With no Client record there is no per-client
+\t// randomization state to hide the original ID, so retain the original
+\t// subscription handler behaviour for that format.
+\tfor _, loc := range cfg.Locations {
+\t\tif loc.ClientID == requestedID {
+\t\t\treturn requestedID, nil
+\t\t}
+\t}
+
 \t// 2. requested == статичный RandomizedID (тип 1).
 \tfor _, client := range cfg.Clients {
 \t\tif requestedID != "" && client.Randomization != nil && client.Randomization.RandomizedID == requestedID {
