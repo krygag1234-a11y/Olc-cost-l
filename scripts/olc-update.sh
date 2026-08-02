@@ -252,8 +252,10 @@ main() {
   # Git pull с русским языком (только если есть обновления)
   if [[ "$repo_uptodate" -eq 0 ]]; then
     tui_status "Обновление репозитория из GitHub…"
-    if [[ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ]]; then
-      tui_fatal "Репозиторий содержит локальные изменения" "olc-update не будет сбрасывать или удалять их автоматически" "Сохраните изменения в commit/stash и повторите обновление"
+    local unmanaged_dirty
+    unmanaged_dirty="$(git -C "$repo" status --porcelain 2>/dev/null | sed 's/^...//' | grep -Ev '^data/zapret-community-excludes/' || true)"
+    if [[ -n "$unmanaged_dirty" ]]; then
+      tui_fatal "Репозиторий содержит локальные изменения" "olc-update не будет сбрасывать или удалять их автоматически: $unmanaged_dirty" "Сохраните изменения в commit/stash и повторите обновление"
     fi
     # Локаль: не форсировать ru_RU.UTF-8 если она не сгенерирована на хосте
     # (иначе bash печатает «warning: setlocale…» на каждый вызов)
