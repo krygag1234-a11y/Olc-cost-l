@@ -634,10 +634,13 @@ build_binaries() {
     export PATH="/usr/local/go/bin:$PATH"
   fi
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
-  # Stable paths для Go build — избегаем race conditions в /tmp
+  # Transient systemd units may not define HOME, so Go cannot infer GOPATH.
+  # Keep all Go state in explicit system paths instead of relying on HOME.
+  export GOPATH="${GOPATH:-/var/cache/olc-go}"
+  export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
   export GOCACHE="${GOCACHE:-/var/cache/go-build}"
   export GOTMPDIR="${GOTMPDIR:-/var/tmp/go-build-tmp}"
-  mkdir -p "$GOCACHE" "$GOTMPDIR" 2>/dev/null || true
+  mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE" "$GOTMPDIR" 2>/dev/null || true
   olc_preflight_build_space "сборка olcrtc + olcrtc-manager" || return 1
   local used_pct
   used_pct="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $5+0}' || echo 0)"
