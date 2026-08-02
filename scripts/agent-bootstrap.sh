@@ -503,7 +503,7 @@ olc_preflight_disk_space "agent-bootstrap" || tui_fatal "Недостаточн�
 olc_preflight_vps_backup "agent-bootstrap" || true
 olc_git_safe_register "${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 ensure_install_symlink
-chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
+# Script modes are tracked by Git; do not chmod every helper and dirty the worktree.
 state_init
 
 ensure_panel_jitsi_tls() {
