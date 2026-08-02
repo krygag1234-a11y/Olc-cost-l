@@ -252,9 +252,9 @@ main() {
   # Git pull с русским языком (только если есть обновления)
   if [[ "$repo_uptodate" -eq 0 ]]; then
     tui_status "Обновление репозитория из GitHub…"
-    # Reset local modifications (patches may leave dirty state)
-    olc_git "$repo" reset --hard HEAD >/dev/null 2>&1 || true
-    olc_git "$repo" clean -fd >/dev/null 2>&1 || true
+    if [[ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ]]; then
+      tui_fatal "Репозиторий содержит локальные изменения" "olc-update не будет сбрасывать или удалять их автоматически" "Сохраните изменения в commit/stash и повторите обновление"
+    fi
     # Локаль: не форсировать ru_RU.UTF-8 если она не сгенерирована на хосте
     # (иначе bash печатает «warning: setlocale…» на каждый вызов)
     local git_locale="C.UTF-8"
@@ -278,6 +278,7 @@ main() {
     export OLC_TUI_LOADED=1
   fi
   # Re-read profile id if passed as --profile <id>
+  export OLC_UPDATE_WRAPPER=1
   local boot_args=(--update)
   if [[ "${#tui_panel_args[@]}" -gt 0 ]]; then
     boot_args+=("${tui_panel_args[@]}")
