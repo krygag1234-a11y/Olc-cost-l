@@ -22,6 +22,17 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 > ℹ️ С версии `d92baf4` стабильный форк используется по умолчанию (`OLC_MANAGER_STABLE=1`). Флаг больше не нужен.
 
+## Выбор HTTP/HTTPS при обновлении
+
+```bash
+sudo olc-update --ip --https-letsencrypt   # доверенный IP-сертификат + автопродление
+sudo olc-update --ip --https-self-signed   # HTTPS с предупреждением браузера
+sudo olc-update --ip --http                # открытый HTTP
+sudo olc-update --ssh --http               # HTTP только через SSH-туннель
+```
+
+Без явного TLS-флага сохранённый режим берётся из deploy-profile. Подробно: [PANEL-HTTPS.md](PANEL-HTTPS.md).
+
 ## После клонирования репозитория
 
 ```bash

@@ -34,8 +34,13 @@ ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
 RU_VPS="${OLCRTC_RU_VPS:-1}"
 PANEL_ACCESS="${OLCRTC_PANEL_ACCESS:-ip}"
 PANEL_TLS="${OLCRTC_PANEL_TLS:-0}"
+PANEL_TLS_MODE="${OLCRTC_PANEL_TLS_MODE:-}"
+if [[ -z "$PANEL_TLS_MODE" ]]; then
+  [[ "$PANEL_TLS" -eq 1 ]] && PANEL_TLS_MODE="selfsigned" || PANEL_TLS_MODE="http"
+fi
 PANEL_LISTEN_ADDR="${OLCRTC_MANAGER_ADDR:-0.0.0.0}"
 PANEL_ACCESS_EXPLICIT=0
+PANEL_TLS_EXPLICIT=0
 PLAN_ONLY=0
 REBUILD_ONLY=0
 UPDATE=0
@@ -68,6 +73,8 @@ source "$SCRIPT_DIR/lib-git-safe.sh"
 source "$SCRIPT_DIR/lib-olc-core.sh"
 # shellcheck source=lib-deploy-profile.sh
 source "$SCRIPT_DIR/lib-deploy-profile.sh"
+# shellcheck source=lib-panel-tls.sh
+source "$SCRIPT_DIR/lib-panel-tls.sh"
 # shellcheck source=lib-disk-preflight.sh
 source "$SCRIPT_DIR/lib-disk-preflight.sh"
 # shellcheck source=lib-cache-cleanup.sh
@@ -114,6 +121,8 @@ while [[ $# -gt 0 ]]; do
       export OLCRTC_ENABLE_ZAPRET=1
       ENABLE_WARP=0
       ENABLE_BRIDGES=1
+      # Fresh/full installs default to HTTPS unless --http was explicit (in either argument order).
+      if [[ "$PANEL_TLS_EXPLICIT" -eq 0 ]]; then PANEL_TLS=1; PANEL_TLS_MODE="selfsigned"; PANEL_TLS_EXPLICIT=1; fi
       ;;
     --tor|--with-tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
     --split) ENABLE_SPLIT=1; RU_VPS=1; FULL=1 ;;
@@ -128,6 +137,9 @@ while [[ $# -gt 0 ]]; do
     --ru) RU_VPS=1; ENABLE_TOR=1; ENABLE_SPLIT=1; ENABLE_BRIDGES=1 ;;
     --ssh|--localhost|--local-panel) PANEL_ACCESS=ssh; PANEL_ACCESS_EXPLICIT=1 ;;
     --ip|--public-panel) PANEL_ACCESS=ip; PANEL_ACCESS_EXPLICIT=1 ;;
+    --http) PANEL_TLS=0; PANEL_TLS_MODE="http"; PANEL_TLS_EXPLICIT=1 ;;
+    --https|--https-self-signed) PANEL_TLS=1; PANEL_TLS_MODE="selfsigned"; PANEL_TLS_EXPLICIT=1 ;;
+    --https-letsencrypt) PANEL_TLS=1; PANEL_TLS_MODE="letsencrypt"; PANEL_TLS_EXPLICIT=1 ;;
     --rebuild-only) REBUILD_ONLY=1 ;;
     --update) UPDATE=1 ;;
     --incremental) INCREMENTAL=1 ;;
@@ -144,7 +156,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       continue
       ;;
-    --write-profile) profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" "${ENABLE_BRIDGES:-1}" "$RU_VPS" "install.sh:${*:-}" "$ENABLE_WARP" "$PANEL_ACCESS"; profile_show; exit 0 ;;
+    --write-profile) profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" "${ENABLE_BRIDGES:-1}" "$RU_VPS" "install.sh:${*:-}" "$ENABLE_WARP" "$PANEL_ACCESS" "$PANEL_TLS" "$PANEL_TLS_MODE"; profile_show; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage; exit 1 ;;
   esac
@@ -165,7 +177,7 @@ fi
 # --plan: dry-run проверка парсинга/валидации флагов — печать плана и выход,
 # БЕЗ каких-либо изменений на хосте (используется scripts/test-install-flags.sh)
 if [[ "$PLAN_ONLY" -eq 1 ]]; then
-  echo "[plan] full=$FULL update=$UPDATE incremental=$INCREMENTAL rebuild_only=$REBUILD_ONLY tor=${ENABLE_TOR:-0} split=${ENABLE_SPLIT:-0} zapret=${OLCRTC_ENABLE_ZAPRET:-1} bridges=${ENABLE_BRIDGES:-1} warp=${ENABLE_WARP:-0} ru=$RU_VPS access=$PANEL_ACCESS profile=${PROFILE_ID:-none}"
+  echo "[plan] full=$FULL update=$UPDATE incremental=$INCREMENTAL rebuild_only=$REBUILD_ONLY tor=${ENABLE_TOR:-0} split=${ENABLE_SPLIT:-0} zapret=${OLCRTC_ENABLE_ZAPRET:-1} bridges=${ENABLE_BRIDGES:-1} warp=${ENABLE_WARP:-0} ru=$RU_VPS access=$PANEL_ACCESS tls=$PANEL_TLS tls_mode=$PANEL_TLS_MODE profile=${PROFILE_ID:-none}"
   exit 0
 fi
 
@@ -174,11 +186,14 @@ if [[ -n "$PROFILE_ID" ]]; then
 fi
 
 if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]] && [[ "$UPDATE" -ne 1 ]]; then
-  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP" "$PANEL_ACCESS"
+  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP" "$PANEL_ACCESS" "$PANEL_TLS" "$PANEL_TLS_MODE"
 fi
 
 if [[ "$PANEL_ACCESS_EXPLICIT" -eq 1 ]]; then
   profile_set_panel_access "$PANEL_ACCESS"
+fi
+if [[ "$PANEL_TLS_EXPLICIT" -eq 1 ]]; then
+  profile_set_panel_tls "$PANEL_TLS_MODE"
 fi
 
 # Установить флаг UPDATE режима для profile_apply_env
@@ -503,38 +518,58 @@ ensure_panel_jitsi_tls() {
   safety_panel_env_set "$env" OLCRTC_MANAGER_ADDR "${PANEL_LISTEN_ADDR:-0.0.0.0}"
   safety_panel_env_set "$env" OLCRTC_PANEL_ACCESS "${PANEL_ACCESS:-ip}"
 
-  # HTTPS support: generate self-signed cert if enabled
+  # HTTPS modes: reliable self-signed or publicly trusted short-lived IP certificate.
   local panel_tls="${PANEL_TLS:-0}"
+  local panel_tls_mode="${PANEL_TLS_MODE:-}"
+  if [[ -z "$panel_tls_mode" ]]; then
+    [[ "$panel_tls" == "1" ]] && panel_tls_mode="selfsigned" || panel_tls_mode="http"
+  fi
   if [[ "$panel_tls" == "1" ]]; then
-    if [[ ! -f "$tls_cert" ]] || [[ ! -f "$tls_key" ]]; then
-      log "Generating self-signed TLS certificate for panel..."
-      local cert_ip="${PANEL_CERT_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
-      openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout "$tls_key" -out "$tls_cert" \
-        -days 365 -subj "/CN=${cert_ip}" \
-        -addext "subjectAltName=IP:${cert_ip}" 2>/dev/null || {
-        log "WARNING: openssl cert generation failed, falling back to HTTP"
-        panel_tls=0
-      }
-      chmod 600 "$tls_key" "$tls_cert" 2>/dev/null || true
-    else
-      log "Using existing TLS certificate: $tls_cert"
-    fi
-
-    if [[ "$panel_tls" == "1" ]]; then
-      safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_CERT "$tls_cert"
-      safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_KEY "$tls_key"
-      log "HTTPS enabled for panel (self-signed cert)"
-    fi
+    case "$panel_tls_mode" in
+      letsencrypt)
+        log "Запрос доверенного короткоживущего TLS-сертификата Let's Encrypt для публичного IP..."
+        if ! olc_panel_issue_letsencrypt_ip; then
+          tui_fatal "Не удалось выпустить доверенный сертификат для IP"             "Нужны публичный IPv4, свободный и доступный снаружи TCP-порт 80 и Certbot 5.4+"             "Исправьте условия и повторите с --https-letsencrypt либо явно выберите --https-self-signed"
+        fi
+        tls_cert="$PANEL_TLS_CERT_RESULT"
+        tls_key="$PANEL_TLS_KEY_RESULT"
+        log "HTTPS enabled for panel (Let's Encrypt IP certificate, auto-renew every 6h)"
+        ;;
+      selfsigned|https)
+        panel_tls_mode="selfsigned"
+        if [[ ! -f "$tls_cert" ]] || [[ ! -f "$tls_key" ]]; then
+          log "Generating self-signed TLS certificate for panel..."
+          local cert_ip="${PANEL_CERT_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+          openssl req -x509 -newkey rsa:2048 -nodes             -keyout "$tls_key" -out "$tls_cert"             -days 365 -subj "/CN=${cert_ip}"             -addext "subjectAltName=IP:${cert_ip}" 2>/dev/null || {
+            tui_fatal "Не удалось создать self-signed сертификат"               "openssl не создал $tls_cert и $tls_key"               "Проверьте openssl или явно выберите --http"
+          }
+          chmod 600 "$tls_key" "$tls_cert" 2>/dev/null || true
+        else
+          log "Using existing self-signed TLS certificate: $tls_cert"
+        fi
+        log "HTTPS enabled for panel (self-signed cert; browser warning expected)"
+        ;;
+      *)
+        tui_fatal "Неизвестный TLS-режим: $panel_tls_mode" "Допустимо: http, selfsigned, letsencrypt" "Используйте --http, --https-self-signed или --https-letsencrypt"
+        ;;
+    esac
+    safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_CERT "$tls_cert"
+    safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_KEY "$tls_key"
+  else
+    panel_tls_mode="http"
+    safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_CERT ""
+    safety_panel_env_set "$env" OLCRTC_MANAGER_TLS_KEY ""
   fi
 
   if [[ "${PANEL_ACCESS:-ip}" == "ssh" ]]; then
-    safety_panel_env_set "$env" OLCRTC_PUBLIC_URL "http://127.0.0.1:8888"
+    local public_scheme="http"
+    [[ "$panel_tls" == "1" ]] && public_scheme="https"
+    safety_panel_env_set "$env" OLCRTC_PUBLIC_URL "${public_scheme}://127.0.0.1:8888"
   else
     safety_panel_env_set "$env" OLCRTC_PUBLIC_URL ""
   fi
 
-  log "panel.env: panel access=${PANEL_ACCESS:-ip}, listen=${PANEL_LISTEN_ADDR:-0.0.0.0}, tls=${panel_tls}"
+  log "panel.env: panel access=${PANEL_ACCESS:-ip}, listen=${PANEL_LISTEN_ADDR:-0.0.0.0}, tls=${panel_tls}, tls_mode=${panel_tls_mode}"
 
   local panel_lang="${OLC_LANG:-ru}"
   [[ "$panel_lang" == en ]] || panel_lang=ru

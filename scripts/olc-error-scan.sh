@@ -142,7 +142,7 @@ def validate_room(rid, carrier):
         if "." in rid and " " not in rid:
             return None
         return "нужна ссылка meet (jitsi)"
-    if c in ("telemost", "wbstream", "jazz"):
+    if c in ("telemost", "wbstream"):
         if rid.startswith("http://") or rid.startswith("https://"):
             return "нужен ID, не URL"
         if re.match(r"^[a-zA-Z0-9_-]+$", rid) and len(rid) <= 128:
@@ -174,7 +174,7 @@ for ci, cl in enumerate(clients):
             "severity": "warning",
             "title": f"Локация {cid}: {err}",
             "meaning": f"carrier={loc.get('carrier')} room_id={loc.get('room_id')!r}",
-            "fixes": ["Исправьте room_id в панели", "Jitsi — URL meet; telemost/wbstream/jazz — только ID"],
+            "fixes": ["Исправьте room_id в панели", "Jitsi — URL meet; telemost/wbstream — только ID"],
             "matched_lines": [],
             "created_at": now,
             "read": False,

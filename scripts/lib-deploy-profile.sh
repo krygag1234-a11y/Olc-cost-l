@@ -37,6 +37,13 @@ profile_from_flags() {
   local warp="${7:-${ENABLE_WARP:-0}}"
   local panel_access="${8:-${PANEL_ACCESS:-ip}}"
   local panel_tls="${9:-${PANEL_TLS:-0}}"
+  local panel_tls_mode="${10:-${PANEL_TLS_MODE:-}}"
+  case "$panel_tls_mode" in
+    letsencrypt) panel_tls=1 ;;
+    selfsigned|https) panel_tls=1; panel_tls_mode="selfsigned" ;;
+    http) panel_tls=0 ;;
+    *) [[ "$panel_tls" -eq 1 ]] && panel_tls_mode="selfsigned" || panel_tls_mode="http" ;;
+  esac
   local panel_listen_addr="0.0.0.0"
   [[ "$panel_access" == "ssh" ]] && panel_listen_addr="127.0.0.1" || panel_access="ip"
 
@@ -80,6 +87,7 @@ profile_from_flags() {
       --arg fp "$fingerprint" \
       --arg panel_access "$panel_access" \
       --arg panel_listen_addr "$panel_listen_addr" \
+      --arg panel_tls_mode "$panel_tls_mode" \
       --argjson panel_tls "$([[ "$panel_tls" -eq 1 ]] && echo true || echo false)" \
       --argjson tor "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
       --argjson split "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
@@ -92,14 +100,14 @@ profile_from_flags() {
         profile_id: $id,
         label: $label,
         components: { tor: $tor, split: $split, zapret: $zapret, bridges: $bridges, warp: $warp },
-        panel: { access: $panel_access, listen_addr: $panel_listen_addr, tls: $panel_tls },
+        panel: { access: $panel_access, listen_addr: $panel_listen_addr, tls: $panel_tls, tls_mode: $panel_tls_mode },
         ru_vps: $ru,
         update_mode: "incremental",
         created_at: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
         install_script_fingerprint: $fp
       }' >"$OLCRTC_DEPLOY_PROFILE"
   else
-    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s},"panel":{"access":"%s","listen_addr":"%s","tls":%s}}\n' \
+    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s},"panel":{"access":"%s","listen_addr":"%s","tls":%s,"tls_mode":"%s"}}\n' \
       "$PROFILE_ID" "$PROFILE_LABEL" \
       "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
@@ -107,7 +115,7 @@ profile_from_flags() {
       "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
       "$panel_access" "$panel_listen_addr" \
-      "$([[ "$panel_tls" -eq 1 ]] && echo true || echo false)" \
+      "$([[ "$panel_tls" -eq 1 ]] && echo true || echo false)" "$panel_tls_mode" \
       >"$OLCRTC_DEPLOY_PROFILE"
   fi
   profile_log "saved $PROFILE_ID → $OLCRTC_DEPLOY_PROFILE"
@@ -126,6 +134,26 @@ profile_set_panel_access() {
     '.panel.access = $access | .panel.listen_addr = $listen | .updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
     "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
   profile_log "panel access=$access listen=$listen_addr"
+}
+
+profile_set_panel_tls() {
+  local requested="${1:-0}"
+  local tls=0 mode="http"
+  case "$requested" in
+    letsencrypt) tls=1; mode="letsencrypt" ;;
+    selfsigned|https|1|true) tls=1; mode="selfsigned" ;;
+    http|0|false|"") ;;
+    *) return 1 ;;
+  esac
+  profile_ensure_dir
+  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || profile_from_flags
+  command -v jq >/dev/null 2>&1 || return 0
+  local tmp
+  tmp="$(mktemp)"
+  jq --argjson tls "$([[ "$tls" -eq 1 ]] && echo true || echo false)" --arg mode "$mode" \
+    '.panel.tls = $tls | .panel.tls_mode = $mode | .updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  profile_log "panel tls=$tls mode=$mode"
 }
 
 profile_panel_access() {
@@ -216,20 +244,28 @@ profile_apply_env() {
     return 0
   fi
   profile_sanitize_warp_ru
-  local tor split zapret ru warp panel_access panel_listen_addr
+  local tor split zapret ru warp panel_access panel_listen_addr panel_tls panel_tls_mode
   tor="$(jq -r '.components.tor // true' "$OLCRTC_DEPLOY_PROFILE")"
   split="$(jq -r '.components.split // true' "$OLCRTC_DEPLOY_PROFILE")"
   zapret="$(jq -r '.components.zapret // true' "$OLCRTC_DEPLOY_PROFILE")"
   ru="$(jq -r '.ru_vps // true' "$OLCRTC_DEPLOY_PROFILE")"
   warp="$(jq -r '.components.warp // false' "$OLCRTC_DEPLOY_PROFILE")"
   panel_access="$(jq -r '.panel.access // "ip"' "$OLCRTC_DEPLOY_PROFILE")"
+  panel_tls="$(jq -r '.panel.tls // false' "$OLCRTC_DEPLOY_PROFILE")"
+  panel_tls_mode="$(jq -r '.panel.tls_mode // empty' "$OLCRTC_DEPLOY_PROFILE")"
   [[ "$panel_access" == "ssh" ]] || panel_access="ip"
+  [[ "$panel_tls" == "true" ]] && panel_tls=1 || panel_tls=0
+  case "$panel_tls_mode" in
+    letsencrypt) panel_tls=1 ;;
+    selfsigned) panel_tls=1 ;;
+    *) [[ "$panel_tls" -eq 1 ]] && panel_tls_mode="selfsigned" || panel_tls_mode="http" ;;
+  esac
   [[ "$panel_access" == "ssh" ]] && panel_listen_addr="127.0.0.1" || panel_listen_addr="0.0.0.0"
   if [[ "$(jq -r 'has("panel")' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo false)" != "true" ]]; then
     local tmp_panel
     tmp_panel="$(mktemp)"
     jq --arg access "$panel_access" --arg listen "$panel_listen_addr" \
-      '.panel = {access: $access, listen_addr: $listen}' \
+      '.panel = {access: $access, listen_addr: $listen, tls: false, tls_mode: "http"}' \
       "$OLCRTC_DEPLOY_PROFILE" >"$tmp_panel" && mv "$tmp_panel" "$OLCRTC_DEPLOY_PROFILE"
   fi
 
@@ -277,9 +313,11 @@ EOF
   [[ "$warp" == "true" ]] && ENABLE_WARP=1 || ENABLE_WARP=0
   PANEL_ACCESS="$panel_access"
   PANEL_LISTEN_ADDR="$panel_listen_addr"
+  PANEL_TLS="$panel_tls"
+  PANEL_TLS_MODE="$panel_tls_mode"
 
-  export ENABLE_TOR ENABLE_SPLIT RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR
-  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP panel=$PANEL_ACCESS)"
+  export ENABLE_TOR ENABLE_SPLIT RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR PANEL_TLS PANEL_TLS_MODE
+  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP panel=$PANEL_ACCESS tls=$PANEL_TLS)"
   # Совет про olc-update только при первой установке (не при UPDATE режиме)
   if [[ "${OLCRTC_UPDATE_MODE:-0}" != "1" ]]; then
     profile_log "Совет: для доустановки или обновления можно использовать короткую команду: olc-update"

@@ -59,6 +59,7 @@ olc_update_has_tty() {
 main() {
   local plan_only=0
   local update_mode=""
+  local tui_panel_args=()
   local repo profile_arg=()
   local has_explicit_flags=0
   local unknown_flags=()
@@ -74,7 +75,7 @@ main() {
       --incremental) update_mode="--incremental"; has_explicit_flags=1 ;;
       --update) update_mode="--update"; has_explicit_flags=1 ;;
       --resume) ;; # handled by agent-bootstrap
-      --ssh|--localhost|--ip|--public-panel) has_explicit_flags=1 ;; # handled by agent-bootstrap
+      --ssh|--localhost|--ip|--public-panel|--http|--https|--https-self-signed|--https-letsencrypt) has_explicit_flags=1 ;; # handled by agent-bootstrap
       --profile-id|--foreign) ;; # tolerate
       *) unknown_flags+=("$arg") ;;
     esac
@@ -108,6 +109,7 @@ main() {
     echo "  --manager-stable     Стабильный форк панели (по умолчанию)" >&2
     echo "  --force-sha-update   Принудительно обновить pinned SHA из upstream" >&2
     echo "  --ssh / --localhost  Переключить панель в режим SSH-туннеля" >&2
+    echo "  --ip --http / --ip --https  Переключить доступ и протокол панели" >&2
     echo "  --resume             Продолжить прерванное обновление" >&2
     echo "  --profile <id>       Применить профиль установки" >&2
     echo "" >&2
@@ -203,6 +205,26 @@ main() {
   # Если режим не выбран (нет TTY или нет tui_menu), default = --update
   : "${update_mode:=--update}"
 
+  # Второй TUI-выбор относится именно к доступу панели. По умолчанию при
+  # обновлении сохраняем текущий профиль; HTTPS становится безусловным
+  # дефолтом только для новой полной установки (--full).
+  if [[ "$has_explicit_flags" -eq 0 ]] && olc_update_has_tty && declare -f tui_menu >/dev/null 2>&1; then
+    local panel_choice
+    panel_choice=$(tui_menu "Доступ к панели после обновления:" \
+      "Оставить текущий режим и протокол" \
+      "IP + HTTPS — доверенный Let us Encrypt, без предупреждения (публичный IP + порт 80)" \
+      "IP + HTTPS — self-signed (браузер предупредит)" \
+      "SSH + HTTP — панель только через SSH-туннель" \
+      "IP + HTTP — без TLS")
+    case "$panel_choice" in
+      1) tui_panel_args=(--ip --https-letsencrypt) ;;
+      2) tui_panel_args=(--ip --https-self-signed) ;;
+      3) tui_panel_args=(--ssh --http) ;;
+      4) tui_panel_args=(--ip --http) ;;
+      *) tui_panel_args=() ;;
+    esac
+  fi
+
   # Меню стирает себя после выбора — оставить одну строку-подтверждение режима
   if [[ "$update_mode" == "--incremental" ]]; then
     echo "→ Режим: Доустановка (быстро — skip работающих компонентов)" >&2
@@ -257,6 +279,9 @@ main() {
   fi
   # Re-read profile id if passed as --profile <id>
   local boot_args=(--update)
+  if [[ "${#tui_panel_args[@]}" -gt 0 ]]; then
+    boot_args+=("${tui_panel_args[@]}")
+  fi
   local i=1
   while [[ $i -le $# ]]; do
     eval "arg=\${$i}"

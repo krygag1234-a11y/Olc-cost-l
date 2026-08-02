@@ -144,7 +144,7 @@ func olcDropForbiddenSessions(ac olcAccessControl) {
 			cid := p.location.ClientID
 			room := p.location.Endpoint.RoomID
 			seen := map[string]bool{}
-			if pc, devs, _, ok := p.logs.PeerSummary(); ok && pc > 0 {
+			if pc, devs, _, ok := p.currentPeerSummary(); ok && pc > 0 {
 				for _, dev := range devs {
 					dev = strings.TrimSpace(dev)
 					if dev == "" || seen[dev] {

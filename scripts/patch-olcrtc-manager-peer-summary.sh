@@ -36,21 +36,28 @@ impl = '''func parsePeerSummaryLine(line string) (int, []string, bool) {
 	if idx < 0 {
 		return 0, nil, false
 	}
-	rest := line[idx+len(marker):]
-	di := strings.Index(rest, "Devices:")
+	rest := strings.TrimSpace(line[idx+len(marker):])
+	countStr, tail, ok := strings.Cut(rest, ",")
+	if !ok {
+		return 0, nil, false
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(countStr))
+	if err != nil || count < 0 {
+		return 0, nil, false
+	}
+	di := strings.Index(tail, "Devices:")
 	if di < 0 {
 		return 0, nil, false
 	}
-	countStr := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(rest[:di]), ","))
-	count := 0
-	if _, err := fmt.Sscanf(countStr, "%d", &count); err != nil {
-		count = 0
+	devPart := strings.TrimSpace(tail[di+len("Devices:"):])
+	if !strings.HasPrefix(devPart, "[") {
+		return 0, nil, false
 	}
-	devPart := strings.TrimSpace(rest[di+len("Devices:"):])
-	devPart = strings.TrimPrefix(devPart, "[")
-	if k := strings.Index(devPart, "]"); k >= 0 {
-		devPart = devPart[:k]
+	k := strings.Index(devPart, "]")
+	if k < 0 {
+		return 0, nil, false
 	}
+	devPart = devPart[1:k]
 	devPart = strings.TrimSpace(devPart)
 	var devices []string
 	if devPart != "" {
@@ -103,12 +110,40 @@ if ps_old not in t:
     print("[patch-peer-summary] ERROR: PeerSummary anchor not found"); sys.exit(1)
 t = t.replace(ps_old, ps_new, 1)
 
+peer_current = '''
+func peerSummaryIsCurrent(running bool, started time.Time, at string) bool {
+	if !running {
+		return false
+	}
+	when, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return false
+	}
+	return started.IsZero() || !when.Before(started.UTC().Truncate(time.Second))
+}
+
+func (p *process) currentPeerSummary() (int, []string, string, bool) {
+	if p == nil || p.logs == nil {
+		return 0, nil, "", false
+	}
+	p.mu.RLock()
+	running, started := p.running, p.started
+	p.mu.RUnlock()
+	count, devices, at, ok := p.logs.PeerSummary()
+	if !ok || !peerSummaryIsCurrent(running, started, at) {
+		return 0, nil, "", false
+	}
+	return count, devices, at, true
+}
+'''
+t = t.replace(ps_new, ps_new + peer_current, 1)
+
 # --- state(): сохранить PeerAt ---
 st_old = '''	if count, devices, ok := p.logs.PeerSummary(); ok {
 		state.PeerCount = &count
 		state.PeerDevices = devices
 	}'''
-st_new = '''	if count, devices, at, ok := p.logs.PeerSummary(); ok {
+st_new = '''	if count, devices, at, ok := p.logs.PeerSummary(); ok && peerSummaryIsCurrent(p.running, p.started, at) {
 		state.PeerCount = &count
 		state.PeerDevices = devices
 		state.PeerAt = at
@@ -118,5 +153,9 @@ if st_old not in t:
 t = t.replace(st_old, st_new, 1)
 
 f.write_text(t)
-print("[patch-peer-summary] ok: parsePeerSummaryLine + PeerAt (время) implemented")
+test_path = f.with_name("peer_summary_patch_test.go")
+test_path.write_text('package main\n\nimport "testing"\n\nfunc TestPatchedPeerSummaryParser(t *testing.T) {\n\ttests := []struct {\n\t\tname string\n\t\tline string\n\t\tcount int\n\t\tdevices int\n\t\tok bool\n\t}{\n\t\t{"spaces", "Current peers count: 2, Devices: [phone laptop]", 2, 2, true},\n\t\t{"commas", "prefix Current peers count: 2, Devices: [phone, laptop]", 2, 2, true},\n\t\t{"empty", "Current peers count: 0, Devices: []", 0, 0, true},\n\t\t{"invalid count", "Current peers count: nope, Devices: []", 0, 0, false},\n\t\t{"missing bracket", "Current peers count: 1, Devices: [phone", 0, 0, false},\n\t}\n\tfor _, tt := range tests {\n\t\tt.Run(tt.name, func(t *testing.T) {\n\t\t\tcount, devices, ok := parsePeerSummaryLine(tt.line)\n\t\t\tif ok != tt.ok || count != tt.count || len(devices) != tt.devices {\n\t\t\t\tt.Fatalf("got count=%d devices=%v ok=%v", count, devices, ok)\n\t\t\t}\n\t\t})\n\t}\n}\n')
+fresh_test_path = f.with_name("peer_freshness_patch_test.go")
+fresh_test_path.write_text('package main\n\nimport (\n\t"testing"\n\t"time"\n)\n\nfunc TestPeerSummaryFreshness(t *testing.T) {\n\tstart := time.Date(2026, 8, 2, 20, 0, 0, 0, time.UTC)\n\tif peerSummaryIsCurrent(false, start, "2026-08-02T20:00:01Z") { t.Fatal("stopped process must not expose peers") }\n\tif peerSummaryIsCurrent(true, start, "2026-08-02T19:59:59Z") { t.Fatal("summary from previous run must be stale") }\n\tif !peerSummaryIsCurrent(true, start, "2026-08-02T20:00:01Z") { t.Fatal("fresh running summary rejected") }\n}\n')
+print("[patch-peer-summary] ok: strict parser + current-run PeerAt implemented")
 PY

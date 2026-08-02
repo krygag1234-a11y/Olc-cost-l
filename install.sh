@@ -180,6 +180,7 @@ UNKNOWN_FLAGS=()
 PLAN_ONLY=0
 CHOOSE_COMPONENTS=0
 ACCESS_SET=0        # был ли режим доступа задан флагом (--ssh/--ip и алиасы)
+TLS_SET=0           # был ли протокол панели задан флагом (--http/--https)
 # Запуск БЕЗ флагов = основная интерактивная команда: меню действий (если уже
 # установлено) + меню выбора конфигурации (при полной установке).
 NO_FLAGS=0
@@ -194,6 +195,7 @@ while [[ $# -gt 0 ]]; do
     --manager-stable) export OLC_MANAGER_STABLE=1; BOOT_ARGS+=("$1") ;;
     --manager-latest) export OLC_MANAGER_LATEST=1; BOOT_ARGS+=("$1") ;;
     --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1"); ACCESS_SET=1 ;;
+    --http|--https|--https-self-signed|--https-letsencrypt) BOOT_ARGS+=("$1"); TLS_SET=1 ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
     --state)  SHOW_STATE=1 ;;
     --interactive) CHOOSE_COMPONENTS=1 ;;
@@ -221,6 +223,7 @@ if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
   echo "  --no-split / --no-zapret / --no-bridges  Отключить компонент" >&2
   echo "  --manager-stable / --manager-latest  Версия панели (default stable)" >&2
   echo "  --ssh / --ip        Доступ к панели: SSH-туннель или открытый IP" >&2
+  echo "  --http / --https-self-signed / --https-letsencrypt  Протокол и тип сертификата панели" >&2
   echo "  --interactive       Меню выбора компонентов даже вместе с --full" >&2
   echo "  --resume            Продолжить прерванную установку" >&2
   echo "  --state             Показать состояние установки" >&2
@@ -324,6 +327,9 @@ if [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty;
             case "$_boot_arg" in
               --ssh|--localhost|--local-panel) export OLC_INSTALL_ACCESS_PRESET="ssh" ;;
               --ip|--public-panel) export OLC_INSTALL_ACCESS_PRESET="http" ;;
+              --http) export OLC_INSTALL_TLS_PRESET="http" ;;
+              --https|--https-self-signed) export OLC_INSTALL_TLS_PRESET="selfsigned" ;;
+              --https-letsencrypt) export OLC_INSTALL_TLS_PRESET="letsencrypt" ;;
             esac
           done
         fi
@@ -336,6 +342,14 @@ if [[ "$CHOOSE_COMPONENTS" -eq 1 ]] || { [[ "$NO_FLAGS" -eq 1 ]] && olc_has_tty;
         if [[ "$ACCESS_SET" -eq 0 ]]; then
           if [[ "${OLC_INSTALL_ACCESS_MODE:-http}" == "ssh" ]]; then BOOT_ARGS+=(--ssh); else BOOT_ARGS+=(--ip); fi
           ACCESS_SET=1  # меню компонентов уже спросило режим доступа
+        fi
+        if [[ "$TLS_SET" -eq 0 ]]; then
+          case "${OLC_INSTALL_TLS_MODE:-selfsigned}" in
+            letsencrypt) BOOT_ARGS+=(--https-letsencrypt) ;;
+            selfsigned|https) BOOT_ARGS+=(--https-self-signed) ;;
+            *) BOOT_ARGS+=(--http) ;;
+          esac
+          TLS_SET=1
         fi
         # Меню = осознанный выбор полной конфигурации → форсируем режим full
         [[ -z "$FORCE_MODE" ]] && FORCE_MODE="--full"
@@ -431,6 +445,10 @@ fi
 # Используется scripts/test-install-flags.sh для проверки, что явные флаги не
 # ломают парсинг install.sh и корректно транслируются в agent-bootstrap.
 if [[ "$PLAN_ONLY" -eq 1 ]]; then
+  if [[ "${FORCE_MODE:-}" == "--full" && "$TLS_SET" -eq 0 ]]; then
+    BOOT_ARGS+=(--https-self-signed)
+    TLS_SET=1
+  fi
   echo "[install-plan] state=$STATE mode=$MODE boot_args=[${BOOT_ARGS[*]:-}] force_mode=${FORCE_MODE:-none}"
   if [[ -x "$INSTALL_DIR/scripts/agent-bootstrap.sh" ]]; then
     boot_mode="--full"
@@ -449,15 +467,28 @@ fi
 # Только на новой установке (MODE=full) и при наличии терминала.
 if [[ "$MODE" == "full" && "$ACCESS_SET" -eq 0 ]] && olc_has_tty \
    && [[ "${TUI_AVAILABLE:-0}" -eq 1 ]] && declare -f tui_menu >/dev/null 2>&1; then
-  _acc=$(tui_menu "Режим доступа к панели (флаг --ssh/--ip не задан):" \
-    "HTTP — панель доступна по IP:8888 (проще)" \
-    "SSH — панель только через SSH-туннель (безопаснее)")
+  _acc=$(tui_menu "Режим доступа к панели:" \
+    "IP + HTTPS — доверенный Let's Encrypt, без предупреждения (публичный IP + открытый порт 80)" \
+    "IP + HTTPS — self-signed, работает без домена (браузер предупредит)" \
+    "SSH + HTTP — панель через SSH-туннель" \
+    "IP + HTTP — без TLS")
   case "$_acc" in
-    1) BOOT_ARGS+=(--ssh) ;;
-    *) BOOT_ARGS+=(--ip) ;;
+    0) BOOT_ARGS+=(--ip); [[ "$TLS_SET" -eq 1 ]] || BOOT_ARGS+=(--https-letsencrypt) ;;
+    1) BOOT_ARGS+=(--ip); [[ "$TLS_SET" -eq 1 ]] || BOOT_ARGS+=(--https-self-signed) ;;
+    2) BOOT_ARGS+=(--ssh); [[ "$TLS_SET" -eq 1 ]] || BOOT_ARGS+=(--http) ;;
+    3) BOOT_ARGS+=(--ip); [[ "$TLS_SET" -eq 1 ]] || BOOT_ARGS+=(--http) ;;
+    *) BOOT_ARGS+=(--ip); [[ "$TLS_SET" -eq 1 ]] || BOOT_ARGS+=(--https-self-signed) ;;
   esac
   ACCESS_SET=1
+  TLS_SET=1
   unset _acc
+fi
+
+# --full без явного TLS-флага всегда остаётся HTTPS. В интерактивном режиме
+# значение уже выбрано меню выше; без TTY используем надёжный self-signed.
+if [[ "${FORCE_MODE:-}" == "--full" && "$TLS_SET" -eq 0 ]]; then
+  BOOT_ARGS+=(--https-self-signed)
+  TLS_SET=1
 fi
 
 # Тест-хук: остановиться сразу после добора выбора и напечатать итоговые

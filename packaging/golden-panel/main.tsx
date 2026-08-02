@@ -706,14 +706,23 @@ type AuditEvent = {
   detail: string;
 };
 
+type Socks5Proxy = {
+  addr: string;
+  port: string;
+  user: string;
+  pass: string;
+};
+
 type ClientLocationForm = {
   name: string;
   room_id: string;
+  jitsi_instance: string;
   key: string;
   carrier: string;
   transport: string;
   payload: Record<string, string>;
   dns: string;
+  proxy: Socks5Proxy;
   link?: string;
 };
 
@@ -731,12 +740,15 @@ type SettingsForm = {
   refresh: string;
 };
 
-const carriers = ["jitsi", "wbstream", "telemost", "jazz"];
+const DEFAULT_JITSI_INSTANCE = "https://meet.handyweb.org";
+
+const carriers = ["jitsi", "wbstream", "telemost"];
 const transportsByCarrier: Record<string, string[]> = {
   jitsi: ["datachannel", "vp8channel", "seichannel"],
+  // Keep datachannel visible: OlcRTC still implements it, but ordinary WB guest tokens
+  // currently carry canPublishData=false, so the mode is experimental.
   wbstream: ["datachannel", "vp8channel", "seichannel"],
   telemost: ["vp8channel", "seichannel"],
-  jazz: ["datachannel"],
 };
 
 /** Снят с поддержки для новых локаций; старые config не ломаем. */
@@ -745,11 +757,13 @@ const LEGACY_TRANSPORTS = new Set(["videochannel"]);
 const defaultLocationForm: ClientLocationForm = {
   name: "",
   room_id: "",
+  jitsi_instance: DEFAULT_JITSI_INSTANCE,
   key: "",
   carrier: "jitsi",
   transport: "datachannel",
   payload: {},
   dns: "1.1.1.1:53",
+  proxy: { addr: "", port: "", user: "", pass: "" },
   link: "tor",
 };
 
@@ -1109,6 +1123,78 @@ async function request(path: string, options?: RequestInit) {
   return res;
 }
 
+
+function splitJitsiRoomInput(value: string): { server: string; room: string } | null {
+  const raw = value.trim().replace(/\/+$/, "");
+  if (!raw || !raw.includes("/")) return null;
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+  const protocolRelative = raw.startsWith("//");
+  const candidate = hasScheme ? raw : protocolRelative ? `https:${raw}` : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (!parsed.host || parts.length === 0) return null;
+    const room = decodeURIComponent(parts.pop() || "").trim();
+    if (!room) return null;
+    const suffix = parts.length ? `/${parts.join("/")}` : "";
+    const server = hasScheme
+      ? `${parsed.protocol}//${parsed.host}${suffix}`
+      : protocolRelative
+        ? `//${parsed.host}${suffix}`
+        : `${parsed.host}${suffix}`;
+    return { server, room };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeJitsiServer(value: string): string {
+  const server = value.trim().replace(/\/+$/, "");
+  if (!server) return DEFAULT_JITSI_INSTANCE;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(server)) return server;
+  if (server.startsWith("//")) return `https:${server}`;
+  return `https://${server}`;
+}
+
+function combineJitsiRoomId(server: string, room: string): string {
+  const base = normalizeJitsiServer(server);
+  const cleanRoom = room.trim().replace(/^\/+/, "");
+  return cleanRoom ? `${base}/${cleanRoom}` : base;
+}
+
+function jitsiRoomForSubmit(location: Pick<ClientLocationForm, "jitsi_instance" | "room_id">): string {
+  return combineJitsiRoomId(location.jitsi_instance, location.room_id);
+}
+
+function randomRoomUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function proxyFromState(proxy?: Partial<Socks5Proxy> & { port?: string | number }): Socks5Proxy {
+  return {
+    addr: proxy?.addr ?? "",
+    port: proxy?.port ? String(proxy.port) : "",
+    user: proxy?.user ?? "",
+    pass: proxy?.pass ?? "",
+  };
+}
+
+function proxyForSubmit(proxy: Socks5Proxy) {
+  const addr = proxy.addr.trim();
+  const port = Number(proxy.port) || 0;
+  const user = proxy.user.trim();
+  const pass = proxy.pass;
+  if (!addr && !port && !user && !pass) return undefined;
+  return { addr, port, user, pass };
+}
+
 function transportOptions(carrier: string, keepTransport?: string) {
   const base = [...(transportsByCarrier[carrier] ?? transportsByCarrier.wbstream)];
   if (keepTransport && LEGACY_TRANSPORTS.has(keepTransport) && !base.includes(keepTransport)) {
@@ -1152,7 +1238,7 @@ function validateRoomIDInput(roomId: string, carrier: string): string | null {
     if (rid.includes(".") && !rid.includes(" ")) return null;
     return "Некорректная ссылка: https://meet.example.com/room или meet.example.com/room";
   }
-  if (c === "telemost" || c === "wbstream" || c === "jazz") {
+  if (c === "telemost" || c === "wbstream") {
     if (rid.startsWith("http://") || rid.startsWith("https://")) {
       return "Для этого провайдера укажите ID комнаты, а не ссылку";
     }
@@ -1172,7 +1258,8 @@ function validateClientIDInput(id: string): string | null {
 
 function assertLocationsValid(locations: ClientLocationForm[]) {
   for (const loc of locations) {
-    const err = validateRoomIDInput(loc.room_id, loc.carrier);
+    const roomID = loc.carrier === "jitsi" ? jitsiRoomForSubmit(loc) : loc.room_id;
+    const err = validateRoomIDInput(roomID, loc.carrier);
     if (err) throw new Error(err);
   }
 }
@@ -1180,24 +1267,72 @@ function assertLocationsValid(locations: ClientLocationForm[]) {
 function RoomIDInput({
   value,
   carrier,
+  jitsiServer,
   onChange,
   inputClassName = "h-10 rounded-md border border-border bg-background px-3 text-foreground outline-none focus:border-primary",
 }: {
   value: string;
   carrier: string;
+  jitsiServer?: string;
   onChange: (value: string) => void;
   inputClassName?: string;
 }) {
-  const err = value.trim() ? validateRoomIDInput(value, carrier) : null;
+  const valueForValidation = carrier === "jitsi" ? combineJitsiRoomId(jitsiServer || DEFAULT_JITSI_INSTANCE, value) : value;
+  const err = value.trim() ? validateRoomIDInput(valueForValidation, carrier) : null;
   return (
     <div className="grid gap-1">
-      <input
-        className={`${inputClassName}${err ? " border-destructive/70 focus:border-destructive" : ""}`}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={roomPlaceholder(carrier)}
-      />
+      <div className="flex gap-2">
+        <input
+          className={`${inputClassName} flex-1${err ? " border-destructive/70 focus:border-destructive" : ""}`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={carrier === "jitsi" ? "room-name или полная Jitsi-ссылка" : roomPlaceholder(carrier)}
+        />
+        {carrier === "jitsi" ? (
+          <button
+            className="inline-flex h-10 items-center rounded-md border border-primary bg-secondary px-3 text-xs font-medium text-primary hover:bg-primary/10"
+            type="button"
+            onClick={() => onChange(randomRoomUUID())}
+          >
+            UUID
+          </button>
+        ) : null}
+      </div>
       {err ? <p className="text-xs text-destructive">{err}</p> : null}
+    </div>
+  );
+}
+
+function Socks5ProxyFields({
+  proxy,
+  onChange,
+  inputClassName = "h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary",
+}: {
+  proxy: Socks5Proxy;
+  onChange: (proxy: Socks5Proxy) => void;
+  inputClassName?: string;
+}) {
+  const set = (patch: Partial<Socks5Proxy>) => onChange({ ...proxy, ...patch });
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-background p-3">
+      <div>
+        <div className="text-sm font-medium text-foreground">Upstream SOCKS5 для этого инстанса</div>
+        <p className="text-[11px] text-muted-foreground">Необязательно. Логин и пароль передаются исходящему SOCKS5-прокси OlcRTC.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="grid gap-2 text-sm text-muted-foreground">Host
+          <input className={inputClassName} value={proxy.addr} onChange={(event) => set({ addr: event.target.value })} placeholder="127.0.0.1" />
+        </label>
+        <label className="grid gap-2 text-sm text-muted-foreground">Port
+          <input className={inputClassName} type="number" min="1" max="65535" value={proxy.port} onChange={(event) => set({ port: event.target.value })} placeholder="1080" />
+        </label>
+        <label className="grid gap-2 text-sm text-muted-foreground">User
+          <input className={inputClassName} value={proxy.user} onChange={(event) => set({ user: event.target.value })} autoComplete="off" />
+        </label>
+        <label className="grid gap-2 text-sm text-muted-foreground">Password
+          <input className={inputClassName} type="password" value={proxy.pass} onChange={(event) => set({ pass: event.target.value })} autoComplete="new-password" />
+        </label>
+      </div>
     </div>
   );
 }
@@ -1311,17 +1446,29 @@ function roomPlaceholder(carrier: string) {
 }
 
 function normalizeLocationForm(location: ClientLocationForm): ClientLocationForm {
-  const options = transportOptions(location.carrier, location.transport);
-  const transport = options.includes(location.transport) ? location.transport : options[0];
+  const normalized: ClientLocationForm = { ...location, proxy: proxyFromState(location.proxy) };
+  if (normalized.carrier === "jitsi") {
+    const fromServer = splitJitsiRoomInput(normalized.jitsi_instance || "");
+    const fromRoom = splitJitsiRoomInput(normalized.room_id || "");
+    const split = fromRoom || fromServer;
+    if (split) {
+      normalized.jitsi_instance = split.server;
+      normalized.room_id = split.room;
+    } else if (!normalized.jitsi_instance?.trim()) {
+      normalized.jitsi_instance = DEFAULT_JITSI_INSTANCE;
+    }
+  }
+  const options = transportOptions(normalized.carrier, normalized.transport);
+  const transport = options.includes(normalized.transport) ? normalized.transport : options[0];
   const fields = payloadFields[transport] ?? [];
   const allowed = new Set(fields.map((field) => field.key));
-  const payload = Object.fromEntries(Object.entries(location.payload).filter(([key]) => allowed.has(key)));
+  const payload = Object.fromEntries(Object.entries(normalized.payload).filter(([key]) => allowed.has(key)));
   for (const field of fields) {
     if (!payload[field.key]?.trim()) payload[field.key] = field.defaultValue;
   }
-  const link = (location.link?.trim() || "tor").toLowerCase();
+  const link = (normalized.link?.trim() || "tor").toLowerCase();
   return mergeInstanceDefaults({
-    ...location,
+    ...normalized,
     transport,
     payload,
     link: link === "direct" ? "direct" : "tor",
@@ -1509,12 +1656,13 @@ function cleanRefresh(refresh: string) {
 function locationsForSubmit(locations: ClientLocationForm[]) {
   return locations.map((location) => ({
     name: location.name.trim(),
-    room_id: normalizeRoomIDInput(location.room_id),
+    room_id: location.carrier === "jitsi" ? jitsiRoomForSubmit(location) : normalizeRoomIDInput(location.room_id),
     key: location.key.trim(),
     carrier: location.carrier,
     transport: location.transport,
     payload: payloadForSubmit(location.payload),
     dns: location.dns.trim(),
+    proxy: proxyForSubmit(location.proxy),
     link: (location.link?.trim() || "tor").toLowerCase(),
   }));
 }
@@ -1951,19 +2099,32 @@ function LocationFormFields({
       {isLegacyTransport(location.transport) && (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">{t("legacyTransportHint")}</p>
       )}
+      {location.carrier === "jitsi" ? (
+        <label className="grid gap-2 text-sm text-muted-foreground">
+          Jitsi Server
+          <input
+            className="h-10 rounded-md border border-border bg-background px-3 text-foreground outline-none focus:border-primary"
+            value={location.jitsi_instance}
+            onChange={(event) => set({ jitsi_instance: event.target.value })}
+            placeholder={DEFAULT_JITSI_INSTANCE}
+          />
+          <p className="text-[11px] text-muted-foreground">Можно вставить полную ссылку сюда или в Room ID — поля разделятся автоматически.</p>
+        </label>
+      ) : null}
       <label className="grid gap-2 text-sm text-muted-foreground">
         Room ID
         <RoomIDInput
           value={location.room_id}
           carrier={location.carrier}
+          jitsiServer={location.jitsi_instance}
           onChange={(room_id) => set({ room_id })}
         />
         <p className="text-[11px] text-muted-foreground">
           {location.carrier === "jitsi"
-            ? "Jitsi: полная ссылка meet (https://…) или домен/путь"
-            : "Telemost / WB Stream / Jazz: только ID комнаты (цифры и латиница), без https://"}
+            ? "Jitsi: Server и Room ID сохраняются раздельно; в OlcRTC уходит одна корректная ссылка"
+            : "Telemost / WB Stream: только ID комнаты (цифры и латиница), без https://"}
         </p>
-        <JitsiPreflightNotice carrier={location.carrier} roomID={location.room_id} />
+        <JitsiPreflightNotice carrier={location.carrier} roomID={location.carrier === "jitsi" ? jitsiRoomForSubmit(location) : location.room_id} />
       </label>
       <label className="grid gap-2 text-sm text-muted-foreground">
         Key
@@ -1992,6 +2153,10 @@ function LocationFormFields({
           placeholder="1.1.1.1:53"
         />
       </label>
+      <Socks5ProxyFields proxy={location.proxy} onChange={(proxy) => set({ proxy })} />
+      {location.carrier === "wbstream" && location.transport === "datachannel" ? (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">Экспериментально: OlcRTC поддерживает этот режим, но обычный WB guest-токен сейчас выдаётся с canPublishData=false. Оставлено для будущих токенов с нужными правами.</p>
+      ) : null}
       {fields.length > 0 && (
         <div className="grid gap-3 rounded-md border border-border bg-background p-3">
           <div className="text-sm font-medium text-foreground">Параметры транспорта</div>
@@ -2204,11 +2369,24 @@ function ClientFormFields({
             {isLegacyTransport(location.transport) && (
               <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">{t("legacyTransportHint")}</p>
             )}
+            {location.carrier === "jitsi" ? (
+              <label className="grid gap-2 text-sm text-muted-foreground">
+                Jitsi Server
+                <input
+                  className="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
+                  value={location.jitsi_instance}
+                  onChange={(event) => setLocation(index, { jitsi_instance: event.target.value })}
+                  placeholder={DEFAULT_JITSI_INSTANCE}
+                />
+                <p className="text-[11px] text-muted-foreground">Полную ссылку можно вставить в любое из двух полей.</p>
+              </label>
+            ) : null}
             <label className="grid gap-2 text-sm text-muted-foreground">
               Room ID
               <RoomIDInput
                 value={location.room_id}
                 carrier={location.carrier}
+                jitsiServer={location.jitsi_instance}
                 onChange={(room_id) => setLocation(index, { room_id })}
                 inputClassName="h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary"
               />
@@ -2240,6 +2418,14 @@ function ClientFormFields({
                 placeholder="1.1.1.1:53"
               />
             </label>
+            <Socks5ProxyFields
+              proxy={location.proxy}
+              onChange={(proxy) => setLocation(index, { proxy })}
+              inputClassName="h-10 rounded-md border border-border bg-background px-3 text-foreground outline-none focus:border-primary"
+            />
+            {location.carrier === "wbstream" && location.transport === "datachannel" ? (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">Экспериментально: core сохраняет поддержку, но guest-токен WB пока не разрешает публикацию DataChannel.</p>
+            ) : null}
             {fields.length > 0 && (
               <div className="grid gap-3 rounded-md border border-border bg-card p-3">
                 <div className="text-sm font-medium text-foreground">Параметры транспорта</div>
@@ -3340,7 +3526,6 @@ function ComponentSettingsModal({
                       <option value="jitsi">jitsi</option>
                       <option value="wbstream">wbstream</option>
                       <option value="telemost">telemost</option>
-                      <option value="jazz">jazz</option>
                     </select>
                   </label>
                   <label className="grid gap-1 text-muted-foreground">
@@ -6042,3 +6227,5 @@ createRoot(document.getElementById("root")!).render(
     </PanelLangProvider>
   </PanelErrorBoundary>,
 );
+
+// OLC_MANAGER_UPSTREAM_FOLLOWUP_V1

@@ -28,11 +28,32 @@ for f in main.tsx main.go; do
   esac
   if [[ -f "$dst" && -f "$GOLDEN_DIR/$f" ]]; then
     if cmp -s "$GOLDEN_DIR/$f" "$dst"; then
-      log "$f: совпадает с эталоном"
+      log "$f: совпадает с golden baseline"
     else
-      log "$f: ОТЛИЧАЕТСЯ от эталона (нужен apply-golden-panel.sh?)"
-      fail=1
+      log "$f: ожидаемо изменён финальными patch-скриптами после golden baseline"
     fi
+  fi
+done
+
+# Exact equality with golden is not expected: apply_manager deliberately runs
+# ordered final patches after apply-golden-panel.sh. Verify their contracts.
+declare -a required_markers=(
+  "$MGR_REPO/src/main.tsx|OLC_MANAGER_UPSTREAM_FOLLOWUP_V1"
+  "$MGR_REPO/src/main.tsx|OLC_PROXY_POLICY_UI_V1"
+  "$MGR_REPO/src/main.tsx|olc-plain-enter-blur"
+  "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_MANAGER_UPSTREAM_FOLLOWUP_V1"
+  "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_PROXY_POLICY_V1"
+  "$MGR_REPO/cmd/olcrtc-manager/main.go|Current peers count:"
+  "$MGR_REPO/cmd/olcrtc-manager/main.go|device_labels,omitempty"
+)
+for item in "${required_markers[@]}"; do
+  file="${item%%|*}"
+  marker="${item#*|}"
+  if grep -Fq "$marker" "$file" 2>/dev/null; then
+    log "marker: ok — $marker"
+  else
+    log "marker: FAIL — $marker"
+    fail=1
   fi
 done
 
@@ -57,5 +78,5 @@ if [[ "$fail" -eq 0 ]]; then
   log "OK"
   exit 0
 fi
-log "FAIL — панель не совпадает с эталоном"
+log "FAIL — нарушен golden/final patch contract"
 exit 1

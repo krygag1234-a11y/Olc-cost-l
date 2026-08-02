@@ -17,6 +17,9 @@ J_DIR="$(cd "$OLCRTC_REPO" && go list -m -json github.com/zarazaex69/j 2>/dev/nu
 }
 
 CONN_GO="$J_DIR/internal/xmpp/conn.go"
+# Go module downloads are read-only by default; this patch intentionally changes
+# one vendored cache file for the current isolated build only.
+chmod u+w "$CONN_GO" 2>/dev/null || true
 if grep -q 'bind rejected' "$CONN_GO" 2>/dev/null; then
   echo "[patch-j-xmpp] already patched"
   exit 0

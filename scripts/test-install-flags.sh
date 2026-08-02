@@ -60,6 +60,11 @@ run_upd() {
 
 echo "== agent-bootstrap: корректные комбинации флагов установки =="
 run_boot "full=1"                                    --full
+run_boot "tls=1 tls_mode=selfsigned"                   --full
+run_boot "tls=0 tls_mode=http"                         --full --http
+run_boot "tls=0 tls_mode=http"                         --http --full
+run_boot "tls=1 tls_mode=letsencrypt"                  --full --https-letsencrypt
+run_boot "tls=1 tls_mode=selfsigned"                   --full --https-self-signed
 run_boot "tor=1"                                     --with-tor
 run_boot "tor=1"                                     --tor
 run_boot "zapret=1"                                  --zapret
@@ -110,6 +115,9 @@ inst() {
 # запускаем только если root (иначе скип, чтобы тест не был флаки).
 if [[ "$(id -u)" -eq 0 ]]; then
   inst "[install-plan]"        --full
+  inst "--https-self-signed"    --full
+  inst "--https-letsencrypt"    --full --https-letsencrypt
+  inst "--http"                 --full --http
   inst "tor=0"                 --no-tor
   inst "warp=1"                --with-warp
   inst "access=ssh"            --full --ssh
@@ -125,6 +133,9 @@ run_upd "mode=--incremental"                  --incremental
 run_upd "mode=--update(default-with-flags)"   --manager-latest
 run_upd "mode=--update(default-with-flags)"   --manager-stable
 run_upd "mode=--update(default-with-flags)"   --ssh
+run_upd "mode=--update(default-with-flags)"   --https-letsencrypt
+run_upd "mode=--update(default-with-flags)"   --https-self-signed
+run_upd "mode=--update(default-with-flags)"   --http
 run_upd "mode=--update(default-with-flags)"   --force-sha-update
 run_upd "unknown=[--lolwut]"                  --lolwut
 run_upd "mode=--update"                       --update --manager-stable --ssh --force-sha-update
@@ -180,7 +191,7 @@ def run(args, keys=None, wait=None):
     return raw.decode("utf-8","replace")
 
 # 1) --full без доступа → меню IP/SSH появляется; выбираем цифру 2 (SSH)
-s1 = run(["--full"], keys=b"2", wait=r"Режим доступа к панели")
+s1 = run(["--full"], keys=b"3", wait=r"Режим доступа к панели")
 check("--full → меню IP/SSH показано", "Режим доступа к панели" in s1)
 check("--full + выбор SSH → boot_args содержит --ssh",
       "--ssh" in s1 and "access_set=1" in s1)
@@ -266,7 +277,7 @@ def run_case(name, target, args, prompts, extra_env, assertions):
 fresh = os.environ["OLC_TEST_FRESH"]
 run_case(
     "fresh selective", fresh, [],
-    [("Режим доступа к панели:", "2"), ("Компоненты для установки:", "4"),
+    [("Режим доступа к панели:", "3"), ("Компоненты для установки:", "4"),
      ("Установить Tor?", "1"), ("Установить мосты Tor?", "2"),
      ("Установить Split-routing?", "1"), ("Установить Zapret", "2")],
     {"OLC_ASSUME_FRESH": "1", "OLC_EXIT_AFTER_PROMPT": "1"},
@@ -279,7 +290,7 @@ run_case(
 
 fresh_full = os.environ["OLC_TEST_FRESH_FULL"]
 run_case(
-    "fresh --full", fresh_full, ["--full"], [("Режим доступа к панели", "2")],
+    "fresh --full", fresh_full, ["--full"], [("Режим доступа к панели", "3")],
     {"OLC_ASSUME_FRESH": "1", "OLC_EXIT_AFTER_PROMPT": "1"},
     lambda text: {
         "early clone provides access TUI": os.path.isdir(os.path.join(fresh_full, ".git")) and "Режим доступа к панели" in text,

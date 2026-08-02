@@ -1,0 +1,497 @@
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -651,6 +651,7 @@
+   payload: Record<string, string>;
+   link: string;
+   dns: string;
++  proxy: Socks5Proxy;
+   running: boolean;
+   runtime: RuntimeState;
+ };
+@@ -682,6 +683,7 @@
+   client_id: string;
+   refresh?: string;
+   quota: Quota;
++  proxy: Socks5Proxy;
+   locations: LocationState[];
+   randomization?: {
+     enabled: boolean;
+@@ -744,10 +746,12 @@
+ };
+
+ type Socks5Proxy = {
++  enabled: boolean;
+   addr: string;
+   port: string;
+   user: string;
+   pass: string;
++  routing: "split" | "all";
+ };
+
+ type ClientLocationForm = {
+@@ -767,6 +771,7 @@
+   client_id: string;
+   refresh: string;
+   quota: Quota;
++  proxy: Socks5Proxy;
+   locations: ClientLocationForm[];
+ };
+
+@@ -791,6 +796,15 @@
+ /** Снят с поддержки для новых локаций; старые config не ломаем. */
+ const LEGACY_TRANSPORTS = new Set(["videochannel"]);
+
++const emptyProxy = (): Socks5Proxy => ({
++  enabled: false,
++  addr: "",
++  port: "",
++  user: "",
++  pass: "",
++  routing: "split",
++});
++
+ const defaultLocationForm: ClientLocationForm = {
+   name: "",
+   room_id: "",
+@@ -800,7 +814,7 @@
+   transport: "datachannel",
+   payload: {},
+   dns: "1.1.1.1:53",
+-  proxy: { addr: "", port: "", user: "", pass: "" },
++  proxy: emptyProxy(),
+   link: "tor",
+ };
+
+@@ -808,7 +822,8 @@
+   client_id: "",
+   refresh: "",
+   quota: {},
+-  locations: [{ ...defaultLocationForm }],
++  proxy: emptyProxy(),
++  locations: [{ ...defaultLocationForm, proxy: emptyProxy() }],
+ };
+
+ const defaultSettingsForm: SettingsForm = {
+@@ -1216,20 +1231,28 @@
+
+ function proxyFromState(proxy?: Partial<Socks5Proxy> & { port?: string | number }): Socks5Proxy {
+   return {
++    enabled: typeof proxy?.enabled === "boolean" ? proxy.enabled : Boolean(proxy?.addr),
+     addr: proxy?.addr ?? "",
+     port: proxy?.port ? String(proxy.port) : "",
+     user: proxy?.user ?? "",
+     pass: proxy?.pass ?? "",
++    routing: proxy?.routing === "all" ? "all" : "split",
+   };
+ }
+
++function proxyIsEnabled(proxy?: Partial<Socks5Proxy>) {
++  return typeof proxy?.enabled === "boolean" ? proxy.enabled : Boolean(proxy?.addr);
++}
++
+ function proxyForSubmit(proxy: Socks5Proxy) {
+-  const addr = proxy.addr.trim();
+-  const port = Number(proxy.port) || 0;
+-  const user = proxy.user.trim();
+-  const pass = proxy.pass;
+-  if (!addr && !port && !user && !pass) return undefined;
+-  return { addr, port, user, pass };
++  return {
++    enabled: Boolean(proxy.enabled),
++    addr: proxy.addr.trim(),
++    port: Number(proxy.port) || 0,
++    user: proxy.user.trim(),
++    pass: proxy.pass,
++    routing: proxy.routing === "all" ? "all" : "split",
++  };
+ }
+
+ function transportOptions(carrier: string, keepTransport?: string) {
+@@ -1343,33 +1366,60 @@
+ function Socks5ProxyFields({
+   proxy,
+   onChange,
++  title = "Upstream SOCKS5",
++  hiddenReason = "",
+   inputClassName = "h-10 rounded-md border border-border bg-card px-3 text-foreground outline-none focus:border-primary",
+ }: {
+   proxy: Socks5Proxy;
+   onChange: (proxy: Socks5Proxy) => void;
++  title?: string;
++  hiddenReason?: string;
+   inputClassName?: string;
+ }) {
+-  const set = (patch: Partial<Socks5Proxy>) => onChange({ ...proxy, ...patch });
++  const set = (patch: Partial<Socks5Proxy>) => onChange(proxyFromState({ ...proxy, ...patch }));
++  if (hiddenReason) {
++    return (
++      <div className="rounded-md border border-primary/40 bg-primary/10 p-3 text-xs text-primary">
++        {hiddenReason} Сохранённые настройки этого уровня не удалены.
++      </div>
++    );
++  }
+   return (
+     <div className="grid gap-3 rounded-md border border-border bg-background p-3">
+-      <div>
+-        <div className="text-sm font-medium text-foreground">Upstream SOCKS5 для этого инстанса</div>
+-        <p className="text-[11px] text-muted-foreground">Необязательно. Логин и пароль передаются исходящему SOCKS5-прокси OlcRTC.</p>
+-      </div>
+-      <div className="grid gap-3 md:grid-cols-2">
+-        <label className="grid gap-2 text-sm text-muted-foreground">Host
+-          <input className={inputClassName} value={proxy.addr} onChange={(event) => set({ addr: event.target.value })} placeholder="127.0.0.1" />
+-        </label>
+-        <label className="grid gap-2 text-sm text-muted-foreground">Port
+-          <input className={inputClassName} type="number" min="1" max="65535" value={proxy.port} onChange={(event) => set({ port: event.target.value })} placeholder="1080" />
+-        </label>
+-        <label className="grid gap-2 text-sm text-muted-foreground">User
+-          <input className={inputClassName} value={proxy.user} onChange={(event) => set({ user: event.target.value })} autoComplete="off" />
+-        </label>
+-        <label className="grid gap-2 text-sm text-muted-foreground">Password
+-          <input className={inputClassName} type="password" value={proxy.pass} onChange={(event) => set({ pass: event.target.value })} autoComplete="new-password" />
+-        </label>
+-      </div>
++      <label className="flex items-center justify-between gap-3 text-sm font-medium text-foreground">
++        <span>{title}</span>
++        <input type="checkbox" checked={proxy.enabled} onChange={(event) => set({ enabled: event.target.checked })} />
++      </label>
++      <p className="text-[11px] text-amber-300">
++        Это серверный исходящий SOCKS5 для OlcRTC, а не локальный SOCKS-порт приложения OlcBox.
++        Он имеет приоритет над автоматическим Tor/WARP. При недоступности прокси прямого обхода не будет.
++      </p>
++      {proxy.enabled ? (
++        <>
++          <div className="grid gap-3 md:grid-cols-2">
++            <label className="grid gap-2 text-sm text-muted-foreground">Host
++              <input className={inputClassName} value={proxy.addr} onChange={(event) => set({ addr: event.target.value })} placeholder="proxy.example.org" />
++            </label>
++            <label className="grid gap-2 text-sm text-muted-foreground">Port
++              <input className={inputClassName} type="number" min="1" max="65535" value={proxy.port} onChange={(event) => set({ port: event.target.value })} placeholder="1080" />
++            </label>
++            <label className="grid gap-2 text-sm text-muted-foreground">User
++              <input className={inputClassName} value={proxy.user} onChange={(event) => set({ user: event.target.value })} autoComplete="off" />
++            </label>
++            <label className="grid gap-2 text-sm text-muted-foreground">Password
++              <input className={inputClassName} type="password" value={proxy.pass} onChange={(event) => set({ pass: event.target.value })} autoComplete="new-password" />
++            </label>
++          </div>
++          <label className="grid gap-2 text-sm text-muted-foreground">Маршрутизация
++            <select className={inputClassName} value={proxy.routing} onChange={(event) => set({ routing: event.target.value === "all" ? "all" : "split" })}>
++              <option value="split">Сохранять split/Tor/Zapret-правила (рекомендуется)</option>
++              <option value="all">Весь трафик инстанса через этот SOCKS5</option>
++            </select>
++          </label>
++        </>
++      ) : (
++        <p className="text-[11px] text-muted-foreground">Выключено: используется следующий уровень или штатная автоматическая маршрутизация.</p>
++      )}
+     </div>
+   );
+ }
+@@ -1515,7 +1565,8 @@
+ function normalizeForm(form: ClientForm): ClientForm {
+   return {
+     ...form,
+-    locations: form.locations.length ? form.locations.map(normalizeLocationForm) : [{ ...defaultLocationForm }],
++    proxy: proxyFromState(form.proxy),
++    locations: form.locations.length ? form.locations.map(normalizeLocationForm) : [{ ...defaultLocationForm, proxy: emptyProxy() }],
+   };
+ }
+
+@@ -1549,6 +1600,7 @@
+     payload: loc.payload ?? {},
+     link: loc.link ?? "tor",
+     dns: loc.dns ?? "1.1.1.1:53",
++    proxy: proxyFromState(loc.proxy),
+     running: Boolean(loc.running ?? runtime.running),
+     runtime: {
+       ...defaultRuntime(),
+@@ -1565,6 +1617,7 @@
+       client_id: String(c.client_id ?? "").trim(),
+       refresh: c.refresh,
+       quota: c.quota ?? {},
++      proxy: proxyFromState(c.proxy),
+       locations: (c.locations ?? []).map((loc) => normalizeLocationState(loc as Partial<LocationState>)),
+       randomization: c.randomization,
+     }))
+@@ -2191,10 +2244,12 @@
+   form,
+   setForm,
+   includeClientID,
++  globalProxyEnabled = false,
+ }: {
+   form: ClientForm;
+   setForm: (form: ClientForm) => void;
+   includeClientID: boolean;
++  globalProxyEnabled?: boolean;
+ }) {
+   const set = (patch: Partial<ClientForm>) => setForm(normalizeForm({ ...form, ...patch }));
+
+@@ -2233,6 +2288,12 @@
+         Интервал обновления подписки
+         <RefreshHoursPicker value={form.refresh} onChange={(v) => set({ refresh: v })} />
+       </label>
++      <Socks5ProxyFields
++        proxy={form.proxy}
++        onChange={(proxy) => set({ proxy })}
++        title="SOCKS5 для всех инстансов этого клиента"
++        hiddenReason={globalProxyEnabled ? "Включён глобальный SOCKS5 для всех клиентов и инстансов." : ""}
++      />
+       <div className="grid gap-3 rounded-md border border-border bg-background p-3">
+         <div className="text-sm font-medium text-foreground">Квоты клиента</div>
+         <div className="grid gap-3 md:grid-cols-2">
+@@ -2287,9 +2348,13 @@
+ function LocationFormFields({
+   location,
+   setLocation,
++  globalProxyEnabled = false,
++  clientProxyEnabled = false,
+ }: {
+   location: ClientLocationForm;
+   setLocation: (location: ClientLocationForm) => void;
++  globalProxyEnabled?: boolean;
++  clientProxyEnabled?: boolean;
+ }) {
+   const { t } = usePanelLang();
+   const set = (patch: Partial<ClientLocationForm>) => setLocation(normalizeLocationForm({ ...location, ...patch }));
+@@ -2395,7 +2460,14 @@
+           placeholder="1.1.1.1:53"
+         />
+       </label>
+-      <Socks5ProxyFields proxy={location.proxy} onChange={(proxy) => set({ proxy })} />
++      <Socks5ProxyFields
++        proxy={location.proxy}
++        onChange={(proxy) => set({ proxy })}
++        title="SOCKS5 только для этого инстанса"
++        hiddenReason={globalProxyEnabled
++          ? "Включён глобальный SOCKS5 для всех клиентов и инстансов."
++          : clientProxyEnabled ? "Включён SOCKS5 для всех инстансов этого клиента." : ""}
++      />
+       {location.carrier === "wbstream" && location.transport === "datachannel" ? (
+         <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">Экспериментально: OlcRTC поддерживает этот режим, но обычный WB guest-токен сейчас выдаётся с canPublishData=false. Оставлено для будущих токенов с нужными правами.</p>
+       ) : null}
+@@ -2437,10 +2509,12 @@
+   form,
+   setForm,
+   includeClientID,
++  globalProxyEnabled = false,
+ }: {
+   form: ClientForm;
+   setForm: (form: ClientForm) => void;
+   includeClientID: boolean;
++  globalProxyEnabled?: boolean;
+ }) {
+   const { t } = usePanelLang();
+   const set = (patch: Partial<ClientForm>) => setForm(normalizeForm({ ...form, ...patch }));
+@@ -2498,6 +2572,12 @@
+         Интервал обновления подписки
+         <RefreshHoursPicker value={form.refresh} onChange={(v) => set({ refresh: v })} />
+       </label>
++      <Socks5ProxyFields
++        proxy={form.proxy}
++        onChange={(proxy) => set({ proxy })}
++        title="SOCKS5 для всех инстансов этого клиента"
++        hiddenReason={globalProxyEnabled ? "Включён глобальный SOCKS5 для всех клиентов и инстансов." : ""}
++      />
+       <div className="grid gap-3 rounded-md border border-border bg-background p-3">
+         <div className="text-sm font-medium text-foreground">Квоты клиента</div>
+         <div className="grid gap-3 md:grid-cols-2">
+@@ -2658,6 +2738,10 @@
+             <Socks5ProxyFields
+               proxy={location.proxy}
+               onChange={(proxy) => setLocation(index, { proxy })}
++              title="SOCKS5 только для этого инстанса"
++              hiddenReason={globalProxyEnabled
++                ? "Включён глобальный SOCKS5 для всех клиентов и инстансов."
++                : form.proxy.enabled ? "Включён SOCKS5 для всех инстансов этого клиента." : ""}
+               inputClassName="h-10 rounded-md border border-border bg-background px-3 text-foreground outline-none focus:border-primary"
+             />
+             {location.carrier === "wbstream" && location.transport === "datachannel" ? (
+@@ -5254,6 +5338,9 @@
+         throw new Error(errText || `HTTP ${res.status}`);
+       }
+       setMsg(t("saved"));
++      if (feature === "olcrtc") {
++        window.dispatchEvent(new CustomEvent("olc-global-proxy-saved", { detail: { enabled: Boolean(settings.global_socks_enabled) } }));
++      }
+     } catch (e) {
+       setMsg(e instanceof Error ? e.message : String(e));
+     } finally {
+@@ -5263,7 +5350,13 @@
+
+   saveRef.current = save;
+   const setStr = (key: string, value: string) => { setSettings((s) => ({ ...s, [key]: value })); markDirtyAndSchedule(); };
+-  const setBool = (key: string, value: boolean) => { setSettings((s) => ({ ...s, [key]: value })); markDirtyAndSchedule(); };
++  const setBool = (key: string, value: boolean) => {
++    setSettings((s) => ({ ...s, [key]: value }));
++    if (feature === "olcrtc" && key === "global_socks_enabled") {
++      window.dispatchEvent(new CustomEvent("olc-global-proxy-saved", { detail: { enabled: value } }));
++    }
++    markDirtyAndSchedule();
++  };
+
+   const readJsonOrText = async (res: Response): Promise<Record<string, unknown>> => {
+     const raw = await res.text();
+@@ -6253,10 +6346,30 @@
+                     <option value="direct">direct</option>
+                   </select>
+                 </label>
+-                <label className="grid gap-1 text-muted-foreground">
+-                  SOCKS proxy (optional)
+-                  <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.socks_proxy ?? "")} onChange={(e) => setStr("socks_proxy", e.target.value)} placeholder="user:pass@host:port" />
+-                </label>
++                <div className="grid gap-3 rounded-md border border-border bg-background p-3">
++                  <label className="flex items-center justify-between gap-3 text-sm font-medium text-foreground">
++                    <span>Глобальный upstream SOCKS5 для всех клиентов и инстансов</span>
++                    <input type="checkbox" checked={Boolean(settings.global_socks_enabled)} onChange={(e) => setBool("global_socks_enabled", e.target.checked)} />
++                  </label>
++                  <p className="text-[11px] text-amber-300">
++                    Имеет наивысший приоритет. Настройки SOCKS5 клиентов и инстансов сохраняются, но временно скрываются.
++                    Это не локальный SOCKS-порт OlcBox; при ошибке прокси прямого обхода нет.
++                  </p>
++                  {Boolean(settings.global_socks_enabled) ? (
++                    <>
++                      <div className="grid gap-2 md:grid-cols-2">
++                        <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.global_socks_addr ?? "")} onChange={(e) => setStr("global_socks_addr", e.target.value)} placeholder="proxy.example.org" />
++                        <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" type="number" min="1" max="65535" value={String(settings.global_socks_port ?? "")} onChange={(e) => setStr("global_socks_port", e.target.value)} placeholder="1080" />
++                        <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.global_socks_user ?? "")} onChange={(e) => setStr("global_socks_user", e.target.value)} placeholder="User" autoComplete="off" />
++                        <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" type="password" value={String(settings.global_socks_pass ?? "")} onChange={(e) => setStr("global_socks_pass", e.target.value)} placeholder="Password" autoComplete="new-password" />
++                      </div>
++                      <select className="h-9 rounded-md border border-border bg-background px-2 text-xs" value={String(settings.global_socks_routing ?? "split")} onChange={(e) => setStr("global_socks_routing", e.target.value)}>
++                        <option value="split">Сохранять split/Tor/Zapret-правила (рекомендуется)</option>
++                        <option value="all">Весь трафик через этот SOCKS5</option>
++                      </select>
++                    </>
++                  ) : null}
++                </div>
+                 <label className="grid gap-1 text-muted-foreground">
+                   Tor signaling proxy (optional)
+                   <input className="h-9 rounded-md border border-border bg-background px-2 text-xs font-mono" value={String(settings.tor_proxy ?? "")} onChange={(e) => setStr("tor_proxy", e.target.value)} placeholder="user:pass@host:port" />
+@@ -8614,6 +8727,25 @@
+   const [globalRandomizationScope, setGlobalRandomizationScope] = useState("both");
+   const [randTypeTarget, setRandTypeTarget] = useState<string | null>(null);
+   const [subQrTarget, setSubQrTarget] = useState<string | null>(null);
++  const [globalProxyEnabled, setGlobalProxyEnabled] = useState(false);
++  useEffect(() => {
++    let stop = false;
++    const loadGlobalProxy = async () => {
++      try {
++        const r = await fetch("/api/settings/olcrtc", { cache: "no-store" });
++        const b = await r.json();
++        if (!stop) setGlobalProxyEnabled(Boolean(b.settings?.global_socks_enabled));
++      } catch { /* keep last known value */ }
++    };
++    void loadGlobalProxy();
++    const id = window.setInterval(loadGlobalProxy, 5000);
++    const onSaved = (ev: Event) => {
++      setGlobalProxyEnabled(Boolean((ev as CustomEvent).detail?.enabled));
++      void loadGlobalProxy();
++    };
++    window.addEventListener("olc-global-proxy-saved", onSaved);
++    return () => { stop = true; window.clearInterval(id); window.removeEventListener("olc-global-proxy-saved", onSaved); };
++  }, []);
+   const [globalAccessEnabled, setGlobalAccessEnabled] = useState(false);
+   const [accessCfg, setAccessCfg] = useState<Record<string, boolean>>({});
+   const [accessLoaded, setAccessLoaded] = useState(false);
+@@ -8824,7 +8956,8 @@
+         client_id: client.client_id,
+         refresh: client.refresh ?? "",
+         quota: client.quota ?? {},
+-        locations: [{ ...defaultLocationForm }],
++        proxy: proxyFromState(client.proxy),
++        locations: [{ ...defaultLocationForm, proxy: emptyProxy() }],
+       }),
+     );
+   };
+@@ -8863,6 +8996,7 @@
+         transport: location.transport,
+         payload: location.payload ?? {},
+         dns: location.dns,
++        proxy: proxyFromState(location.proxy),
+         link: location.link,
+       }),
+     );
+@@ -8886,6 +9020,7 @@
+           client_id: createForm.client_id.trim(),
+           refresh: cleanRefresh(createForm.refresh),
+           quota: cleanQuota(createForm.quota),
++          client_proxy: proxyForSubmit(createForm.proxy),
+           locations: locationsForSubmit(locs),
+         }),
+       });
+@@ -8903,6 +9038,7 @@
+           client_id: editForm.client_id.trim(),
+           refresh: cleanRefresh(editForm.refresh),
+           quota: cleanQuota(editForm.quota),
++          client_proxy: proxyForSubmit(editForm.proxy),
+         }),
+       });
+       const _oldId = editClient.client_id;
+@@ -8957,6 +9093,8 @@
+               transport: location.transport,
+               payload: location.payload ?? {},
+               dns: location.dns,
++              proxy: proxyFromState(location.proxy),
++              link: location.link,
+             },
+       );
+       await request(`/api/clients/${encodeURIComponent(editLocation.client.client_id)}`, {
+@@ -8966,6 +9104,7 @@
+           client_id: editLocation.client.client_id,
+           refresh: cleanRefresh(editLocation.client.refresh ?? ""),
+           quota: cleanQuota(editLocation.client.quota),
++          client_proxy: proxyForSubmit(proxyFromState(editLocation.client.proxy)),
+           locations: locationsForSubmit(nextLocations),
+         }),
+       });
+@@ -9529,7 +9668,7 @@
+       {createOpen && (
+         <Modal title="Создать клиента" onClose={() => setCreateOpen(false)}>
+           <div className="p-5">
+-            <ClientFormFields form={createForm} setForm={setCreateForm} includeClientID />
++            <ClientFormFields form={createForm} setForm={setCreateForm} includeClientID globalProxyEnabled={globalProxyEnabled} />
+             <div className="mt-5 flex justify-end gap-2">
+               <button
+                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+@@ -9553,7 +9692,7 @@
+       {editClient && (
+         <Modal title={`Редактировать ${editClient.client_id}`} onClose={() => setEditClient(null)}>
+           <div className="p-5">
+-            <ClientSettingsFields form={editForm} setForm={setEditForm} includeClientID />
++            <ClientSettingsFields form={editForm} setForm={setEditForm} includeClientID globalProxyEnabled={globalProxyEnabled} />
+             <div className="mt-5 flex justify-end gap-2">
+               <button
+                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+@@ -9578,7 +9717,12 @@
+         <Modal title={`Добавить локацию ${createLocationClient.client_id}`} onClose={() => { setCreateLocationClient(null); setLocationModalError(""); }}>
+           <div className="p-5">
+             {locationModalError ? <p className="mb-3 rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">{locationModalError}</p> : null}
+-            <LocationFormFields location={locationForm} setLocation={(loc) => { setLocationForm(loc); setLocationModalError(""); }} />
++            <LocationFormFields
++              location={locationForm}
++              setLocation={(loc) => { setLocationForm(loc); setLocationModalError(""); }}
++              globalProxyEnabled={globalProxyEnabled}
++              clientProxyEnabled={proxyIsEnabled(createLocationClient.proxy)}
++            />
+             <div className="mt-5 flex justify-end gap-2">
+               <button
+                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+@@ -9602,7 +9746,12 @@
+       {editLocation && (
+         <Modal title={`Редактировать локацию ${editLocation.location.name || editLocation.location.room_id}`} onClose={() => setEditLocation(null)}>
+           <div className="p-5">
+-            <LocationFormFields location={locationForm} setLocation={setLocationForm} />
++            <LocationFormFields
++              location={locationForm}
++              setLocation={setLocationForm}
++              globalProxyEnabled={globalProxyEnabled}
++              clientProxyEnabled={proxyIsEnabled(editLocation.client.proxy)}
++            />
+             <div className="mt-5 flex justify-end gap-2">
+               <button
+                 className="h-9 rounded-md border border-border bg-muted px-3 text-sm hover:bg-muted/80"
+@@ -10008,3 +10157,5 @@
+ );
+
+ // OLC_MANAGER_UPSTREAM_FOLLOWUP_V1
++
++// OLC_PROXY_POLICY_UI_V1

@@ -603,7 +603,6 @@ def rebuild():
 CARRIER_DEFAULT_HOSTS = {
     "telemost": ["telemost.yandex.ru", "cloud-api.yandex.ru", "yandex.ru"],
     "wbstream": ["stream.wb.ru", "wb.ru"],
-    "jazz": [],
     "jitsi": [],
 }
 

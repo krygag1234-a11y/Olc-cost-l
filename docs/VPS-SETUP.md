@@ -1,5 +1,7 @@
 ﻿# OlcRTC VPS — полная документация
 
+
+> HTTPS по публичному IP, trusted/self-signed режимы и автопродление: [HTTPS панели по IP](PANEL-HTTPS.md).
 **Обновлено:** 2026-06-02  
 **Ветка olcrtc:** [`master`](https://github.com/openlibrecommunity/olcrtc/tree/master) — pin в `data/upstream-pins.json`  
 **Панель:** [olcrtc-manager-panel](https://github.com/BigDaddy3334/olcrtc-manager-panel) — stable fork в [local-panel-version](https://github.com/krygag1234-a11y/local-panel-version)  

@@ -185,7 +185,7 @@ func olcInstancePeerCount() map[string]int {
 		if p == nil || p.logs == nil {
 			continue
 		}
-		if pc, _, _, ok := p.logs.PeerSummary(); ok {
+		if pc, _, _, ok := p.currentPeerSummary(); ok {
 			out[k] = pc
 		}
 	}

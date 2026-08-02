@@ -14,7 +14,6 @@ package main
 // olc-go-fixes-v3
 
 import (
-	"io"
 	"bufio"
 	"bytes"
 	"context"
@@ -28,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -56,6 +56,7 @@ var adminAssets embed.FS
 var managerStartedAt = time.Now()
 
 var authLimiter = newAuthLimiter()
+
 // Keep handlers safe before main() installs the config-specific persistent store.
 // This also preserves the package-level contract used by upstream handler tests.
 var adminSessions = newSessionStore()
@@ -142,19 +143,19 @@ type olcrtcLivenessConfig struct {
 
 type olcrtcRuntimeConfig struct {
 	Liveness *olcrtcLivenessConfig `yaml:"liveness,omitempty"`
-	Mode   string             `yaml:"mode"`
-	Auth   olcrtcAuthConfig   `yaml:"auth"`
-	Room   olcrtcRoomConfig   `yaml:"room,omitempty"`
-	Crypto olcrtcCryptoConfig `yaml:"crypto,omitempty"`
-	Net      olcrtcNetConfig      `yaml:"net"`
-	SOCKS    olcrtcSocksConfig  `yaml:"socks,omitempty"`
-	VP8    *olcrtcVP8Config   `yaml:"vp8,omitempty"`
-	SEI    *olcrtcSEIConfig   `yaml:"sei,omitempty"`
-	Video  *olcrtcVideoConfig `yaml:"video,omitempty"`
-	Gen    *olcrtcGenConfig   `yaml:"gen,omitempty"`
-	Data   string             `yaml:"data,omitempty"`
-	Debug  bool               `yaml:"debug,omitempty"`
-	FFmpeg string             `yaml:"ffmpeg,omitempty"`
+	Mode     string                `yaml:"mode"`
+	Auth     olcrtcAuthConfig      `yaml:"auth"`
+	Room     olcrtcRoomConfig      `yaml:"room,omitempty"`
+	Crypto   olcrtcCryptoConfig    `yaml:"crypto,omitempty"`
+	Net      olcrtcNetConfig       `yaml:"net"`
+	SOCKS    olcrtcSocksConfig     `yaml:"socks,omitempty"`
+	VP8      *olcrtcVP8Config      `yaml:"vp8,omitempty"`
+	SEI      *olcrtcSEIConfig      `yaml:"sei,omitempty"`
+	Video    *olcrtcVideoConfig    `yaml:"video,omitempty"`
+	Gen      *olcrtcGenConfig      `yaml:"gen,omitempty"`
+	Data     string                `yaml:"data,omitempty"`
+	Debug    bool                  `yaml:"debug,omitempty"`
+	FFmpeg   string                `yaml:"ffmpeg,omitempty"`
 }
 
 type olcrtcAuthConfig struct {
@@ -1350,8 +1351,6 @@ func requestOrigin(r *http.Request) string {
 	return scheme + "://" + strings.TrimSpace(host)
 }
 
-
-
 func validateRoomIDStrict(roomID, carrier string) error {
 	roomID = strings.TrimSpace(roomID)
 	if roomID == "" || roomID == "any" {
@@ -1379,7 +1378,7 @@ func validateRoomIDStrict(roomID, carrier string) error {
 		}
 		return errors.New("room_id: для Jitsi укажите https://meet.example.com/room или meet.example.com/room")
 	}
-	if carrier == "telemost" || carrier == "wbstream" || carrier == "jazz" {
+	if carrier == "telemost" || carrier == "wbstream" {
 		if strings.HasPrefix(rid, "http://") || strings.HasPrefix(rid, "https://") {
 			return errors.New("room_id: для этого провайдера укажите ID комнаты, не ссылку")
 		}
@@ -1396,7 +1395,6 @@ func validateRoomIDStrict(roomID, carrier string) error {
 	}
 	return nil
 }
-
 
 func sanitizeConfigInvalidLocations(cfg *Config) []string {
 	var warnings []string
@@ -1617,7 +1615,6 @@ func locationsFromUpdateRequest(clientID string, req updateClientRequest) ([]Loc
 	}})
 }
 
-
 // defaultLocationLink: panel/API default link (OLCRTC_DEFAULT_LINK, else tor).
 func defaultLocationLink() string {
 	if v := strings.TrimSpace(os.Getenv("OLCRTC_DEFAULT_LINK")); v != "" {
@@ -1760,7 +1757,6 @@ func deleteClient(configPath, clientID string) error {
 	}
 	return saveConfig(configPath, cfg)
 }
-
 
 func panelHostSyncScript() string {
 	for _, c := range []string{
@@ -2054,7 +2050,6 @@ func generateRoomID(ctx context.Context, olcrtcPath, carrier, dns string) (strin
 	return "", errors.New("olcrtc generated empty room id")
 }
 
-
 func exitProxyReachable(addr string, port int) bool {
 	if addr == "" || port <= 0 {
 		return false
@@ -2144,7 +2139,6 @@ func exitProxyFromEnv() (addr string, port int) {
 	}
 	return addr, port
 }
-
 
 func defaultLivenessForTransport(transport string) *olcrtcLivenessConfig {
 	switch transport {
@@ -2305,7 +2299,6 @@ func setPayloadNonNegativeInt(payload map[string]string, key string, dst *int) e
 	*dst = parsed
 	return nil
 }
-
 
 func managerRunDir() string {
 	if v := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_RUN_DIR")); v != "" {
@@ -3657,12 +3650,6 @@ func isSupported(carrier, transport string) bool {
 			"seichannel":   true,
 			"videochannel": false,
 		},
-		"jazz": {
-			"datachannel":  true,
-			"vp8channel":   false,
-			"seichannel":   false,
-			"videochannel": false,
-		},
 		"wbstream": {
 			"datachannel":  true,
 			"vp8channel":   true,
@@ -4138,7 +4125,6 @@ func (l *authLimiterType) Reset(remote string) {
 	delete(l.state, remote)
 }
 
-
 const adminSessionTTL = 30 * 24 * time.Hour
 
 func sessionFilePath(configPath string) string {
@@ -4426,7 +4412,6 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-
 // featureNames is the whitelist of allowed toggles. Any other value is rejected
 // before invoking the helper script — prevents argument injection into bash.
 var featureNames = []string{"zapret", "tor", "split", "webtunnel", "warp", "olcrtc"}
@@ -4486,9 +4471,9 @@ func readFeatureFlags() map[string]bool {
 func featureLiveStatus() map[string]string {
 	out := map[string]string{}
 	units := map[string]string{
-		"tor":      "tor@default",
-		"zapret":   "zapret",
-		"manager":  "olcrtc-manager",
+		"tor":     "tor@default",
+		"zapret":  "zapret",
+		"manager": "olcrtc-manager",
 	}
 	for name, unit := range units {
 		cmd := exec.Command("systemctl", "is-active", unit)
@@ -4519,9 +4504,6 @@ func featureLiveStatus() map[string]string {
 	}
 	return out
 }
-
-
-
 
 func githubTokenFromEnv() string {
 	for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN", "OLCRTC_GITHUB_TOKEN"} {
@@ -4764,7 +4746,6 @@ func readDeployProfileID() string {
 	return ""
 }
 
-
 func componentRemovedMarker(name string) bool {
 	_, err := os.Stat(filepath.Join("/var/lib/olcrtc/component-removed", name))
 	return err == nil
@@ -4841,7 +4822,6 @@ func loadFeatureFlagsMap() map[string]bool {
 	return flags
 }
 
-
 func readTextFile(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -4867,8 +4847,6 @@ func torSocksPort() string {
 	}
 	return "9050"
 }
-
-
 
 func deployProfileComponent(key string) bool {
 	b, err := os.ReadFile("/etc/olcrtc-manager/deploy-profile.json")
@@ -4984,19 +4962,19 @@ func readPanelEnvMap() map[string]string {
 
 func setPanelEnvKey(key, val string) error {
 	allowed := map[string]bool{
-		"OLCRTC_JITSI_INSECURE_TLS": true,
-		"OLCRTC_PUBLIC_URL":         true,
-		"OLCRTC_DIRECT_DOMAINS":     true,
-		"OLCRTC_DIRECT_CIDRS":       true,
+		"OLCRTC_JITSI_INSECURE_TLS":  true,
+		"OLCRTC_PUBLIC_URL":          true,
+		"OLCRTC_DIRECT_DOMAINS":      true,
+		"OLCRTC_DIRECT_CIDRS":        true,
 		"OLCRTC_BLOCKED_TOR_DOMAINS": true,
-		"OLCRTC_FORCE_TOR_DOMAINS":  true,
-		"OLCRTC_WEBRTC_PROXY":  true,
-		"OLCRTC_TOR_PROXY":  true,
-		"OLCRTC_DEFAULT_TRANSPORT":  true,
-		"OLCRTC_DEFAULT_CARRIER":  true,
-		"OLCRTC_SOCKS_PROXY":  true,
-		"OLCRTC_WARP_PROXY":  true,
-		"OLC_PANEL_LANG":          true,
+		"OLCRTC_FORCE_TOR_DOMAINS":   true,
+		"OLCRTC_WEBRTC_PROXY":        true,
+		"OLCRTC_TOR_PROXY":           true,
+		"OLCRTC_DEFAULT_TRANSPORT":   true,
+		"OLCRTC_DEFAULT_CARRIER":     true,
+		"OLCRTC_SOCKS_PROXY":         true,
+		"OLCRTC_WARP_PROXY":          true,
+		"OLC_PANEL_LANG":             true,
 	}
 	if !allowed[key] {
 		return fmt.Errorf("key %q not allowed", key)
@@ -5035,8 +5013,8 @@ func olcrtcSettingsGet() map[string]any {
 		}
 	}
 	return map[string]any{
-		"jitsi_insecure_tls": env["OLCRTC_JITSI_INSECURE_TLS"] == "1",
-		"public_url":         env["OLCRTC_PUBLIC_URL"],
+		"jitsi_insecure_tls":  env["OLCRTC_JITSI_INSECURE_TLS"] == "1",
+		"public_url":          env["OLCRTC_PUBLIC_URL"],
 		"direct_domains_file": env["OLCRTC_DIRECT_DOMAINS"],
 		"direct_cidrs_file":   env["OLCRTC_DIRECT_CIDRS"],
 		"blocked_tor_file":    env["OLCRTC_BLOCKED_TOR_DOMAINS"],
@@ -5048,22 +5026,21 @@ func olcrtcSettingsGet() map[string]any {
 		"default_link":        env["OLCRTC_DEFAULT_LINK"],
 		"tor_proxy":           env["OLCRTC_TOR_PROXY"],
 		"webrtc_proxy":        env["OLCRTC_WEBRTC_PROXY"],
-		"olcrtc_branch":        "master",
-		"olcrtc_pinned_sha":  sha,
-		"upstream_notes":     "",
+		"olcrtc_branch":       "master",
+		"olcrtc_pinned_sha":   sha,
+		"upstream_notes":      "",
 	}
 }
-
 
 func defaultBridgeProfiles() map[string]any {
 	return map[string]any{
 		"active_profile": "system",
 		"system": map[string]any{
-			"id":           "system",
-			"label":        "Оригинальный",
-			"types":        "obfs4,webtunnel",
-			"auto_update":  true,
-			"readonly":     true,
+			"id":          "system",
+			"label":       "Оригинальный",
+			"types":       "obfs4,webtunnel",
+			"auto_update": true,
+			"readonly":    true,
 		},
 		"profiles": []any{},
 	}
@@ -5091,7 +5068,6 @@ func writeBridgeProfiles(data map[string]any) error {
 	return os.WriteFile(bridgeProfilesPath, b, 0644)
 }
 
-
 func readBridgePoolStatus() map[string]any {
 	var st map[string]any
 	if readJSONFile(bridgePoolStatusFile, &st) {
@@ -5110,7 +5086,6 @@ func readBridgePoolStatus() map[string]any {
 	}
 	return map[string]any{"status": "idle", "webtunnel_client": fileExists("/usr/bin/webtunnel-client")}
 }
-
 
 func appendBridgePoolLog(line string) {
 	line = strings.TrimSpace(line)
@@ -5241,7 +5216,6 @@ func runBridgePoolRefresh(types string) {
 	}()
 }
 
-
 func profileBridgeLinesFromBody(profile map[string]any) []string {
 	out := []string{}
 	if b, ok := profile["bridges"].(string); ok {
@@ -5335,7 +5309,6 @@ func applyActiveBridgeProfile(profiles map[string]any) error {
 	return nil
 }
 
-
 func firstNonEmpty(v, fallback string) string {
 	v = strings.TrimSpace(v)
 	if v != "" {
@@ -5359,33 +5332,33 @@ func componentSettingsGet(name string) (map[string]any, error) {
 			zapretCfg = zapretCfg[:1200] + "\n..."
 		}
 		return map[string]any{
-			"auto_sync":       fileExists("/etc/cron.d/olcrtc-zapret-sync") || fileExists("/etc/cron.d/zapret-sync"),
-			"exclude_domains": readTextFile("/var/lib/olcrtc/zapret-custom/exclude-domains.txt"),
-			"force_domains":   readTextFile("/var/lib/olcrtc/zapret-custom/force-domains.txt"),
-			"community_sync": fileExists("/var/lib/olcrtc/lists"),
-			"zapret_full":     fileExists("/opt/zapret/nfq/nfqws"),
+			"auto_sync":        fileExists("/etc/cron.d/olcrtc-zapret-sync") || fileExists("/etc/cron.d/zapret-sync"),
+			"exclude_domains":  readTextFile("/var/lib/olcrtc/zapret-custom/exclude-domains.txt"),
+			"force_domains":    readTextFile("/var/lib/olcrtc/zapret-custom/force-domains.txt"),
+			"community_sync":   fileExists("/var/lib/olcrtc/lists"),
+			"zapret_full":      fileExists("/opt/zapret/nfq/nfqws"),
 			"strategy":         strategy,
 			"strategy_presets": func() []map[string]string { _, p := zapretStrategyState(); return p }(),
 			"strategy_current": func() string { c, _ := zapretStrategyState(); return c }(),
-			"nfqws_running":   fileExists("/run/zapret/nfqws.pid") || fileExists("/opt/zapret/nfq/nfqws"),
-			"nfqws_config":    zapretCfg,
-			"hostlist_user":   "/opt/zapret/ipset/zapret-hosts-user.txt",
-			"desync_mark":     "0x40000000",
+			"nfqws_running":    fileExists("/run/zapret/nfqws.pid") || fileExists("/opt/zapret/nfq/nfqws"),
+			"nfqws_config":     zapretCfg,
+			"hostlist_user":    "/opt/zapret/ipset/zapret-hosts-user.txt",
+			"desync_mark":      "0x40000000",
 		}, nil
 	case "tor":
 		return map[string]any{
-			"socks_port":         torSocksPort(),
-			"exit_nodes":         grepTorrcLine("ExitNodes"),
-			"exclude_exit_nodes": grepTorrcLine("ExcludeExitNodes"),
-			"strict_nodes":       grepTorrcLine("StrictNodes"),
-			"bridges_enabled":    fileExists("/etc/tor/bridges.conf"),
-			"socks_listen":       grepTorrcLine("SocksPort"),
+			"socks_port":           torSocksPort(),
+			"exit_nodes":           grepTorrcLine("ExitNodes"),
+			"exclude_exit_nodes":   grepTorrcLine("ExcludeExitNodes"),
+			"strict_nodes":         grepTorrcLine("StrictNodes"),
+			"bridges_enabled":      fileExists("/etc/tor/bridges.conf"),
+			"socks_listen":         grepTorrcLine("SocksPort"),
 			"socks_listen_address": grepTorrcLine("SocksListenAddress"),
-			"dns_port":           grepTorrcLine("DNSPort"),
-			"test_socks":         grepTorrcLine("TestSocks"),
-			"safe_socks":         grepTorrcLine("SafeSocks"),
-			"client_transport":   readTextFile("/etc/tor/bridges.conf"),
-			"webtunnel_client":   fileExists("/usr/bin/webtunnel-client"),
+			"dns_port":             grepTorrcLine("DNSPort"),
+			"test_socks":           grepTorrcLine("TestSocks"),
+			"safe_socks":           grepTorrcLine("SafeSocks"),
+			"client_transport":     readTextFile("/etc/tor/bridges.conf"),
+			"webtunnel_client":     fileExists("/usr/bin/webtunnel-client"),
 		}, nil
 	case "split":
 		env := readPanelEnvMap()
@@ -5445,18 +5418,17 @@ func componentSettingsGet(name string) (map[string]any, error) {
 			}
 		}
 		return map[string]any{
-			"bridges_conf":    readTextFile("/etc/tor/bridges.conf"),
-			"webtunnel":       fileExists("/usr/bin/webtunnel-client"),
-			"pool_job":        readBridgePoolStatus(),
-			"pool_stats":      bridgePoolStats(),
-			"profiles":        bp,
-			"active_profile":  active,
+			"bridges_conf":   readTextFile("/etc/tor/bridges.conf"),
+			"webtunnel":      fileExists("/usr/bin/webtunnel-client"),
+			"pool_job":       readBridgePoolStatus(),
+			"pool_stats":     bridgePoolStats(),
+			"profiles":       bp,
+			"active_profile": active,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown component %q", name)
 	}
 }
-
 
 func patchTorrcKey(key, val string) error {
 	path := "/etc/tor/torrc"
@@ -5517,7 +5489,6 @@ func readSplitRulesWithSeed(path, seedPath string) string {
 	}
 	return readTextFile(filepath.Join(olcRepoRoot(), seedPath))
 }
-
 
 func olcrtcSettingsPut(body map[string]any) error {
 	if v, ok := body["jitsi_insecure_tls"].(bool); ok {
@@ -5777,7 +5748,6 @@ func componentSettingsPut(name string, body map[string]any) error {
 // component-settings-v4
 // component-settings-v5
 
-
 func patchPanelEnvKey(key, val string) error {
 	path := "/etc/olcrtc-manager/panel.env"
 	lines := strings.Split(readTextFile(path), "\n")
@@ -5830,7 +5800,6 @@ func splitCidrOnlyEnabled() bool {
 	cidr := env["OLCRTC_DIRECT_CIDRS"]
 	return strings.Contains(cidr, "ru-cidrs") && !strings.Contains(cidr, "direct-all")
 }
-
 
 func splitSettingsActionHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -6046,7 +6015,6 @@ func componentSettingsHandler() http.HandlerFunc {
 	}
 }
 
-
 func capabilitiesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -6096,8 +6064,6 @@ func capabilitiesHandler() http.HandlerFunc {
 	}
 }
 
-
-
 func featuresToggleSucceeded(name string, wantEnabled bool, scriptErr error, output string) bool {
 	if scriptErr == nil {
 		return true
@@ -6121,7 +6087,6 @@ func featuresToggleSucceeded(name string, wantEnabled bool, scriptErr error, out
 	}
 	return false
 }
-
 
 func featureLogPaths(name string) []string {
 	switch name {
@@ -6163,7 +6128,6 @@ func featureLogPaths(name string) []string {
 		return nil
 	}
 }
-
 
 func tailJournalUnit(unit string, maxLines int) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -6393,8 +6357,6 @@ func notificationStats() map[string]any {
 	return st
 }
 
-
-
 func displayFeatureFlags() map[string]bool {
 	raw := readFeatureFlags()
 	out := map[string]bool{
@@ -6473,23 +6435,23 @@ func projectStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]any{
-		"panel_version":   ver["panel"],
-		"channel":         ver["channel"],
-		"stack_manifest":  stackManifest,
-		"repo_path":       repo,
-		"local_sha":       local,
-		"remote_sha":      remote,
-		"update_available":   upd["update_available"],
-		"update_source":      upd["update_source"],
-		"git_behind":         upd["git_behind"],
-		"git_ahead":          upd["git_ahead"],
+		"panel_version":         ver["panel"],
+		"channel":               ver["channel"],
+		"stack_manifest":        stackManifest,
+		"repo_path":             repo,
+		"local_sha":             local,
+		"remote_sha":            remote,
+		"update_available":      upd["update_available"],
+		"update_source":         upd["update_source"],
+		"git_behind":            upd["git_behind"],
+		"git_ahead":             upd["git_ahead"],
 		"installed_release_tag": upd["installed_release_tag"],
-		"latest_release_tag": upd["latest_release_tag"],
-		"latest_release_name": upd["latest_release_name"],
-		"update_locked":   locked,
-		"update_job":      updateJob,
-		"deploy_profile":  readDeployProfileID(),
-		"stack": stack,
+		"latest_release_tag":    upd["latest_release_tag"],
+		"latest_release_name":   upd["latest_release_name"],
+		"update_locked":         locked,
+		"update_job":            updateJob,
+		"deploy_profile":        readDeployProfileID(),
+		"stack":                 stack,
 		"patches": map[string]any{
 			"total_scripts":    patchTotal,
 			"applied_estimate": patchApplied,
@@ -6623,12 +6585,12 @@ func instanceDefaultsHandler(w http.ResponseWriter, r *http.Request) {
 
 // panelBackendV4 — updates, notifications, jobs, component install
 const (
-	panelUpdateLock  = "/var/lib/olcrtc/panel-update.lock"
-	panelUpdateStatus = "/var/lib/olcrtc/panel-update-status.json"
-	panelJobsDir     = "/var/lib/olcrtc/panel-jobs"
-	panelNotifFile   = "/var/lib/olcrtc/notifications.json"
-	bridgeProfilesPath = "/var/lib/olcrtc/bridge-profiles.json"
-	bridgeCronPath     = "/etc/cron.d/olcrtc-bridge-pool"
+	panelUpdateLock      = "/var/lib/olcrtc/panel-update.lock"
+	panelUpdateStatus    = "/var/lib/olcrtc/panel-update-status.json"
+	panelJobsDir         = "/var/lib/olcrtc/panel-jobs"
+	panelNotifFile       = "/var/lib/olcrtc/notifications.json"
+	bridgeProfilesPath   = "/var/lib/olcrtc/bridge-profiles.json"
+	bridgeCronPath       = "/etc/cron.d/olcrtc-bridge-pool"
 	bridgePoolStatusFile = "/var/lib/olcrtc/bridge-pool-status.json"
 )
 
@@ -6705,7 +6667,6 @@ func updatesStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, out)
 }
-
 
 func updateGuardMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -6785,9 +6746,6 @@ func panelJobsHandler() http.HandlerFunc {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
-
-
-
 
 func fileContainsDoneMarker(path string) bool {
 	b, err := os.ReadFile(path)
@@ -6918,8 +6876,8 @@ func notificationsPatchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Read     *bool `json:"read"`
-		Dismiss  bool  `json:"dismiss"`
+		Read    *bool `json:"read"`
+		Dismiss bool  `json:"dismiss"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	var list []map[string]any
@@ -6991,24 +6949,23 @@ func componentsActionHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 /* olc-jitsi-preflight-v1 */
 /* olc-jitsi-preflight-v2 */
 /* olc-jitsi-preflight-v3 */
 /* olc-jitsi-preflight-v4 */
 type jitsiPreflightResponse struct {
-	OK      bool     `json:"ok"`
-	Code    string   `json:"code"`
-	Summary string   `json:"summary"`
-	Details []string `json:"details"`
-	Host    string   `json:"host,omitempty"`
-	Room    string   `json:"room,omitempty"`
-	WSURL   string   `json:"ws_url,omitempty"`
-	WSCode  int      `json:"ws_status,omitempty"`
-	BOSHURL string   `json:"bosh_url,omitempty"`
-	BOSHCode int     `json:"bosh_status,omitempty"`
-	BridgePostJoinRisk bool   `json:"bridge_postjoin_risk,omitempty"`
-	BridgePostJoinNote string `json:"bridge_postjoin_note,omitempty"`
+	OK                 bool     `json:"ok"`
+	Code               string   `json:"code"`
+	Summary            string   `json:"summary"`
+	Details            []string `json:"details"`
+	Host               string   `json:"host,omitempty"`
+	Room               string   `json:"room,omitempty"`
+	WSURL              string   `json:"ws_url,omitempty"`
+	WSCode             int      `json:"ws_status,omitempty"`
+	BOSHURL            string   `json:"bosh_url,omitempty"`
+	BOSHCode           int      `json:"bosh_status,omitempty"`
+	BridgePostJoinRisk bool     `json:"bridge_postjoin_risk,omitempty"`
+	BridgePostJoinNote string   `json:"bridge_postjoin_note,omitempty"`
 }
 
 func jitsiPreflightHandler(w http.ResponseWriter, r *http.Request) {
@@ -7182,3 +7139,5 @@ func preflightJitsiRoom(roomID string) jitsiPreflightResponse {
 	}
 	return out
 }
+
+// OLC_MANAGER_UPSTREAM_FOLLOWUP_V1

@@ -162,23 +162,32 @@ interactive_install_menu() {
 
   # Тот же tui_menu, что использует olc-update: стрелки/цифры/Enter,
   # чтение из /dev/tty и стирание кадра после выбора.
-  case "${OLC_INSTALL_ACCESS_PRESET:-}" in
-    ssh) access_mode="2" ;;
-    http) access_mode="1" ;;
-    *)
-      if declare -f tui_menu >/dev/null 2>&1; then
-        menu_choice="$(tui_menu "Режим доступа к панели:" \
-          "HTTP — панель доступна по IP:8888 (проще)" \
-          "SSH — панель только через SSH-туннель")"
-        access_mode="$(( ${menu_choice:-0} + 1 ))"
-      else
-        echo "1) HTTP — панель доступна по IP:8888 (проще)"
-        echo "2) SSH — панель только через SSH-туннель"
-        read -r -p "Ваш выбор (1-2) [1]: " access_mode </dev/tty || access_mode="1"
-        access_mode="${access_mode:-1}"
-      fi
-      ;;
-  esac
+  if [[ "${OLC_INSTALL_ACCESS_PRESET:-}" == "ssh" ]]; then
+    access_mode="3"
+  elif [[ -n "${OLC_INSTALL_ACCESS_PRESET:-}" || -n "${OLC_INSTALL_TLS_PRESET:-}" ]]; then
+    case "${OLC_INSTALL_TLS_PRESET:-selfsigned}" in
+      letsencrypt) access_mode="1" ;;
+      selfsigned|https) access_mode="2" ;;
+      http) access_mode="4" ;;
+      *) access_mode="2" ;;
+    esac
+  else
+    if declare -f tui_menu >/dev/null 2>&1; then
+      menu_choice="$(tui_menu "Режим доступа к панели:" \
+        "IP + HTTPS — доверенный Let's Encrypt, без предупреждения (публичный IP + порт 80)" \
+        "IP + HTTPS — self-signed (браузер предупредит)" \
+        "SSH + HTTP — панель только через SSH-туннель" \
+        "IP + HTTP — без TLS")"
+      access_mode="$(( ${menu_choice:-0} + 1 ))"
+    else
+      echo "1) IP + HTTPS — доверенный Let's Encrypt (публичный IP + порт 80)"
+      echo "2) IP + HTTPS — self-signed (браузер предупредит)"
+      echo "3) SSH + HTTP — панель только через SSH-туннель"
+      echo "4) IP + HTTP — без TLS"
+      read -r -p "Ваш выбор (1-4) [2]: " access_mode </dev/tty || access_mode="2"
+      access_mode="${access_mode:-2}"
+    fi
+  fi
 
   if declare -f tui_menu >/dev/null 2>&1; then
     menu_choice="$(tui_menu "Компоненты для установки:" \
@@ -262,7 +271,8 @@ interactive_install_menu() {
   cat > "$profile_json" <<EOF
 {
   "installed_at": "$(date -Iseconds 2>/dev/null || date)",
-  "access_mode": "$([[ "$access_mode" == "2" ]] && echo "ssh" || echo "http")",
+  "access_mode": "$([[ "$access_mode" == "3" ]] && echo "ssh" || echo "ip")",
+  "tls_mode": "$(case "$access_mode" in 1) echo "letsencrypt" ;; 2) echo "selfsigned" ;; *) echo "http" ;; esac)",
   "components": {
     "tor": $([[ "$install_tor" == "1" ]] && echo "true" || echo "false"),
     "bridges": $([[ "$install_bridges" == "1" ]] && echo "true" || echo "false"),
@@ -273,11 +283,15 @@ interactive_install_menu() {
 EOF
 
   # 5. Экспортировать флаги для install.sh
-  unset OLC_INSTALL_SSH OLC_INSTALL_ACCESS_MODE OLC_NO_TOR OLC_NO_SPLIT OLC_NO_ZAPRET OLC_NO_BRIDGES
-  if [[ "$access_mode" == "2" ]]; then
-    export OLC_INSTALL_SSH=1 OLC_INSTALL_ACCESS_MODE="ssh"
+  unset OLC_INSTALL_SSH OLC_INSTALL_ACCESS_MODE OLC_INSTALL_TLS_MODE OLC_NO_TOR OLC_NO_SPLIT OLC_NO_ZAPRET OLC_NO_BRIDGES
+  if [[ "$access_mode" == "1" ]]; then
+    export OLC_INSTALL_ACCESS_MODE="ip" OLC_INSTALL_TLS_MODE="letsencrypt"
+  elif [[ "$access_mode" == "2" ]]; then
+    export OLC_INSTALL_ACCESS_MODE="ip" OLC_INSTALL_TLS_MODE="selfsigned"
+  elif [[ "$access_mode" == "3" ]]; then
+    export OLC_INSTALL_SSH=1 OLC_INSTALL_ACCESS_MODE="ssh" OLC_INSTALL_TLS_MODE="http"
   else
-    export OLC_INSTALL_ACCESS_MODE="http"
+    export OLC_INSTALL_ACCESS_MODE="ip" OLC_INSTALL_TLS_MODE="http"
   fi
   [[ "$install_tor" == "0" ]] && export OLC_NO_TOR=1
   [[ "$install_split" == "0" ]] && export OLC_NO_SPLIT=1
@@ -287,7 +301,12 @@ EOF
   # 6. Показать итоговый выбор
   echo ""
   echo "✓ Конфигурация сохранена:"
-  echo "  Режим доступа: $([[ "$access_mode" == "2" ]] && echo "SSH-туннель" || echo "HTTP (IP:8888)")"
+  case "$access_mode" in
+    1) echo "  Режим доступа: IP + HTTPS (доверенный сертификат Let's Encrypt)" ;;
+    2) echo "  Режим доступа: IP + HTTPS (self-signed)" ;;
+    3) echo "  Режим доступа: SSH-туннель + HTTP" ;;
+    *) echo "  Режим доступа: IP + HTTP" ;;
+  esac
   echo "  Компоненты:"
   [[ "$install_tor" == "1" ]] && echo "    ✓ Tor" || echo "    ✗ Tor"
   [[ "$install_bridges" == "1" ]] && echo "    ✓ Мосты Tor" || echo "    ✗ Мосты Tor"
@@ -387,18 +406,21 @@ interactive_update_menu() {
     3) # Сменить режим доступа
       echo ""
       echo "🔒 Выберите новый режим доступа:"
-      echo "  [1] HTTP — панель доступна по IP:8888"
-      echo "  [2] SSH  — панель только через SSH-туннель"
-      echo -n "Ваш выбор (1-2): "
-      read -r new_access </dev/tty || new_access="1"
-
-      if [[ "$new_access" == "2" ]]; then
-        export OLC_INSTALL_SSH=1
-        echo "✓ Будет включен режим SSH-туннеля"
-      else
-        export OLC_INSTALL_SSH=0
-        echo "✓ Будет включен режим HTTP (IP:8888)"
-      fi
+      echo "  [1] IP + HTTPS — доверенный Let's Encrypt (публичный IP + порт 80)"
+      echo "  [2] IP + HTTPS — self-signed (браузер предупредит)"
+      echo "  [3] SSH + HTTP — панель только через SSH-туннель"
+      echo "  [4] IP + HTTP — без TLS"
+      echo -n "Ваш выбор (1-4) [2]: "
+      read -r new_access </dev/tty || new_access="2"
+      case "${new_access:-2}" in
+        1) export OLC_INSTALL_SSH=0 PANEL_ACCESS=ip PANEL_TLS=1 PANEL_TLS_MODE=letsencrypt ;;
+        2) export OLC_INSTALL_SSH=0 PANEL_ACCESS=ip PANEL_TLS=1 PANEL_TLS_MODE=selfsigned ;;
+        3) export OLC_INSTALL_SSH=1 PANEL_ACCESS=ssh PANEL_TLS=0 PANEL_TLS_MODE=http ;;
+        4) export OLC_INSTALL_SSH=0 PANEL_ACCESS=ip PANEL_TLS=0 PANEL_TLS_MODE=http ;;
+        *) export OLC_INSTALL_SSH=0 PANEL_ACCESS=ip PANEL_TLS=1 PANEL_TLS_MODE=selfsigned ;;
+      esac
+      profile_set_panel_access "$PANEL_ACCESS"
+      profile_set_panel_tls "$PANEL_TLS_MODE"
       ;;
     4) # Сменить версию панели
       echo ""

@@ -83,6 +83,9 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | `--no-tor` / `--foreign` | без Tor/Split/мостов (зарубежный VPS) |
 | `--no-split` / `--no-zapret` / `--no-bridges` | отключить компонент |
 | `--ssh` / `--ip` | доступ к панели: SSH-туннель или открытый IP |
+| `--https-letsencrypt` | HTTPS по публичному IP с доверенным короткоживущим сертификатом Let's Encrypt и автопродлением |
+| `--https-self-signed` / `--https` | HTTPS с локальным сертификатом; браузер покажет предупреждение |
+| `--http` | HTTP без TLS (для открытого IP или SSH-туннеля) |
 | `--manager-stable` / `--manager-latest` | версия панели (по умолчанию stable) |
 | `--update` | только обновление, без переустановки |
 | `--resume` | продолжить прерванную установку |
@@ -102,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 - ✅ **Zapret** для обхода DPI
 - ✅ **Автообновление** мостов каждые 6 часов
 
-**После установки откройте:** `http://ВАШ_IP:8888/admin`  
+**После установки откройте:** `https://ВАШ_IP:8888/admin` для HTTPS либо `http://ВАШ_IP:8888/admin` для явно выбранного HTTP. См. [режимы HTTPS и автопродление](docs/PANEL-HTTPS.md).
 Логин и пароль будут показаны в конце установки.
 
 </details>
