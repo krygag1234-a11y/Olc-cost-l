@@ -92,13 +92,20 @@ EOF_TIMER
 olc_panel_issue_letsencrypt_ip() {
   local public_ip certbot cert_dir
   public_ip="$(olc_panel_public_ip)" || { echo "Не найден публичный глобальный IPv4. Можно задать PANEL_CERT_IP явно." >&2; return 1; }
+  local -a authenticator_args=(--standalone)
   if command -v ss >/dev/null 2>&1 && ss -H -ltn 'sport = :80' 2>/dev/null | grep -q .; then
-    echo "TCP-порт 80 уже занят; standalone-проверка Let's Encrypt не сможет запуститься." >&2
-    return 1
+    local acme_webroot="${PANEL_ACME_WEBROOT:-/var/www/html}"
+    if [[ -d "$acme_webroot" ]] && grep -RqsE 'location[[:space:]]+/?\.well-known/acme-challenge' /etc/nginx /etc/apache2 2>/dev/null; then
+      authenticator_args=(--webroot --webroot-path "$acme_webroot")
+      echo "TCP-порт 80 занят веб-сервером; используем существующий ACME webroot: $acme_webroot" >&2
+    else
+      echo "TCP-порт 80 занят, а совместимый ACME webroot не найден. Задайте PANEL_ACME_WEBROOT." >&2
+      return 1
+    fi
   fi
   certbot="$(olc_panel_install_certbot)" || return 1
   "$certbot" certonly \
-    --standalone \
+    "${authenticator_args[@]}" \
     --non-interactive \
     --agree-tos \
     --register-unsafely-without-email \
