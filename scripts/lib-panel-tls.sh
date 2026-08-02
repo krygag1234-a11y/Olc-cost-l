@@ -49,11 +49,11 @@ olc_panel_install_certbot() {
   local certbot
   if certbot="$(olc_panel_certbot_command)"; then printf '%s\n' "$certbot"; return 0; fi
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq python3-venv python3-pip ca-certificates curl
-  if [[ ! -x /opt/olc-certbot/bin/python ]]; then python3 -m venv /opt/olc-certbot; fi
-  /opt/olc-certbot/bin/python -m pip install --quiet --upgrade pip
-  /opt/olc-certbot/bin/python -m pip install --quiet --upgrade 'certbot>=5.4,<6'
+  apt-get update -qq >&2
+  apt-get install -y -qq python3-venv python3-pip ca-certificates curl >&2
+  if [[ ! -x /opt/olc-certbot/bin/python ]]; then python3 -m venv /opt/olc-certbot >&2; fi
+  /opt/olc-certbot/bin/python -m pip install --quiet --upgrade pip >&2
+  /opt/olc-certbot/bin/python -m pip install --quiet --upgrade 'certbot>=5.4,<6' >&2
   certbot="$(olc_panel_certbot_command)" || { echo "Certbot 5.4+ не установлен" >&2; return 1; }
   printf '%s\n' "$certbot"
 }
