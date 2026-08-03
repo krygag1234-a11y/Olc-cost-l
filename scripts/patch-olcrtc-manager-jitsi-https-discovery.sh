@@ -286,7 +286,7 @@ func verifyJitsiHTTPSCandidate(ctx context.Context, domain string, sourceIP net.
 	}
 	return jitsiHTTPSCandidate{
 		Domain:     domain,
-		URL:        "https://" + net.JoinHostPort(domain, "443"),
+		URL:        "https://" + domain,
 		Confidence: confidence,
 		Evidence:   evidence,
 	}, true

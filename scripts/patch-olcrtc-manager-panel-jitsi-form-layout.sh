@@ -73,7 +73,7 @@ new_component = new_component.replace(
       </div>''',
 '''      <div className="grid gap-2">
         <div>
-          <div className="font-medium text-foreground">Помощник Jitsi HTTP IP → HTTPS domain:443</div>
+          <div className="font-medium text-foreground">Помощник Jitsi HTTP IP → HTTPS-домен</div>
           <div className="mt-0.5 text-[11px] text-muted-foreground">Проверяет DNS, Jitsi endpoints и доверие TLS. Домены с просроченным/недоверенным сертификатом показываются отдельно и требуют insecure TLS.</div>
         </div>
         <div className="flex gap-2">
