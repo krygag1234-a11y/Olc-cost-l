@@ -587,6 +587,7 @@ apply_manager() {
   python3 "$SCRIPT_DIR/patch-olcrtc-manager-proxy-policy.py"     "$MGR_REPO/cmd/olcrtc-manager/main.go"
   git -C "$MGR_REPO" apply --check "$REPO_ROOT/patches/olcrtc-manager-proxy-policy-ui.patch"
   git -C "$MGR_REPO" apply "$REPO_ROOT/patches/olcrtc-manager-proxy-policy-ui.patch"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-toggle-buttons.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
     if ! command -v npm >/dev/null 2>&1; then

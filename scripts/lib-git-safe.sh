@@ -27,3 +27,28 @@ olc_git() {
   olc_git_safe_register "$repo"
   git -c "safe.directory=${repo}" -C "$repo" "$@"
 }
+
+
+# Print only changes that are not maintained automatically by updater jobs.
+olc_git_unmanaged_dirty() {
+  local repo="${1:-${OLC_REPO_ROOT:-/opt/Olc-cost-l}}"
+  local line path committed normalized_current normalized_committed
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    path="${line:3}"
+    case "$path" in
+      data/zapret-community-excludes/*|data/zapret4rocket/*)
+        continue
+        ;;
+      data/upstream-pins.json)
+        committed="$(git -C "$repo" show HEAD:data/upstream-pins.json 2>/dev/null || true)"
+        normalized_committed="$(printf '%s' "$committed" | jq -cS 'del(.zapret4rocket.pinned_sha, .zapret4rocket.upstream_head, .zapret4rocket.last_sync, .zapret4rocket.last_apply_ok)' 2>/dev/null || true)"
+        normalized_current="$(jq -cS 'del(.zapret4rocket.pinned_sha, .zapret4rocket.upstream_head, .zapret4rocket.last_sync, .zapret4rocket.last_apply_ok)' "$repo/data/upstream-pins.json" 2>/dev/null || true)"
+        if [[ -n "$normalized_committed" && "$normalized_current" == "$normalized_committed" ]]; then
+          continue
+        fi
+        ;;
+    esac
+    printf '%s\n' "$path"
+  done < <(git -C "$repo" status --porcelain 2>/dev/null || true)
+}

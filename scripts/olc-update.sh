@@ -253,7 +253,7 @@ main() {
   if [[ "$repo_uptodate" -eq 0 ]]; then
     tui_status "Обновление репозитория из GitHub…"
     local unmanaged_dirty
-    unmanaged_dirty="$(git -C "$repo" status --porcelain 2>/dev/null | sed 's/^...//' | grep -Ev '^data/zapret-community-excludes/' || true)"
+    unmanaged_dirty="$(olc_git_unmanaged_dirty "$repo")"
     if [[ -n "$unmanaged_dirty" ]]; then
       tui_fatal "Репозиторий содержит локальные изменения" "olc-update не будет сбрасывать или удалять их автоматически: $unmanaged_dirty" "Сохраните изменения в commit/stash и повторите обновление"
     fi
