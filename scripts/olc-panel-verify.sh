@@ -49,6 +49,7 @@ declare -a required_markers=(
   "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_MANAGER_UPSTREAM_FOLLOWUP_V1"
   "$MGR_REPO/cmd/olcrtc-manager/main.go|olc-jitsi-https-discovery-v1"
   "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_PROXY_POLICY_V1"
+  "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_AUTH_SESSION_LOCKOUT_V1"
   "$MGR_REPO/cmd/olcrtc-manager/main.go|Current peers count:"
   "$MGR_REPO/cmd/olcrtc-manager/main.go|device_labels,omitempty"
 )

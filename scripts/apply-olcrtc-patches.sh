@@ -565,6 +565,8 @@ apply_manager() {
   # Auth: expired lockouts start a fresh counter; HTTP 429 is explained in the login form.
   bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-lockout-ux.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-session-lockout.sh" \
+    "$MGR_REPO/cmd/olcrtc-manager/main.go"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-first-run.sh" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
   # Ordered access-control saves without blocking rapid interaction; labels
