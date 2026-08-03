@@ -287,11 +287,11 @@ main() {
   local i=1
   while [[ $i -le $# ]]; do
     eval "arg=\${$i}"
-    if [[ "$arg" == "--profile" ]]; then
     if [[ "$arg" == "--update" || "$arg" == "--incremental" ]]; then
       i=$((i + 1))
       continue
     fi
+    if [[ "$arg" == "--profile" ]]; then
       next=$((i + 1))
       if [[ $next -le $# ]]; then
         eval "pid=\${$next}"

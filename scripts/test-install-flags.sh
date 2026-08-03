@@ -448,6 +448,14 @@ else
   pass "olc-update passes one mode and displays the resolved branch"
 fi
 
+mode_filter_line=$(grep -nF 'if [[ "$arg" == "--update" || "$arg" == "--incremental" ]]; then' "$UPD" | tail -n1 | cut -d: -f1)
+profile_forward_line=$(grep -nF 'if [[ "$arg" == "--profile" ]]; then' "$UPD" | tail -n1 | cut -d: -f1)
+if [[ -z "$mode_filter_line" || -z "$profile_forward_line" || "$mode_filter_line" -ge "$profile_forward_line" ]]; then
+  fail "olc-update mode filter must run before the --profile forwarding branch"
+else
+  pass "olc-update filters its selected mode before forwarding remaining flags"
+fi
+
 if ! grep -Fq 'patches) echo "сборка OlcRTC core + встроенного manager"' "$REPO_ROOT/scripts/lib-olc-ru.sh"; then
   fail "persisted patches key must have a truthful user-facing label"
 else
