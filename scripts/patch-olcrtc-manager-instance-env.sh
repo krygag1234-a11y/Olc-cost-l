@@ -16,7 +16,16 @@ f = pathlib.Path(sys.argv[1])
 t = f.read_text()
 
 if 'OLCRTC_CLIENT_ID=' in t:
-    print("[patch-instance-env] already present")
+    legacy = '"OLCRTC_ALT_KEY_SEED="+olcKeyRandSeed(loc)'
+    safe = '"OLCRTC_ALT_KEY_SEED_HEX="+hex.EncodeToString([]byte(olcKeyRandSeed(loc)))'
+    if legacy in t:
+        t = t.replace(legacy, safe, 1)
+        f.write_text(t)
+        print("[patch-instance-env] upgraded type-2 seed to NUL-safe hex env")
+    elif safe in t:
+        print("[patch-instance-env] already present")
+    else:
+        raise SystemExit("[patch-instance-env] existing env block has an unknown seed shape")
     sys.exit(0)
 
 anchor = '\tlogs := newLogBuffer(500)\n\tcmd.Stdout = logWriter{stream: "stdout", buffer: logs}'
@@ -30,7 +39,7 @@ repl = ('\t// Olc-cost-l: прокидываем идентификаторы к
         '\t// Тип1 передаёт статичный alt-key; тип2 передаёт режим+секрет, а core\n'
         '\t// вычисляет current+previous-second ciphers при первом фрейме.\n'
 		'\tif enabled, randType, secret := olcKeyRandForClient(loc.ClientID); enabled && randType == 2 && secret != "" {\n'
-		'\t\tcmd.Env = append(cmd.Env, "OLCRTC_ALT_KEY_MODE=2", "OLCRTC_ALT_KEY_SECRET="+secret, "OLCRTC_ALT_KEY_SEED="+olcKeyRandSeed(loc))\n'
+		'\t\tcmd.Env = append(cmd.Env, "OLCRTC_ALT_KEY_MODE=2", "OLCRTC_ALT_KEY_SECRET="+secret, "OLCRTC_ALT_KEY_SEED_HEX="+hex.EncodeToString([]byte(olcKeyRandSeed(loc))))\n'
         '\t} else if olcAltKeys := olcAltKeysForLocation(loc); len(olcAltKeys) > 0 {\n'
         '\t\tcmd.Env = append(cmd.Env, "OLCRTC_ALT_KEYS="+strings.Join(olcAltKeys, ","))\n'
         '\t}\n'

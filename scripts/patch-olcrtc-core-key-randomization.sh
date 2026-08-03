@@ -524,8 +524,34 @@ hp = repo / "internal/app/session/olc_access_hook.go"
 if not hp.exists():
     print("[patch-core-key-rand] WARN: olc_access_hook.go отсутствует (access-hook не применён?) — пропуск hook"); sys.exit(0)
 t = hp.read_text()
+hex_import_added = False
+if '"encoding/hex"' not in t:
+    if "import (\n" not in t:
+        raise SystemExit("[patch-core-key-rand] hook import block not found")
+    t = t.replace("import (\n", "import (\n\t\"encoding/hex\"\n", 1)
+    hex_import_added = True
 if "olcAccessDecideConnFull" in t:
-    print("[patch-core-key-rand] hook already 3-mode"); sys.exit(0)
+    legacy = '''func olcAltKeySeedFromEnv() string {
+	return os.Getenv("OLCRTC_ALT_KEY_SEED")
+}'''
+    safe = '''func olcAltKeySeedFromEnv() string {
+	if raw := strings.TrimSpace(os.Getenv("OLCRTC_ALT_KEY_SEED_HEX")); raw != "" {
+		if decoded, err := hex.DecodeString(raw); err == nil {
+			return string(decoded)
+		}
+	}
+	return os.Getenv("OLCRTC_ALT_KEY_SEED")
+}'''
+    if legacy in t:
+        hp.write_text(t.replace(legacy, safe, 1))
+        print("[patch-core-key-rand] upgraded type-2 seed decoder to NUL-safe hex env")
+    elif 'OLCRTC_ALT_KEY_SEED_HEX' in t:
+        if hex_import_added:
+            hp.write_text(t)
+        print("[patch-core-key-rand] hook already 3-mode")
+    else:
+        raise SystemExit("[patch-core-key-rand] existing hook has an unknown seed decoder shape")
+    sys.exit(0)
 
 # 1) ConnMode поля
 t = t.replace(
@@ -576,6 +602,11 @@ func olcAltKeySecretFromEnv() string {
 }
 
 func olcAltKeySeedFromEnv() string {
+	if raw := strings.TrimSpace(os.Getenv("OLCRTC_ALT_KEY_SEED_HEX")); raw != "" {
+		if decoded, err := hex.DecodeString(raw); err == nil {
+			return string(decoded)
+		}
+	}
 	return os.Getenv("OLCRTC_ALT_KEY_SEED")
 }
 
@@ -721,4 +752,27 @@ else:
 hp.write_text(t)
 print("[patch-core-key-rand] hook: 3-режимная матрица + keyClass")
 PY
+cat > "$CORE_REPO/internal/app/session/olc_keyrand_seed_env_test.go" <<'GOTEST'
+package session
+
+import "testing"
+
+func TestOlcAltKeySeedHexRoundTrip(t *testing.T) {
+	want := "bs\x00room-42"
+	t.Setenv("OLCRTC_ALT_KEY_SEED", "")
+	t.Setenv("OLCRTC_ALT_KEY_SEED_HEX", "627300726f6f6d2d3432")
+	if got := olcAltKeySeedFromEnv(); got != want {
+		t.Fatalf("decoded seed mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestOlcAltKeySeedLegacyFallback(t *testing.T) {
+	t.Setenv("OLCRTC_ALT_KEY_SEED_HEX", "")
+	t.Setenv("OLCRTC_ALT_KEY_SEED", "legacy-seed")
+	if got := olcAltKeySeedFromEnv(); got != "legacy-seed" {
+		t.Fatalf("legacy seed mismatch: got %q", got)
+	}
+}
+GOTEST
+echo "[patch-core-key-rand] wrote internal/app/session/olc_keyrand_seed_env_test.go"
 echo "[patch-core-key-rand] part 4 done"
