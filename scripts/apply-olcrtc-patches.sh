@@ -584,6 +584,8 @@ apply_manager() {
   # Selected upstream follow-ups: per-location SOCKS5 UI, no Jazz, smart Jitsi fields.
   python3 "$SCRIPT_DIR/patch-olcrtc-manager-upstream-followup.py" \
     "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-jitsi-https-discovery.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-https-discovery.sh" "$MGR_REPO/src/main.tsx"
   python3 "$SCRIPT_DIR/patch-olcrtc-manager-proxy-policy.py"     "$MGR_REPO/cmd/olcrtc-manager/main.go"
   git -C "$MGR_REPO" apply --check "$REPO_ROOT/patches/olcrtc-manager-proxy-policy-ui.patch"
   git -C "$MGR_REPO" apply "$REPO_ROOT/patches/olcrtc-manager-proxy-policy-ui.patch"
