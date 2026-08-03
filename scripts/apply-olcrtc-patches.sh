@@ -595,6 +595,7 @@ apply_manager() {
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-targeted-toggle-layout.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-defaults-autosave-crud.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-form-layout.sh" "$MGR_REPO/src/main.tsx"
+  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-batch-import.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-instance-table-guard.sh" "$MGR_REPO/src/main.tsx"
   bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
   if [[ -f "$MGR_REPO/package.json" ]]; then
