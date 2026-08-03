@@ -40,7 +40,7 @@ done
 declare -a required_markers=(
   "$MGR_REPO/src/main.tsx|OLC_MANAGER_UPSTREAM_FOLLOWUP_V1"
   "$MGR_REPO/src/main.tsx|OLC_PROXY_POLICY_UI_V1"
-  "$MGR_REPO/src/main.tsx|OLC_TOGGLE_BUTTONS_UI_V1"
+  "$MGR_REPO/src/main.tsx|OLC_TOGGLE_BUTTONS_UI_V3"
   "$MGR_REPO/src/main.tsx|olc-plain-enter-blur"
   "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_MANAGER_UPSTREAM_FOLLOWUP_V1"
   "$MGR_REPO/cmd/olcrtc-manager/main.go|OLC_PROXY_POLICY_V1"
