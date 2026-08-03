@@ -23,6 +23,33 @@ olc_git_safe_register "$REPO_ROOT"
 
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
+VENDORED_MANAGER_SOURCE="${OLC_VENDORED_MANAGER_SOURCE:-$REPO_ROOT/components/olcrtc-manager}"
+OLC_MANAGER_LEGACY_PATCHSTACK="${OLC_MANAGER_LEGACY_PATCHSTACK:-0}"
+
+use_vendored_manager() {
+  [[ "$OLC_MANAGER_LEGACY_PATCHSTACK" != "1" ]]
+}
+
+prepare_vendored_manager() {
+  [[ -f "$VENDORED_MANAGER_SOURCE/cmd/olcrtc-manager/main.go" ]] || {
+    echo "vendored manager source is missing: $VENDORED_MANAGER_SOURCE" >&2
+    return 1
+  }
+  [[ "$MGR_REPO" != "$VENDORED_MANAGER_SOURCE" ]] || {
+    echo "OLCRTC_MGR_REPO must be a temporary build directory, not the vendored source" >&2
+    return 1
+  }
+  log "prepare vendored manager source: $VENDORED_MANAGER_SOURCE"
+  bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$VENDORED_MANAGER_SOURCE"
+  rm -rf "$MGR_REPO"
+  install -d "$MGR_REPO"
+  cp -a "$VENDORED_MANAGER_SOURCE/." "$MGR_REPO/"
+  bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$MGR_REPO"
+  if find "$MGR_REPO" -type d \( -name .git -o -name node_modules \) -print -quit | grep -q .; then
+    echo "temporary vendored manager copy contains forbidden build state" >&2
+    return 1
+  fi
+}
 safety_validate_git_build_dir "$OLCRTC_REPO" OLCRTC_REPO
 safety_validate_git_build_dir "$MGR_REPO" OLCRTC_MGR_REPO
 if [[ -z "${OLCRTC_BRANCH:-}" ]] && [[ -f "$REPO_ROOT/data/upstream-pins.json" ]]; then
@@ -145,6 +172,13 @@ clone_repos() {
     olc_git "$OLCRTC_REPO" fetch origin "$OLCRTC_BRANCH" --depth 1
     olc_git "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
   fi
+
+  if use_vendored_manager; then
+    prepare_vendored_manager
+    return 0
+  fi
+
+  log "legacy manager source/patch-stack explicitly enabled"
   if [[ -d "$MGR_REPO/.git" ]]; then
     log "reset manager to clean state"
     olc_git "$MGR_REPO" reset --hard HEAD 2>/dev/null || true
@@ -675,11 +709,11 @@ build_binaries() {
   local build_flags='-ldflags=-s -w'
 
   # Запустить обе сборки параллельно
-  (cd "$OLCRTC_REPO" && go build -trimpath "$build_flags" -o /usr/local/bin/olcrtc ./cmd/olcrtc 2>&1 | tee "$olcrtc_log") &
+  (cd "$OLCRTC_REPO" && go build -trimpath -buildvcs=false "$build_flags" -o /usr/local/bin/olcrtc ./cmd/olcrtc 2>&1 | tee "$olcrtc_log") &
   local olcrtc_pid=$!
 
   _olc_substep "go build olcrtc-manager" 2>/dev/null || true
-  (cd "$MGR_REPO" && go build -trimpath "$build_flags" -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager 2>&1 | tee "$manager_log") &
+  (cd "$MGR_REPO" && go build -trimpath -buildvcs=false "$build_flags" -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager 2>&1 | tee "$manager_log") &
   local manager_pid=$!
 
   # Ждать завершения обеих сборок
@@ -720,7 +754,11 @@ fi
 
 clone_repos
 run_quiet "apply olcrtc patches" apply_olcrtc
-run_quiet "apply manager patches + UI" apply_manager
+if use_vendored_manager; then
+  run_quiet "verify vendored manager + prebuilt UI" bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$MGR_REPO"
+else
+  run_quiet "apply legacy manager patches + UI" apply_manager
+fi
 if [[ "${OLC_PATCH_ONLY:-0}" == "1" ]]; then
   log "patch-only done"
   exit 0

@@ -47,33 +47,16 @@ profile_from_flags() {
   local panel_listen_addr="0.0.0.0"
   [[ "$panel_access" == "ssh" ]] && panel_listen_addr="127.0.0.1" || panel_access="ip"
 
-  if [[ "$warp" -eq 1 ]]; then
-    PROFILE_ID="foreign-warp"
-    PROFILE_LABEL="Зарубежный VPS: OlcRTC + WARP (без Tor)"
-    tor=0
-    split=0
-    zapret=0
-    bridges=0
-    ru=0
-  elif [[ "$tor" -eq 0 ]]; then
-    PROFILE_ID="foreign-minimal"
-    PROFILE_LABEL="Зарубежный VPS: только olcrtc + панель"
-    zapret=0
-    split=0
-    bridges=0
-    ru=0
-  elif [[ "$zapret" -eq 0 ]]; then
-    PROFILE_ID="ru-no-zapret"
-    PROFILE_LABEL="RU VPS: Tor + Split + Мосты (без Zapret)"
-  elif [[ "$split" -eq 0 ]]; then
-    PROFILE_ID="foreign-tor"
-    PROFILE_LABEL="Tor-only: без split/zapret"
-    zapret=0
-    ru=0
-  else
-    PROFILE_ID="ru-full"
-    PROFILE_LABEL="RU VPS: Tor + Split + Zapret + Мосты"
-  fi
+  case "$tor:$split:$zapret:$bridges:$warp" in
+    1:1:1:1:0) PROFILE_ID="ru-full"; PROFILE_LABEL="RU VPS: полный стек" ;;
+    0:0:1:0:0) PROFILE_ID="zapret-only"; PROFILE_LABEL="Zapret + панель" ;;
+    0:0:0:0:1) PROFILE_ID="warp-only"; PROFILE_LABEL="Cloudflare WARP + панель" ;;
+    1:0:0:0:0) PROFILE_ID="tor-only"; PROFILE_LABEL="Tor + панель" ;;
+    1:0:0:1:0) PROFILE_ID="tor-bridges"; PROFILE_LABEL="Tor + мосты + панель" ;;
+    1:1:0:0:0) PROFILE_ID="tor-split"; PROFILE_LABEL="Tor + split + панель" ;;
+    0:0:0:0:0) PROFILE_ID="panel-only"; PROFILE_LABEL="Только панель" ;;
+    *) PROFILE_ID="custom"; PROFILE_LABEL="Выборочный набор компонентов" ;;
+  esac
 
   if [[ -z "$fingerprint" ]]; then
     fingerprint="agent-bootstrap"
@@ -244,10 +227,11 @@ profile_apply_env() {
     return 0
   fi
   profile_sanitize_warp_ru
-  local tor split zapret ru warp panel_access panel_listen_addr panel_tls panel_tls_mode
+  local tor split zapret bridges ru warp panel_access panel_listen_addr panel_tls panel_tls_mode
   tor="$(jq -r '.components.tor // true' "$OLCRTC_DEPLOY_PROFILE")"
   split="$(jq -r '.components.split // true' "$OLCRTC_DEPLOY_PROFILE")"
   zapret="$(jq -r '.components.zapret // true' "$OLCRTC_DEPLOY_PROFILE")"
+  bridges="$(jq -r '.components.bridges // false' "$OLCRTC_DEPLOY_PROFILE")"
   ru="$(jq -r '.ru_vps // true' "$OLCRTC_DEPLOY_PROFILE")"
   warp="$(jq -r '.components.warp // false' "$OLCRTC_DEPLOY_PROFILE")"
   panel_access="$(jq -r '.panel.access // "ip"' "$OLCRTC_DEPLOY_PROFILE")"
@@ -271,10 +255,14 @@ profile_apply_env() {
 
   # Если есть features.env, он имеет больший приоритет (пользователь менял через UI)
   if [[ -f /etc/olcrtc-manager/features.env ]]; then
-    local _f_tor _f_split _f_zapret _f_warp
+    local _f_tor _f_split _f_zapret _f_bridges _f_warp
     _f_tor="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_TOR=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
     _f_split="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_SPLIT=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
     _f_zapret="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_ZAPRET=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_bridges="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_BRIDGES=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    if [[ -z "$_f_bridges" ]]; then
+      _f_bridges="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WEBTUNNEL=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    fi
     _f_warp="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WARP=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
     
     [[ "$_f_tor" == "1" ]] && tor="true"
@@ -283,14 +271,16 @@ profile_apply_env() {
     [[ "$_f_split" == "0" ]] && split="false"
     [[ "$_f_zapret" == "1" ]] && zapret="true"
     [[ "$_f_zapret" == "0" ]] && zapret="false"
+    [[ "$_f_bridges" == "1" ]] && bridges="true"
+    [[ "$_f_bridges" == "0" ]] && bridges="false"
     [[ "$_f_warp" == "1" ]] && warp="true"
     [[ "$_f_warp" == "0" ]] && warp="false"
     
     # Синхронизируем изменения обратно в deploy-profile.json
     local tmp
     tmp="$(mktemp)"
-    jq --argjson t "$tor" --argjson s "$split" --argjson z "$zapret" --argjson w "$warp" \
-      '.components.tor = $t | .components.split = $s | .components.zapret = $z | .components.warp = $w' \
+    jq --argjson t "$tor" --argjson s "$split" --argjson z "$zapret" --argjson b "$bridges" --argjson w "$warp" \
+      '.components.tor = $t | .components.split = $s | .components.zapret = $z | .components.bridges = $b | .components.warp = $w' \
       "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
   else
     # Инициализируем features.env из профиля, чтобы UI видел правильное состояние
@@ -301,7 +291,8 @@ profile_apply_env() {
 OLCRTC_ENABLE_ZAPRET=$([[ "$zapret" == "true" ]] && echo 1 || echo 0)
 OLCRTC_ENABLE_TOR=$([[ "$tor" == "true" ]] && echo 1 || echo 0)
 OLCRTC_ENABLE_SPLIT=$([[ "$split" == "true" ]] && echo 1 || echo 0)
-OLCRTC_ENABLE_WEBTUNNEL=$([[ "$tor" == "true" ]] && echo 1 || echo 0)
+OLCRTC_ENABLE_BRIDGES=$([[ "$bridges" == "true" ]] && echo 1 || echo 0)
+OLCRTC_ENABLE_WEBTUNNEL=0
 OLCRTC_ENABLE_WARP=$([[ "$warp" == "true" ]] && echo 1 || echo 0)
 EOF
   fi
@@ -309,6 +300,7 @@ EOF
   [[ "$tor" == "true" ]] && ENABLE_TOR=1 || ENABLE_TOR=0
   [[ "$split" == "true" ]] && ENABLE_SPLIT=1 || ENABLE_SPLIT=0
   [[ "$zapret" == "true" ]] && export OLCRTC_ENABLE_ZAPRET=1 || export OLCRTC_ENABLE_ZAPRET=0
+  [[ "$bridges" == "true" ]] && ENABLE_BRIDGES=1 || ENABLE_BRIDGES=0
   [[ "$ru" == "true" ]] && RU_VPS=1 || RU_VPS=0
   [[ "$warp" == "true" ]] && ENABLE_WARP=1 || ENABLE_WARP=0
   PANEL_ACCESS="$panel_access"
@@ -316,8 +308,8 @@ EOF
   PANEL_TLS="$panel_tls"
   PANEL_TLS_MODE="$panel_tls_mode"
 
-  export ENABLE_TOR ENABLE_SPLIT RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR PANEL_TLS PANEL_TLS_MODE
-  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=$ENABLE_WARP panel=$PANEL_ACCESS tls=$PANEL_TLS)"
+  export ENABLE_TOR ENABLE_SPLIT ENABLE_BRIDGES RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR PANEL_TLS PANEL_TLS_MODE
+  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} bridges=$ENABLE_BRIDGES warp=$ENABLE_WARP panel=$PANEL_ACCESS tls=$PANEL_TLS)"
   # Совет про olc-update только при первой установке (не при UPDATE режиме)
   if [[ "${OLCRTC_UPDATE_MODE:-0}" != "1" ]]; then
     profile_log "Совет: для доустановки или обновления можно использовать короткую команду: olc-update"
@@ -327,11 +319,15 @@ EOF
 profile_step_enabled() {
   local step="$1"
   case "$step" in
-    packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager|webtunnel)
+    packages|patches|sysctl|systemd|cron|cleanup-tmp|restart-manager|start-manager)
       return 0
       ;;
-    tor|bridges)
-      [[ "${ENABLE_TOR:-1}" -eq 1 ]]
+    tor)
+      [[ "${ENABLE_TOR:-0}" -eq 1 ]]
+      return
+      ;;
+    bridges)
+      [[ "${ENABLE_BRIDGES:-0}" -eq 1 ]]
       return
       ;;
     warp)
@@ -339,7 +335,7 @@ profile_step_enabled() {
       return
       ;;
     split)
-      [[ "${ENABLE_TOR:-1}" -eq 1 && "${ENABLE_SPLIT:-1}" -eq 1 && "${RU_VPS:-1}" -eq 1 ]]
+      [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${RU_VPS:-1}" -eq 1 ]]
       return
       ;;
     zapret)
@@ -461,9 +457,7 @@ profile_after_component_job() {
       ;;
     tor)
       profile_set_component tor "$enabled"
-      if [[ "$action" == "install" ]]; then
-        profile_set_component bridges true
-      else
+      if [[ "$action" != "install" ]]; then
         profile_set_component split false
         profile_set_component bridges false
       fi

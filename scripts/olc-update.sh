@@ -70,8 +70,7 @@ main() {
       --show-profile) ;;      # обрабатывается ниже после need_root
       --profile) profile_arg=(--profile) ;;
       --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; has_explicit_flags=1 ;;
-      --manager-stable) export OLC_MANAGER_STABLE=1; has_explicit_flags=1 ;;
-      --manager-latest) export OLC_MANAGER_LATEST=1; has_explicit_flags=1 ;;
+      --manager-stable|--manager-latest) echo "Флаги --manager-stable/--manager-latest удалены: используется встроенная версия manager." >&2; exit 2 ;;
       --incremental) update_mode="--incremental"; has_explicit_flags=1 ;;
       --update) update_mode="--update"; has_explicit_flags=1 ;;
       --resume) ;; # handled by agent-bootstrap
@@ -105,8 +104,6 @@ main() {
     echo "При обновлении доступны только:" >&2
     echo "  --incremental        Доустановка (быстро — skip работающих компонентов)" >&2
     echo "  --update             Обновление (полная пересборка — patches, binaries)" >&2
-    echo "  --manager-latest     Последняя upstream версия панели (экспериментальная)" >&2
-    echo "  --manager-stable     Стабильный форк панели (по умолчанию)" >&2
     echo "  --force-sha-update   Принудительно обновить pinned SHA из upstream" >&2
     echo "  --ssh / --localhost  Переключить панель в режим SSH-туннеля" >&2
     echo "  --ip --http / --ip --https  Переключить доступ и протокол панели" >&2

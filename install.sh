@@ -11,8 +11,6 @@
 #   curl -fsSL ... | sudo bash -s -- --state           # показать состояние
 #   curl -fsSL ... | sudo bash -s -- --no-zapret       # пропустить zapret (для тестов)
 #   curl -fsSL ... | sudo bash -s -- --force-sha-update # автообновление SHA256SUMS при несовпадении
-#   curl -fsSL ... | sudo bash -s -- --manager-stable  # использовать стабильный fork панели
-#   curl -fsSL ... | sudo bash -s -- --manager-latest  # использовать последнюю версию upstream (без pin)
 set -euo pipefail
 
 INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
@@ -179,6 +177,7 @@ SHOW_STATE=0
 UNKNOWN_FLAGS=()
 PLAN_ONLY=0
 CHOOSE_COMPONENTS=0
+SELECTIVE_COMPONENT_ARGS=0
 ACCESS_SET=0        # был ли режим доступа задан флагом (--ssh/--ip и алиасы)
 TLS_SET=0           # был ли протокол панели задан флагом (--http/--https)
 # Запуск БЕЗ флагов = основная интерактивная команда: меню действий (если уже
@@ -188,12 +187,13 @@ NO_FLAGS=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full|--update|--fresh) FORCE_MODE="$1" ;;  # MODE передаётся через exec, не через BOOT_ARGS
-    --tor|--warp|--zapret|--split|--bridges) BOOT_ARGS+=("$1") ;;
+    --tor|--warp|--zapret|--split|--bridges) BOOT_ARGS+=("$1"); SELECTIVE_COMPONENT_ARGS=1 ;;
     --no-tor|--no-warp|--no-zapret|--no-split|--no-bridges) BOOT_ARGS+=("$1") ;;
-    --foreign|--with-warp|--with-tor|--ru) BOOT_ARGS+=("$1") ;;
+    --foreign) BOOT_ARGS+=("$1") ;;
+    --with-warp|--with-tor) BOOT_ARGS+=("$1"); SELECTIVE_COMPONENT_ARGS=1 ;;
+    --ru) BOOT_ARGS+=("$1") ;;
     --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; BOOT_ARGS+=("$1") ;;
-    --manager-stable) export OLC_MANAGER_STABLE=1; BOOT_ARGS+=("$1") ;;
-    --manager-latest) export OLC_MANAGER_LATEST=1; BOOT_ARGS+=("$1") ;;
+    --manager-stable|--manager-latest) fatal_early "Флаги --manager-stable/--manager-latest удалены" "Manager теперь встроен в Olc-cost-l" "Запустите установку без выбора версии панели" ;;
     --ssh|--localhost|--local-panel|--ip|--public-panel) BOOT_ARGS+=("$1"); ACCESS_SET=1 ;;
     --http|--https|--https-self-signed|--https-letsencrypt) BOOT_ARGS+=("$1"); TLS_SET=1 ;;
     --resume) BOOT_ARGS+=("$1"); export OLCRTC_RESUME=1 ;;
@@ -221,7 +221,6 @@ if [[ "${#UNKNOWN_FLAGS[@]}" -gt 0 ]]; then
   echo "  --warp / --with-warp  Cloudflare WARP + Панель (зарубежный VPS, без Tor)" >&2
   echo "  --no-tor / --foreign  Без Tor/Split/мостов (зарубежный VPS)" >&2
   echo "  --no-split / --no-zapret / --no-bridges  Отключить компонент" >&2
-  echo "  --manager-stable / --manager-latest  Версия панели (default stable)" >&2
   echo "  --ssh / --ip        Доступ к панели: SSH-туннель или открытый IP" >&2
   echo "  --http / --https-self-signed / --https-letsencrypt  Протокол и тип сертификата панели" >&2
   echo "  --interactive       Меню выбора компонентов даже вместе с --full" >&2
@@ -451,10 +450,15 @@ if [[ "$PLAN_ONLY" -eq 1 ]]; then
   fi
   echo "[install-plan] state=$STATE mode=$MODE boot_args=[${BOOT_ARGS[*]:-}] force_mode=${FORCE_MODE:-none}"
   if [[ -x "$INSTALL_DIR/scripts/agent-bootstrap.sh" ]]; then
-    boot_mode="--full"
-    [[ "$MODE" == "update" ]] && boot_mode="--update"
-    [[ "$MODE" == "incremental" ]] && boot_mode="--incremental"
-    OLC_REPO_ROOT="$INSTALL_DIR" bash "$INSTALL_DIR/scripts/agent-bootstrap.sh" "$boot_mode" "${BOOT_ARGS[@]}" --plan
+    boot_mode=()
+    if [[ "$MODE" == "update" ]]; then
+      boot_mode=(--update)
+    elif [[ "$MODE" == "incremental" ]]; then
+      boot_mode=(--incremental)
+    elif [[ "$SELECTIVE_COMPONENT_ARGS" -eq 0 ]]; then
+      boot_mode=(--full)
+    fi
+    OLC_REPO_ROOT="$INSTALL_DIR" bash "$INSTALL_DIR/scripts/agent-bootstrap.sh" "${boot_mode[@]}" "${BOOT_ARGS[@]}" --plan
   fi
   exit 0
 fi
@@ -554,6 +558,9 @@ ln -sfn "$INSTALL_DIR/scripts/olc-backup.sh" /usr/local/bin/olc-backup 2>/dev/nu
 
 # Передаём режим в agent-bootstrap.sh
 if [[ "$MODE" == "full" ]]; then
+  if [[ "$SELECTIVE_COMPONENT_ARGS" -eq 1 ]]; then
+    exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" "${BOOT_ARGS[@]}"
+  fi
   exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --full "${BOOT_ARGS[@]}"
 elif [[ "$MODE" == "update" ]]; then
   exec "$INSTALL_DIR/scripts/agent-bootstrap.sh" --update "${BOOT_ARGS[@]}"

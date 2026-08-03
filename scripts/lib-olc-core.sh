@@ -8,8 +8,6 @@ _LIB_OLC_CORE_LOADED=1
 
 # === Глобальные переменные ===
 # Флаги устанавливаются через parse_common_flags()
-declare -g OLC_MANAGER_STABLE="${OLC_MANAGER_STABLE:-1}"
-declare -g OLC_MANAGER_LATEST="${OLC_MANAGER_LATEST:-0}"
 declare -g OLCRTC_FORCE_SHA_UPDATE="${OLCRTC_FORCE_SHA_UPDATE:-0}"
 declare -g OLCRTC_RESUME="${OLCRTC_RESUME:-0}"
 declare -g OLCRTC_FRESH="${OLCRTC_FRESH:-0}"
@@ -19,14 +17,6 @@ declare -g OLCRTC_FRESH="${OLCRTC_FRESH:-0}"
 parse_common_flags() {
   local flag="$1"
   case "$flag" in
-    --manager-stable)
-      export OLC_MANAGER_STABLE=1
-      return 0
-      ;;
-    --manager-latest)
-      export OLC_MANAGER_LATEST=1
-      return 0
-      ;;
     --force-sha-update)
       export OLCRTC_FORCE_SHA_UPDATE=1
       return 0
@@ -48,8 +38,6 @@ parse_common_flags() {
 # === Вывод статуса флагов (для отладки) ===
 show_flags() {
   echo "[lib-olc-core] Текущие флаги:"
-  echo "  OLC_MANAGER_STABLE=$OLC_MANAGER_STABLE"
-  echo "  OLC_MANAGER_LATEST=$OLC_MANAGER_LATEST"
   echo "  OLCRTC_FORCE_SHA_UPDATE=$OLCRTC_FORCE_SHA_UPDATE"
   echo "  OLCRTC_RESUME=$OLCRTC_RESUME"
   echo "  OLCRTC_FRESH=$OLCRTC_FRESH"
@@ -57,19 +45,11 @@ show_flags() {
 
 # === Проверка версии manager ===
 get_manager_install_mode() {
-  if [[ "$OLC_MANAGER_STABLE" == "1" ]]; then
-    echo "stable"
-  elif [[ "$OLC_MANAGER_LATEST" == "1" ]]; then
-    echo "latest"
-  else
-    echo "pinned"
-  fi
+  echo "vendored"
 }
 
 # === Экспорт всех флагов для дочерних процессов ===
 export_flags() {
-  export OLC_MANAGER_STABLE
-  export OLC_MANAGER_LATEST
   export OLCRTC_FORCE_SHA_UPDATE
   export OLCRTC_RESUME
   export OLCRTC_FRESH
@@ -77,10 +57,6 @@ export_flags() {
 
 # === Проверка конфликтующих флагов ===
 validate_flags() {
-  if [[ "$OLC_MANAGER_STABLE" == "1" && "$OLC_MANAGER_LATEST" == "1" ]]; then
-    echo "ОШИБКА: нельзя использовать --manager-stable и --manager-latest одновременно" >&2
-    return 1
-  fi
   return 0
 }
 
@@ -101,7 +77,6 @@ handle_unknown_flag() {
     echo "  --zapret            Только Zapret + Панель" >&2
     echo "  --bridges           Только мосты Tor + Панель" >&2
     echo "  --warp              Cloudflare WARP + Панель" >&2
-    echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
     echo "  --ssh               Панель доступна только через SSH-туннель" >&2
     echo "" >&2
 
@@ -121,7 +96,6 @@ handle_unknown_flag() {
     fi
   elif [[ "$script_mode" == "update" ]]; then
     echo "Доступные флаги обновления:" >&2
-    echo "  --manager-latest    Использовать последнюю upstream версию панели" >&2
     echo "  --force-sha-update  Принудительно обновить pinned SHA" >&2
     echo "  --resume            Продолжить прерванное обновление" >&2
     echo "  --fresh-state       Очистить состояние и начать заново" >&2
@@ -362,8 +336,7 @@ interactive_update_menu() {
   echo "  [1] Обновить существующие компоненты (рекомендуется)"
   echo "  [2] Доустановить недостающие компоненты"
   echo "  [3] Сменить режим доступа к панели (SSH ↔ IP)"
-  echo "  [4] Обновить версию панели (stable → latest или наоборот)"
-  echo -n "Ваш выбор (1-4) [1]: "
+  echo -n "Ваш выбор (1-3) [1]: "
   read -r update_action </dev/tty || update_action="1"
   update_action="${update_action:-1}"
 
@@ -422,22 +395,6 @@ interactive_update_menu() {
       profile_set_panel_access "$PANEL_ACCESS"
       profile_set_panel_tls "$PANEL_TLS_MODE"
       ;;
-    4) # Сменить версию панели
-      echo ""
-      echo "📦 Выберите версию панели:"
-      echo "  [1] Stable fork (рекомендуется, по умолчанию)"
-      echo "  [2] Latest upstream (экспериментальная)"
-      echo -n "Ваш выбор (1-2) [1]: "
-      read -r panel_version </dev/tty || panel_version="1"
-
-      if [[ "$panel_version" == "2" ]]; then
-        export OLC_MANAGER_LATEST=1
-        echo "⚠️  ВНИМАНИЕ: Будет установлена экспериментальная версия upstream"
-      else
-        export OLC_MANAGER_STABLE=1
-        echo "✓ Будет установлена стабильная версия (stable fork)"
-      fi
-      ;;
   esac
 
   echo ""
@@ -466,6 +423,5 @@ olc_core_init() {
 
 # Автоинициализация при source (с безопасным возвратом)
 olc_core_init || {
-  echo "[olc-core] ОШИБКА: конфликтующие флаги (--manager-stable и --manager-latest одновременно)" >&2
   return 1 2>/dev/null || exit 1
 }

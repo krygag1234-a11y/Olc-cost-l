@@ -1,0 +1,11481 @@
+/* olc-manager-hotfix-v22-room */
+/* olc-manager-hotfix-v17 */
+/* olc-manager-hotfix-v18 */
+/* olc-manager-hotfix-v15 */
+/* olc-manager-hotfix-v16-bridge-pool */
+/* olc-manager-hotfix-v12 */
+/* olc-manager-hotfix-v13 */
+/* olc-manager-hotfix-v10 */
+/* olc-manager-hotfix-v11 */
+/* olc-manager-hotfix-v8 */
+/* olc-manager-hotfix-v7 */
+package main
+
+// olc-go-fixes-v3
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
+	"embed"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"hash/fnv"
+	"io"
+	"io/fs"
+	"log"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+//go:embed web/dist/*
+var adminAssets embed.FS
+
+var managerStartedAt = time.Now()
+
+var authLimiter = newAuthLimiter()
+
+// Keep handlers safe before main() installs the config-specific persistent store.
+// This also preserves the package-level contract used by upstream handler tests.
+var adminSessions = newSessionStore()
+var adminConfigPath string
+var globalSupervisor *Supervisor
+
+var (
+	splitReloadMu   sync.Mutex
+	splitReloadLast time.Time
+	panelSupervisor *Supervisor
+	panelQuota      *QuotaEnforcer
+)
+
+type Config struct {
+	Version                   int             `json:"version"`
+	LegacyVersion             int             `json:"vesion"`
+	Name                      string          `json:"name"`
+	Port                      int             `json:"port"`
+	SubscriptionPath          string          `json:"subscription_path"`
+	Refresh                   string          `json:"refresh,omitempty"`
+	ActiveLocationID          string          `json:"active_location_id"`
+	Clients                   []Client        `json:"clients"`
+	Locations                 []Location      `json:"locations"`
+	GlobalSettings            *GlobalSettings `json:"global_settings,omitempty"`
+	RandomizationSecret       string          `json:"randomization_secret,omitempty"`
+	CryptoRandomizationSecret string          `json:"crypto_randomization_secret,omitempty"`
+}
+
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type config Config
+	var parsed config
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	*c = Config(parsed)
+	c.Normalize()
+	return nil
+}
+
+type Client struct {
+	ClientID      string               `json:"client-id"`
+	Refresh       string               `json:"refresh,omitempty"`
+	Quota         Quota                `json:"quota,omitempty"`
+	Proxy         Socks5Proxy          `json:"proxy,omitempty"`
+	Locations     []Location           `json:"locations"`
+	Randomization *ClientRandomization `json:"randomization,omitempty"`
+}
+
+type ClientRandomization struct {
+	Enabled      bool   `json:"enabled"`
+	RandType     int    `json:"rand_type,omitempty"` // 1=статичный хэш, 2=посекундная ротация
+	RandomizedID string `json:"randomized_id,omitempty"`
+}
+
+type GlobalSettings struct {
+	Subscription *SubscriptionSettings `json:"subscription,omitempty"`
+	Logs         *LogsSettings         `json:"logs,omitempty"`
+}
+
+type SubscriptionSettings struct {
+	RandomizationEnabled bool   `json:"randomization_enabled"`
+	RandType             int    `json:"rand_type,omitempty"`  // 1=статичный хэш, 2=посекундная ротация
+	RandScope            string `json:"rand_scope,omitempty"` // both|client_id|crypto (дефолт both)
+}
+
+type LogsSettings struct {
+	// AutoRefresh: when true, log views auto-tail and hide the LIVE/Refresh
+	// buttons. Pointer so we can distinguish "unset" (default ON) from explicit false.
+	AutoRefresh *bool `json:"auto_refresh,omitempty"`
+}
+
+type Quota struct {
+	SpeedMbps int    `json:"speed_mbps,omitempty"`
+	TrafficGB int    `json:"traffic_gb,omitempty"`
+	UsedGB    int    `json:"used_gb,omitempty"`
+	UsedBytes uint64 `json:"used_bytes,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+type Location struct {
+	Name      string      `json:"name"`
+	ClientID  string      `json:"client-id"`
+	Endpoint  Endpoint    `json:"endpoint"`
+	Carrier   string      `json:"carrier"`
+	Transport Transport   `json:"transport"`
+	Link      string      `json:"link"`
+	Data      string      `json:"data"`
+	DNS       string      `json:"dns"`
+	Proxy     Socks5Proxy `json:"proxy,omitempty"`
+}
+
+type Endpoint struct {
+	RoomID string `json:"room_id"`
+	Key    string `json:"key"`
+}
+
+type Socks5Proxy struct {
+	Enabled *bool  `json:"enabled,omitempty"`
+	Addr    string `json:"addr,omitempty"`
+	Port    int    `json:"port,omitempty"`
+	User    string `json:"user,omitempty"`
+	Pass    string `json:"pass,omitempty"`
+	Routing string `json:"routing,omitempty"` // split (default) | all
+}
+
+type Transport struct {
+	Type    string
+	Payload map[string]string
+}
+
+type olcrtcLivenessConfig struct {
+	Interval string `yaml:"interval,omitempty"`
+	Timeout  string `yaml:"timeout,omitempty"`
+	Failures int    `yaml:"failures,omitempty"`
+}
+
+type olcrtcRuntimeConfig struct {
+	Liveness *olcrtcLivenessConfig `yaml:"liveness,omitempty"`
+	Mode     string                `yaml:"mode"`
+	Auth     olcrtcAuthConfig      `yaml:"auth"`
+	Room     olcrtcRoomConfig      `yaml:"room,omitempty"`
+	Crypto   olcrtcCryptoConfig    `yaml:"crypto,omitempty"`
+	Net      olcrtcNetConfig       `yaml:"net"`
+	SOCKS    olcrtcSocksConfig     `yaml:"socks,omitempty"`
+	VP8      *olcrtcVP8Config      `yaml:"vp8,omitempty"`
+	SEI      *olcrtcSEIConfig      `yaml:"sei,omitempty"`
+	Video    *olcrtcVideoConfig    `yaml:"video,omitempty"`
+	Gen      *olcrtcGenConfig      `yaml:"gen,omitempty"`
+	Data     string                `yaml:"data,omitempty"`
+	Debug    bool                  `yaml:"debug,omitempty"`
+	FFmpeg   string                `yaml:"ffmpeg,omitempty"`
+}
+
+type olcrtcAuthConfig struct {
+	Provider string `yaml:"provider"`
+}
+
+type olcrtcRoomConfig struct {
+	ID string `yaml:"id,omitempty"`
+}
+
+type olcrtcCryptoConfig struct {
+	Key string `yaml:"key,omitempty"`
+}
+
+type olcrtcNetConfig struct {
+	Transport string `yaml:"transport,omitempty"`
+	DNS       string `yaml:"dns,omitempty"`
+}
+
+type olcrtcSocksConfig struct {
+	ProxyAddr             string `yaml:"proxy_addr,omitempty"`
+	ProxyPort             int    `yaml:"proxy_port,omitempty"`
+	ProxyUser             string `yaml:"proxy_user,omitempty"`
+	ProxyPass             string `yaml:"proxy_pass,omitempty"`
+	DirectCIDRsFile       string `yaml:"direct_cidrs_file,omitempty"`
+	DirectDomainsFile     string `yaml:"direct_domains_file,omitempty"`
+	BlockedTorDomainsFile string `yaml:"blocked_tor_domains_file,omitempty"`
+	ForceTorDomainsFile   string `yaml:"force_tor_domains_file,omitempty"`
+}
+
+type olcrtcVP8Config struct {
+	FPS       int `yaml:"fps,omitempty"`
+	BatchSize int `yaml:"batch_size,omitempty"`
+}
+
+type olcrtcSEIConfig struct {
+	FPS          int `yaml:"fps,omitempty"`
+	BatchSize    int `yaml:"batch_size,omitempty"`
+	FragmentSize int `yaml:"fragment_size,omitempty"`
+	AckTimeoutMS int `yaml:"ack_timeout_ms,omitempty"`
+}
+
+type olcrtcVideoConfig struct {
+	Width      int    `yaml:"width,omitempty"`
+	Height     int    `yaml:"height,omitempty"`
+	FPS        int    `yaml:"fps,omitempty"`
+	Bitrate    string `yaml:"bitrate,omitempty"`
+	HW         string `yaml:"hw,omitempty"`
+	QRSize     int    `yaml:"qr_size,omitempty"`
+	QRRecovery string `yaml:"qr_recovery,omitempty"`
+	Codec      string `yaml:"codec,omitempty"`
+	TileModule int    `yaml:"tile_module,omitempty"`
+	TileRS     int    `yaml:"tile_rs,omitempty"`
+}
+
+type olcrtcGenConfig struct {
+	Amount int `yaml:"amount"`
+}
+
+func (t *Transport) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	var typ string
+	if err := json.Unmarshal(raw["type"], &typ); err != nil {
+		return fmt.Errorf("transport.type: %w", err)
+	}
+
+	payload := make(map[string]string)
+	for key, value := range raw {
+		if key == "type" {
+			continue
+		}
+
+		if key == "payload" {
+			var nested map[string]any
+			if err := json.Unmarshal(value, &nested); err != nil {
+				return fmt.Errorf("transport.payload: %w", err)
+			}
+			for payloadKey, payloadValue := range nested {
+				payload[payloadKey] = fmt.Sprint(payloadValue)
+			}
+			continue
+		}
+
+		var scalar any
+		if err := json.Unmarshal(value, &scalar); err != nil {
+			return fmt.Errorf("transport.%s: %w", key, err)
+		}
+		payload[key] = fmt.Sprint(scalar)
+	}
+
+	t.Type = typ
+	t.Payload = payload
+	return nil
+}
+
+func (t Transport) MarshalJSON() ([]byte, error) {
+	raw := map[string]any{"type": t.Type}
+	if len(t.Payload) != 0 {
+		raw["payload"] = t.Payload
+	}
+	return json.Marshal(raw)
+}
+
+type process struct {
+	location Location
+	cmd      *exec.Cmd
+	netns    *netnsRuntime
+	logs     *logBuffer
+	done     chan error
+	started  time.Time
+	exited   time.Time
+	exitErr  string
+	running  bool
+	restarts int
+	mu       sync.RWMutex
+}
+
+type starter func(context.Context, string, Location) (*process, error)
+
+type Supervisor struct {
+	mu         sync.RWMutex
+	cfg        Config
+	olcrtcPath string
+	processes  map[string]*process
+	start      starter
+	quota      *QuotaEnforcer
+}
+
+func init() { initBridgeSources() }
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+/* olc-manager-hotfix-v1 */
+/* olc-manager-hotfix-v2 */
+/* olc-manager-hotfix-v3 */
+/* olc-manager-hotfix-v4 */
+/* olc-manager-hotfix-v5 */
+/* olc-manager-hotfix-v6 */
+func run() error {
+	var configPath string
+	var port int
+	var listenAddr string
+	flag.StringVar(&configPath, "config", "", "path to olcrtc-manager JSON config")
+	flag.IntVar(&port, "port", 0, "HTTP listen port; overrides config.port")
+	flag.StringVar(&listenAddr, "addr", envDefault("OLCRTC_MANAGER_ADDR", "127.0.0.1"), "HTTP listen address")
+	flag.Parse()
+
+	if configPath == "" {
+		return errors.New("-config is required")
+	}
+	adminConfigPath = configPath
+	adminSessions = newSessionStoreForConfig(configPath)
+
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	if port != 0 {
+		cfg.Port = port
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	olcrtcPath, err := resolveOlcrtcPath()
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	supervisor := NewSupervisor(olcrtcPath, startInstance)
+	globalSupervisor = supervisor
+	panelSupervisor = supervisor
+	quotaEnforcer := NewQuotaEnforcer(configPath, supervisor)
+	panelQuota = quotaEnforcer
+	supervisor.SetQuotaEnforcer(quotaEnforcer)
+	if err := supervisor.StartAll(ctx, cfg); err != nil {
+		return err
+	}
+	defer supervisor.StopAll()
+	go quotaEnforcer.Run(ctx)
+
+	reloadc := make(chan os.Signal, 1)
+	signal.Notify(reloadc, syscall.SIGHUP)
+	defer signal.Stop(reloadc)
+
+	reload := func() error {
+		reloaded, err := loadConfig(configPath)
+		if err != nil {
+			return err
+		}
+		if port != 0 {
+			reloaded.Port = port
+		}
+		if reloaded.Port != cfg.Port {
+			return fmt.Errorf("reload cannot change port from %d to %d", cfg.Port, reloaded.Port)
+		}
+		if err := reloaded.Validate(); err != nil {
+			return err
+		}
+		return supervisor.Reload(ctx, reloaded)
+	}
+
+	handler := http.NewServeMux()
+	handler.HandleFunc("/-/reload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !isLoopbackRequest(r) {
+			http.Error(w, "reload is only allowed from loopback", http.StatusForbidden)
+			return
+		}
+		if err := reload(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	adminFileServer, err := adminFileServer()
+	if err != nil {
+		return err
+	}
+	handler.Handle("/admin", http.HandlerFunc(adminPageHandler(adminFileServer)))
+	handler.Handle("/assets/", adminFileServer)
+	handler.Handle("/api/auth/login", http.HandlerFunc(loginHandler(configPath)))
+	handler.Handle("/api/auth/setup", http.HandlerFunc(setupHandler(configPath)))
+	handler.Handle("/api/auth/logout", adminAuth(http.HandlerFunc(logoutHandler)))
+	handler.Handle("/api/auth/me", http.HandlerFunc(authMeHandler(configPath)))
+	handler.Handle("/api/auth/password", adminAuth(http.HandlerFunc(changePasswordHandler(configPath))))
+	handler.Handle("/api/settings", adminAuth(http.HandlerFunc(settingsHandler(configPath, supervisor, port != 0))))
+	handler.Handle("/api/panel/lang", adminAuth(http.HandlerFunc(panelLangHandler)))
+	handler.Handle("/api/project/status", adminAuth(http.HandlerFunc(projectStatusHandler)))
+	handler.Handle("/api/reload", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := reload(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	handler.Handle("/api/state", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, supervisor.State())
+	})))
+	handler.Handle("/api/metrics", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, collectMetrics(supervisor))
+	})))
+	handler.Handle("/api/audit", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, map[string]any{"events": readAudit(configPath, 100)})
+	})))
+	handler.Handle("/api/settings/split", adminAuth(http.HandlerFunc(componentSettingsHandler())))
+	handler.Handle("/api/settings/split/", adminAuth(http.HandlerFunc(splitSettingsActionHandler)))
+	handler.Handle("/api/settings/randomization/global", adminAuth(globalRandomizationHandler(configPath)))
+	handler.Handle("/api/settings/randomization/scope", adminAuth(randomizationScopeHandler(configPath)))
+	handler.Handle("/api/settings/logs", adminAuth(autologiHandler(configPath)))
+	handler.Handle("/api/settings/", adminAuth(http.HandlerFunc(componentSettingsHandler())))
+
+	handler.Handle("/api/updates/check", adminAuth(http.HandlerFunc(updatesCheckHandler)))
+	handler.Handle("/api/updates/status", adminAuth(http.HandlerFunc(updatesStatusHandler)))
+	handler.Handle("/api/updates/run", adminAuth(http.HandlerFunc(updatesRunHandler)))
+	handler.Handle("/api/jobs/", adminAuth(panelJobsHandler()))
+	handler.Handle("/api/components/jobs", adminAuth(http.HandlerFunc(componentsJobsHandler)))
+	handler.Handle("/api/notifications/scan", adminAuth(http.HandlerFunc(notificationsScanHandler)))
+	handler.Handle("/api/notifications/", adminAuth(http.HandlerFunc(notificationsPatchHandler)))
+	handler.Handle("/api/notification-settings", adminAuth(http.HandlerFunc(notificationSettingsHandler)))
+	handler.Handle("/api/instance-defaults", adminAuth(http.HandlerFunc(instanceDefaultsHandler)))
+	// Olc-cost-l: контроль доступа к подписке по hwid устройства (allowlist + журнал).
+	handler.Handle("/api/access/settings", adminAuth(http.HandlerFunc(accessSettingsHandler)))
+	handler.Handle("/api/access/attempts", adminAuth(http.HandlerFunc(accessAttemptsHandler)))
+	handler.Handle("/api/access/attempts/clear", adminAuth(http.HandlerFunc(accessAttemptsClearHandler)))
+	handler.Handle("/api/access/allow", adminAuth(http.HandlerFunc(accessAllowHandler)))
+	handler.Handle("/api/access/device", adminAuth(http.HandlerFunc(accessDeviceHandler)))
+	handler.Handle("/api/access/client", adminAuth(http.HandlerFunc(accessClientHandler)))
+	// Olc-cost-l: автосмена ключей (Z5-B) — глоб. настройка + путь конфига для ротации.
+	olcConfigPath = configPath
+	handler.Handle("/api/settings/key-rotation", adminAuth(keyRotationHandler(configPath)))
+	// Olc-cost-l: рандомизация ключей (эпик A) — глобальная настройка.
+	handler.Handle("/api/settings/key-randomization", adminAuth(keyRandomizationHandler(configPath)))
+	handler.Handle("/api/access/remove", adminAuth(http.HandlerFunc(accessRemoveHandler)))
+	handler.Handle("/api/access/connections", adminAuth(http.HandlerFunc(accessConnectionsHandler)))
+	// Olc-cost-l: сводка по отдельному инстансу (ключи + трафик) для Info-модалки.
+	handler.Handle("/api/instances/info", adminAuth(instanceInfoHandler(configPath)))
+	// Olc-cost-l: экспорт/импорт всех данных панели (бэкап). Данные — только у
+	// пользователя, локально. Устойчиво к смене версий (сырой JSON + deep-merge).
+	handler.Handle("/api/backup/export", adminAuth(http.HandlerFunc(backupExportHandler(configPath))))
+	handler.Handle("/api/backup/import", adminAuth(http.HandlerFunc(backupImportHandler(configPath))))
+	handler.Handle("/api/backup/import-first-run", http.HandlerFunc(backupFirstRunImportHandler(configPath)))
+	handler.Handle("/api/backup/restart", adminAuth(http.HandlerFunc(backupRestartHandler(configPath))))
+	handler.Handle("/api/notifications", adminAuth(http.HandlerFunc(notificationsListHandler)))
+	handler.Handle("/api/sources/bridges", adminAuth(http.HandlerFunc(bridgeSourcesHandler())))
+	handler.Handle("/api/components/", adminAuth(http.HandlerFunc(componentsActionHandler)))
+	handler.Handle("/api/capabilities", adminAuth(http.HandlerFunc(capabilitiesHandler())))
+	handler.Handle("/api/jitsi/preflight", adminAuth(http.HandlerFunc(jitsiPreflightHandler)))
+	handler.Handle("/api/jitsi/discover-https", adminAuth(http.HandlerFunc(jitsiHTTPSDiscoveryHandler)))
+	handler.Handle("/api/features", adminAuth(http.HandlerFunc(featuresListHandler())))
+	handler.Handle("/api/features/logs/", adminAuth(http.HandlerFunc(featuresLogsHandler())))
+	handler.Handle("/api/features/", adminAuth(http.HandlerFunc(featuresToggleHandler())))
+	handler.Handle("/api/logs/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clientID, roomID, transport := logRequestTarget(r)
+		if clientID == "" || roomID == "" || transport == "" {
+			http.NotFound(w, r)
+			return
+		}
+		lines, ok := supervisor.Logs(clientID, roomID, transport)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, map[string][]LogLine{"logs": lines})
+	})))
+	handler.Handle("/api/actions/restart", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req locationActionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := supervisor.Restart(r.Context(), req.ClientID, req.RoomID, req.Transport); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	handler.Handle("/api/actions/stop", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req locationActionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := supervisor.Stop(r.Context(), req.ClientID, req.RoomID, req.Transport); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	handler.Handle("/api/actions/regenerate-room", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req clientActionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := regenerateClientRoom(r.Context(), configPath, olcrtcPath, req.ClientID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := reload(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	handler.Handle("/api/actions/rotate-key", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req clientActionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := rotateClientKey(configPath, req.ClientID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := reload(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	handler.Handle("/api/tools/generate-room", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req generateRoomRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Carrier = strings.TrimSpace(req.Carrier)
+		req.DNS = strings.TrimSpace(req.DNS)
+		if req.Carrier == "" {
+			http.Error(w, "carrier is required", http.StatusBadRequest)
+			return
+		}
+		if req.DNS == "" {
+			req.DNS = "1.1.1.1:53"
+		}
+		roomID, err := generateRoomID(r.Context(), olcrtcPath, req.Carrier, req.DNS)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]string{"room_id": roomID})
+	})))
+	handler.Handle("/api/clients", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clientID, err := addClientFromRequest(r.Context(), configPath, olcrtcPath, r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := reload(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, map[string]string{"client_id": clientID})
+	})))
+	handler.Handle("/api/clients/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Subscription randomization API routes (before method check)
+		urlPath := r.URL.Path
+		// GET /api/clients/ — list clients (id + randomization) for selective panel
+		if r.Method == http.MethodGet && (urlPath == "/api/clients/" || urlPath == "/api/clients") {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			type clientListItem struct {
+				ClientID      string               `json:"client_id"`
+				Randomization *ClientRandomization `json:"randomization,omitempty"`
+			}
+			items := make([]clientListItem, 0, len(cfg.Clients))
+			for _, c := range cfg.Clients {
+				items = append(items, clientListItem{ClientID: c.ClientID, Randomization: c.Randomization})
+			}
+			writeJSONStatus(w, http.StatusOK, map[string]any{"clients": items})
+			return
+		}
+		// PATCH /api/clients/:id/randomization (exact match, no suffix)
+		if strings.HasSuffix(urlPath, "/randomization") && !strings.Contains(urlPath, "/randomization/") {
+			randomizationPatchHandler(configPath)(w, r)
+			return
+		}
+		if strings.HasSuffix(urlPath, "/randomization/enable") {
+			randomizationEnableHandler(configPath)(w, r)
+			return
+		}
+		if strings.HasSuffix(urlPath, "/randomization/disable") {
+			randomizationDisableHandler(configPath)(w, r)
+			return
+		}
+		if strings.HasSuffix(urlPath, "/randomization/regenerate") {
+			randomizationRegenerateHandler(configPath)(w, r)
+			return
+		}
+		if strings.HasSuffix(urlPath, "/subscription-url") {
+			subscriptionURLHandler(configPath)(w, r)
+			return
+		}
+		if strings.HasSuffix(urlPath, "/key-rotation") {
+			clientKeyRotationHandler(configPath)(w, r)
+			return
+		}
+		if strings.HasSuffix(urlPath, "/key-randomization") {
+			clientKeyRandomizationHandler(configPath)(w, r)
+			return
+		}
+		if r.Method != http.MethodDelete && r.Method != http.MethodPut && r.Method != http.MethodPost {
+			w.Header().Set("Allow", "DELETE, PUT, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rest := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		if strings.HasSuffix(rest, "/locations") && r.Method == http.MethodPost {
+			clientID := strings.TrimSuffix(rest, "/locations")
+			if err := addLocationFromRequest(r.Context(), configPath, olcrtcPath, clientID, r); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := reload(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		if strings.Contains(rest, "/locations/") && r.Method == http.MethodDelete {
+			parts := strings.Split(rest, "/locations/")
+			if len(parts) != 2 {
+				http.NotFound(w, r)
+				return
+			}
+			if err := deleteLocation(configPath, parts[0], parts[1]); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := reload(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		clientID := rest
+		if clientID == "" || strings.Contains(clientID, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		switch r.Method {
+		case http.MethodDelete:
+			if err := deleteClient(configPath, clientID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := reload(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodPut:
+			if err := updateClientFromRequest(r.Context(), configPath, olcrtcPath, clientID, r); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := reload(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})))
+	handler.Handle("/", subscriptionHandler(supervisor))
+
+	server := &http.Server{
+		Addr:              net.JoinHostPort(listenAddr, strconv.Itoa(cfg.Port)),
+		Handler:           securityHeaders(updateGuardMiddleware(handler)),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	tlsCert, tlsKey, tlsEnabled, err := tlsFilesFromEnv()
+	if err != nil {
+		return err
+	}
+
+	errc := make(chan error, 1)
+	go func() {
+		log.Printf("serving subscription and admin panel on %s", server.Addr)
+		var err error
+		if tlsEnabled {
+			log.Printf("TLS enabled with certificate %s", tlsCert)
+			err = server.ListenAndServeTLS(tlsCert, tlsKey)
+		} else {
+			err = server.ListenAndServe()
+		}
+		if !errors.Is(err, http.ErrServerClosed) {
+			errc <- err
+			return
+		}
+		errc <- nil
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return server.Shutdown(shutdownCtx)
+		case <-reloadc:
+			if err := reload(); err != nil {
+				log.Printf("reload failed: %v", err)
+				continue
+			}
+			log.Printf("reload completed")
+		case err := <-errc:
+			return err
+		}
+	}
+}
+
+func NewSupervisor(olcrtcPath string, start starter) *Supervisor {
+	return &Supervisor{
+		olcrtcPath: olcrtcPath,
+		processes:  make(map[string]*process),
+		start:      start,
+	}
+}
+
+func (s *Supervisor) SetQuotaEnforcer(quota *QuotaEnforcer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.quota = quota
+}
+
+func (s *Supervisor) StartAll(ctx context.Context, cfg Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, loc := range activeLocations(cfg, time.Now()) {
+		p, err := s.start(ctx, s.olcrtcPath, loc)
+		if err != nil {
+			stopProcessMap(s.processes)
+			s.processes = make(map[string]*process)
+			return err
+		}
+		s.registerQuotaLocked(loc, quotaForClient(cfg, loc.ClientID), p)
+		key := locationKey(loc)
+		s.processes[key] = p
+		s.monitorProcess(ctx, key, p)
+	}
+	s.cfg = cfg
+	return nil
+}
+
+func (s *Supervisor) Reload(ctx context.Context, cfg Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	next := locationsByKey(activeLocations(cfg, time.Now()))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current := s.runningLocationsLocked()
+	started := make(map[string]*process)
+
+	for id, nextLoc := range next {
+		currentLoc, exists := current[id]
+		if exists && reflect.DeepEqual(currentLoc, nextLoc) {
+			if p := s.processes[id]; p != nil {
+				s.registerQuotaLocked(nextLoc, quotaForClient(cfg, nextLoc.ClientID), p)
+			}
+			continue
+		}
+
+		p, err := s.start(ctx, s.olcrtcPath, nextLoc)
+		if err != nil {
+			stopProcessMap(started)
+			return err
+		}
+		s.registerQuotaLocked(nextLoc, quotaForClient(cfg, nextLoc.ClientID), p)
+		started[id] = p
+	}
+
+	for id, currentLoc := range current {
+		nextLoc, exists := next[id]
+		if !exists || !reflect.DeepEqual(currentLoc, nextLoc) {
+			s.stopLocked(id)
+		}
+	}
+
+	for id, p := range started {
+		s.processes[id] = p
+		s.monitorProcess(ctx, id, p)
+	}
+	s.cfg = cfg
+	return nil
+}
+
+func (s *Supervisor) StopAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.quota != nil {
+		for id := range s.processes {
+			s.quota.Unregister(id)
+		}
+	}
+	stopProcessMap(s.processes)
+	s.processes = make(map[string]*process)
+}
+
+func (s *Supervisor) UpdateSettings(cfg Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Name = cfg.Name
+	s.cfg.Port = cfg.Port
+	s.cfg.SubscriptionPath = cfg.SubscriptionPath
+	s.cfg.Refresh = cfg.Refresh
+	s.cfg.Clients = cfg.Clients
+	s.cfg.GlobalSettings = cfg.GlobalSettings
+	s.cfg.RandomizationSecret = cfg.RandomizationSecret
+	s.cfg.CryptoRandomizationSecret = cfg.CryptoRandomizationSecret
+}
+
+func (s *Supervisor) Subscription(now time.Time) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return subscription(s.cfg, now)
+}
+
+func (s *Supervisor) SubscriptionForClient(clientID string, now time.Time) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return subscriptionForClient(s.cfg, clientID, now)
+}
+
+func (s *Supervisor) SubscriptionPath() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.SubscriptionPath
+}
+
+func (s *Supervisor) State() State {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	clients := make(map[string][]LocationState)
+	peerCount := 0
+	for _, loc := range s.cfg.Locations {
+		key := locationKey(loc)
+		p, exists := s.processes[key]
+		runtime := RuntimeState{Status: "stopped"}
+		if exists {
+			runtime = p.state()
+		}
+		if runtime.PeerCount != nil {
+			peerCount += *runtime.PeerCount
+		}
+		clients[loc.ClientID] = append(clients[loc.ClientID], LocationState{
+			Name:      loc.Name,
+			RoomID:    loc.Endpoint.RoomID,
+			Key:       loc.Endpoint.Key,
+			URI:       locationURI(loc),
+			Carrier:   loc.Carrier,
+			Transport: loc.Transport.Type,
+			Payload:   loc.Transport.Payload,
+			Link:      loc.Link,
+			DNS:       loc.DNS,
+			Proxy:     loc.Proxy,
+			Running:   runtime.Running,
+			Runtime:   runtime,
+		})
+	}
+
+	clientIDs := make([]string, 0, len(clients))
+	for id := range clients {
+		clientIDs = append(clientIDs, id)
+		sort.Slice(clients[id], func(i, j int) bool {
+			return clients[id][i].Name < clients[id][j].Name
+		})
+	}
+	sort.Strings(clientIDs)
+
+	out := State{
+		Name:             s.cfg.Name,
+		Port:             s.cfg.Port,
+		SubscriptionPath: s.cfg.SubscriptionPath,
+		Refresh:          s.cfg.Refresh,
+		ClientCount:      len(clientIDs),
+		RunningCount:     s.runningCountLocked(),
+		PeerCount:        peerCount,
+		Clients:          make([]ClientState, 0, len(clientIDs)),
+	}
+	for _, id := range clientIDs {
+		quota := Quota{}
+		refresh := ""
+		var randomization *ClientRandomization
+		clientProxy := Socks5Proxy{}
+		for _, client := range s.cfg.Clients {
+			if client.ClientID == id {
+				quota = client.Quota
+				refresh = client.Refresh
+				clientProxy = client.Proxy
+				randomization = client.Randomization
+				break
+			}
+		}
+		out.Clients = append(out.Clients, ClientState{
+			ClientID:      id,
+			Refresh:       refresh,
+			Quota:         quota,
+			Proxy:         clientProxy,
+			Locations:     clients[id],
+			Randomization: randomization,
+		})
+	}
+	return out
+}
+
+func (s *Supervisor) Logs(clientID, roomID, transport string) ([]LogLine, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	p, ok := s.processes[strings.Join([]string{clientID, roomID, transport}, ":")]
+	if !ok || p.logs == nil {
+		return nil, false
+	}
+	return p.logs.Snapshot(), true
+}
+
+func (s *Supervisor) Restart(ctx context.Context, clientID, roomID, transport string) error {
+	key := strings.Join([]string{strings.TrimSpace(clientID), strings.TrimSpace(roomID), strings.TrimSpace(transport)}, ":")
+
+	s.mu.Lock()
+	p, ok := s.processes[key]
+	if !ok {
+		loc, found := s.locationLocked(key)
+		if !found {
+			s.mu.Unlock()
+			return fmt.Errorf("location %q not found", key)
+		}
+		quota := s.clientQuotaLocked(loc.ClientID)
+		if quotaStatus(quota, time.Now()) != "active" {
+			s.mu.Unlock()
+			return fmt.Errorf("location %q is blocked by quota status %s", key, quotaStatus(quota, time.Now()))
+		}
+		next, err := s.start(context.Background(), s.olcrtcPath, loc)
+		if err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		s.registerQuotaLocked(loc, quota, next)
+		s.processes[key] = next
+		s.monitorProcess(ctx, key, next)
+		s.mu.Unlock()
+		return nil
+	}
+	loc := p.location
+	s.stopLocked(key)
+	s.mu.Unlock()
+
+	if err := waitProcessStopped(ctx, p, 5*time.Second); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next, err := s.start(context.Background(), s.olcrtcPath, loc)
+	if err != nil {
+		return err
+	}
+	s.registerQuotaLocked(loc, s.clientQuotaLocked(loc.ClientID), next)
+	s.processes[key] = next
+	s.monitorProcess(ctx, key, next)
+	return nil
+}
+
+func (s *Supervisor) Stop(ctx context.Context, clientID, roomID, transport string) error {
+	key := strings.Join([]string{strings.TrimSpace(clientID), strings.TrimSpace(roomID), strings.TrimSpace(transport)}, ":")
+
+	s.mu.Lock()
+	p, ok := s.processes[key]
+	if !ok {
+		s.mu.Unlock()
+		return nil
+	}
+	s.stopLocked(key)
+	s.mu.Unlock()
+	return waitProcessStopped(ctx, p, 5*time.Second)
+}
+
+func (s *Supervisor) monitorProcess(ctx context.Context, key string, p *process) {
+	go func() {
+		err := <-p.done
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			log.Printf("olcrtc for %s exited: %v", key, err)
+		}
+		time.Sleep(time.Duration(min(p.restarts+1, 5)) * time.Second)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.processes[key] != p || ctx.Err() != nil {
+			return
+		}
+		if p.restarts >= 3 {
+			log.Printf("olcrtc for %s reached restart limit", key)
+			return
+		}
+		next, startErr := s.start(ctx, s.olcrtcPath, p.location)
+		if startErr != nil {
+			log.Printf("olcrtc restart for %s failed: %v", key, startErr)
+			return
+		}
+		s.registerQuotaLocked(p.location, s.clientQuotaLocked(p.location.ClientID), next)
+		next.restarts = p.restarts + 1
+		s.processes[key] = next
+		s.monitorProcess(ctx, key, next)
+	}()
+}
+
+func (s *Supervisor) registerQuotaLocked(loc Location, quota Quota, p *process) {
+	if s.quota == nil {
+		return
+	}
+	if err := s.quota.Register(loc, quota, p); err != nil {
+		log.Printf("quota accounting unavailable for %s: %v", locationKey(loc), err)
+	}
+}
+
+func (s *Supervisor) clientQuotaLocked(clientID string) Quota {
+	for _, client := range s.cfg.Clients {
+		if client.ClientID == clientID {
+			return client.Quota
+		}
+	}
+	return Quota{}
+}
+
+func (s *Supervisor) runningLocationsLocked() map[string]Location {
+	current := make(map[string]Location, len(s.processes))
+	for id, p := range s.processes {
+		if p != nil {
+			current[id] = p.location
+		}
+	}
+	return current
+}
+
+func (s *Supervisor) locationLocked(key string) (Location, bool) {
+	for _, loc := range s.cfg.Locations {
+		if locationKey(loc) == key {
+			return loc, true
+		}
+	}
+	return Location{}, false
+}
+
+func quotaForClient(cfg Config, clientID string) Quota {
+	for _, client := range cfg.Clients {
+		if client.ClientID == clientID {
+			return client.Quota
+		}
+	}
+	return Quota{}
+}
+
+func (s *Supervisor) ApplyQuotaConfig(cfg Config, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg = cfg
+	for _, client := range cfg.Clients {
+		if quotaStatus(client.Quota, now) == "active" {
+			for _, loc := range client.Locations {
+				if p := s.processes[locationKey(loc)]; p != nil {
+					s.registerQuotaLocked(loc, client.Quota, p)
+				}
+			}
+			continue
+		}
+		for _, loc := range client.Locations {
+			s.stopLocked(locationKey(loc))
+		}
+	}
+}
+
+func (s *Supervisor) runningCountLocked() int {
+	count := 0
+	for _, p := range s.processes {
+		if p.state().Running {
+			count++
+		}
+	}
+	return count
+}
+
+type State struct {
+	Name             string        `json:"name"`
+	Port             int           `json:"port"`
+	SubscriptionPath string        `json:"subscription_path"`
+	Refresh          string        `json:"refresh,omitempty"`
+	ClientCount      int           `json:"client_count"`
+	RunningCount     int           `json:"running_count"`
+	PeerCount        int           `json:"peer_count"`
+	Clients          []ClientState `json:"clients"`
+}
+
+type ClientState struct {
+	ClientID      string               `json:"client_id"`
+	Refresh       string               `json:"refresh,omitempty"`
+	Quota         Quota                `json:"quota"`
+	Proxy         Socks5Proxy          `json:"proxy,omitempty"`
+	Locations     []LocationState      `json:"locations"`
+	Randomization *ClientRandomization `json:"randomization,omitempty"`
+}
+
+type LocationState struct {
+	Name      string            `json:"name"`
+	RoomID    string            `json:"room_id"`
+	Key       string            `json:"key"`
+	URI       string            `json:"uri"`
+	Carrier   string            `json:"carrier"`
+	Transport string            `json:"transport"`
+	Payload   map[string]string `json:"payload"`
+	Link      string            `json:"link"`
+	DNS       string            `json:"dns"`
+	Proxy     Socks5Proxy       `json:"proxy,omitempty"`
+	Running   bool              `json:"running"`
+	Runtime   RuntimeState      `json:"runtime"`
+}
+
+type RuntimeState struct {
+	Status      string   `json:"status"`
+	Running     bool     `json:"running"`
+	PID         int      `json:"pid,omitempty"`
+	MemoryBytes uint64   `json:"memory_bytes,omitempty"`
+	StartedAt   string   `json:"started_at,omitempty"`
+	ExitedAt    string   `json:"exited_at,omitempty"`
+	ExitError   string   `json:"exit_error,omitempty"`
+	LogCount    int      `json:"log_count"`
+	Restarts    int      `json:"restarts"`
+	PeerCount   *int     `json:"peer_count,omitempty"`
+	PeerDevices []string `json:"peer_devices,omitempty"`
+	PeerAt      string   `json:"peer_at,omitempty"`
+}
+
+type LogLine struct {
+	Time   string `json:"time"`
+	Stream string `json:"stream"`
+	Line   string `json:"line"`
+}
+
+type addClientRequest struct {
+	ClientID    string            `json:"client_id"`
+	FromClient  string            `json:"from_client"`
+	Refresh     string            `json:"refresh"`
+	Quota       Quota             `json:"quota"`
+	ClientProxy Socks5Proxy       `json:"client_proxy"`
+	Locations   []locationRequest `json:"locations"`
+	RoomID      string            `json:"room_id"`
+	Key         string            `json:"key"`
+	Carrier     string            `json:"carrier"`
+	Transport   string            `json:"transport"`
+	Payload     map[string]string `json:"payload"`
+	DNS         string            `json:"dns"`
+	Proxy       Socks5Proxy       `json:"proxy"`
+	Name        string            `json:"name"`
+}
+
+type updateClientRequest struct {
+	ClientID    string            `json:"client_id"`
+	Refresh     string            `json:"refresh"`
+	Quota       Quota             `json:"quota"`
+	ClientProxy Socks5Proxy       `json:"client_proxy"`
+	Locations   []locationRequest `json:"locations"`
+	RoomID      string            `json:"room_id"`
+	Key         string            `json:"key"`
+	Carrier     string            `json:"carrier"`
+	Transport   string            `json:"transport"`
+	Payload     map[string]string `json:"payload"`
+	DNS         string            `json:"dns"`
+	Proxy       Socks5Proxy       `json:"proxy"`
+	Name        string            `json:"name"`
+}
+
+type locationRequest struct {
+	Name      string            `json:"name"`
+	RoomID    string            `json:"room_id"`
+	Key       string            `json:"key"`
+	Carrier   string            `json:"carrier"`
+	Transport string            `json:"transport"`
+	Payload   map[string]string `json:"payload"`
+	DNS       string            `json:"dns"`
+	Proxy     Socks5Proxy       `json:"proxy"`
+	Link      string            `json:"link"`
+}
+
+type locationActionRequest struct {
+	ClientID  string `json:"client_id"`
+	RoomID    string `json:"room_id"`
+	Transport string `json:"transport"`
+}
+
+type clientActionRequest struct {
+	ClientID string `json:"client_id"`
+}
+
+type generateRoomRequest struct {
+	Carrier string `json:"carrier"`
+	DNS     string `json:"dns"`
+}
+
+type settingsResponse struct {
+	Name                string `json:"name"`
+	Port                int    `json:"port"`
+	SubscriptionPath    string `json:"subscription_path"`
+	Refresh             string `json:"refresh,omitempty"`
+	AdminUser           string `json:"admin_user"`
+	PortOverride        bool   `json:"port_override"`
+	RestartRequired     bool   `json:"restart_required,omitempty"`
+	SubscriptionBaseURL string `json:"subscription_base_url"`
+}
+
+type updateSettingsRequest struct {
+	Name             string `json:"name"`
+	Port             int    `json:"port"`
+	SubscriptionPath string `json:"subscription_path"`
+	Refresh          string `json:"refresh"`
+}
+
+func panelLangHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		lang := strings.TrimSpace(readPanelEnvMap()["OLC_PANEL_LANG"])
+		if lang != "en" {
+			lang = "ru"
+		}
+		writeJSON(w, map[string]string{"lang": lang})
+	case http.MethodPut:
+		var req struct {
+			Lang string `json:"lang"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		lang := strings.TrimSpace(req.Lang)
+		if lang != "en" && lang != "ru" {
+			http.Error(w, "lang must be ru or en", http.StatusBadRequest)
+			return
+		}
+		if err := setPanelEnvKey("OLC_PANEL_LANG", lang); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]string{"lang": lang, "status": "ok"})
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func settingsHandler(configPath string, supervisor *Supervisor, portOverride bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, settingsFromConfig(r, configPath, cfg, portOverride, false))
+		case http.MethodPut:
+			var req updateSettingsRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			cfg, restartRequired, err := updateSettings(configPath, req)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			supervisor.UpdateSettings(cfg)
+			writeJSON(w, settingsFromConfig(r, configPath, cfg, portOverride, restartRequired))
+		default:
+			w.Header().Set("Allow", "GET, PUT")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func updateSettings(configPath string, req updateSettingsRequest) (Config, bool, error) {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return Config{}, false, err
+	}
+	oldPort := cfg.Port
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		return Config{}, false, errors.New("name is required")
+	}
+	cfg.Name = req.Name
+	cfg.Port = req.Port
+	path, err := normalizeSubscriptionPath(req.SubscriptionPath)
+	if err != nil {
+		return Config{}, false, err
+	}
+	cfg.SubscriptionPath = path
+	cfg.Refresh = strings.TrimSpace(req.Refresh)
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
+		return Config{}, false, err
+	}
+	if err := saveConfig(configPath, cfg); err != nil {
+		return Config{}, false, err
+	}
+	return cfg, cfg.Port != oldPort, nil
+}
+
+func settingsFromConfig(r *http.Request, configPath string, cfg Config, portOverride bool, restartRequired bool) settingsResponse {
+	return settingsResponse{
+		Name:                cfg.Name,
+		Port:                cfg.Port,
+		SubscriptionPath:    cfg.SubscriptionPath,
+		Refresh:             cfg.Refresh,
+		AdminUser:           currentAdminUser(configPath),
+		PortOverride:        portOverride,
+		RestartRequired:     restartRequired,
+		SubscriptionBaseURL: subscriptionBaseURL(r, cfg.SubscriptionPath),
+	}
+}
+
+func subscriptionBaseURL(r *http.Request, subscriptionPath string) string {
+	if pub := strings.TrimSpace(os.Getenv("OLCRTC_PUBLIC_URL")); pub != "" {
+		base := strings.TrimRight(pub, "/")
+		if subscriptionPath == "" {
+			return base + "/"
+		}
+		return base + "/" + strings.Trim(subscriptionPath, "/") + "/"
+	}
+	base := requestOrigin(r)
+	if subscriptionPath == "" {
+		return base + "/"
+	}
+	return base + "/" + subscriptionPath + "/"
+}
+
+func logRequestTarget(r *http.Request) (string, string, string) {
+	query := r.URL.Query()
+	if query.Has("client_id") || query.Has("room_id") || query.Has("transport") {
+		return strings.TrimSpace(query.Get("client_id")),
+			strings.TrimSpace(query.Get("room_id")),
+			strings.TrimSpace(query.Get("transport"))
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/logs/"), "/")
+	if len(parts) != 3 {
+		return "", "", ""
+	}
+	return parts[0], parts[1], parts[2]
+}
+
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
+		scheme = strings.Split(forwarded, ",")[0]
+	}
+	host := r.Host
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwarded != "" {
+		host = strings.Split(forwarded, ",")[0]
+	}
+	return scheme + "://" + strings.TrimSpace(host)
+}
+
+func validateRoomIDStrict(roomID, carrier string) error {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" || roomID == "any" {
+		return errors.New("room_id обязателен")
+	}
+	for _, r := range roomID {
+		if r > 127 {
+			return errors.New("room_id: только латиница и цифры")
+		}
+	}
+	carrier = strings.TrimSpace(strings.ToLower(carrier))
+	if carrier == "" {
+		carrier = "jitsi"
+	}
+	rid := roomID
+	if carrier == "jitsi" {
+		if strings.HasPrefix(rid, "http://") || strings.HasPrefix(rid, "https://") {
+			if _, err := url.Parse(rid); err != nil {
+				return fmt.Errorf("room_id: некорректный URL Jitsi: %w", err)
+			}
+			return nil
+		}
+		if strings.Contains(rid, ".") && !strings.Contains(rid, " ") {
+			return nil
+		}
+		return errors.New("room_id: для Jitsi укажите https://meet.example.com/room или meet.example.com/room")
+	}
+	if carrier == "telemost" || carrier == "wbstream" {
+		if strings.HasPrefix(rid, "http://") || strings.HasPrefix(rid, "https://") {
+			return errors.New("room_id: для этого провайдера укажите ID комнаты, не ссылку")
+		}
+		for _, ch := range rid {
+			if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
+				continue
+			}
+			return errors.New("room_id: некорректный ID (латиница, цифры, _ и -)")
+		}
+		if len(rid) < 1 || len(rid) > 128 {
+			return errors.New("room_id: длина ID 1–128 символов")
+		}
+		return nil
+	}
+	return nil
+}
+
+func sanitizeConfigInvalidLocations(cfg *Config) []string {
+	var warnings []string
+	for i := range cfg.Clients {
+		kept := cfg.Clients[i].Locations[:0]
+		for _, loc := range cfg.Clients[i].Locations {
+			room := normalizeRoomID(strings.TrimSpace(loc.Endpoint.RoomID))
+			loc.Endpoint.RoomID = room
+			if err := validateRoomIDStrict(room, loc.Carrier); err != nil {
+				warnings = append(warnings, fmt.Sprintf(
+					"removed invalid location for client %q (%s): %v",
+					cfg.Clients[i].ClientID, loc.Name, err,
+				))
+				continue
+			}
+			kept = append(kept, loc)
+		}
+		cfg.Clients[i].Locations = kept
+	}
+	cfg.Normalize()
+	return warnings
+}
+
+func validateClientIDStrict(clientID string) error {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return errors.New("client_id is required")
+	}
+	if len(clientID) > 64 {
+		return errors.New("client_id must be <= 64 chars")
+	}
+	if strings.Contains(clientID, "/") {
+		return errors.New("client_id must not contain slash")
+	}
+	for _, ch := range clientID {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' {
+			continue
+		}
+		return errors.New("client_id allows only a-z A-Z 0-9 _ -")
+	}
+	return nil
+}
+
+func normalizeRoomID(roomID string) string {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return roomID
+	}
+	if strings.HasPrefix(roomID, "http://") || strings.HasPrefix(roomID, "https://") {
+		return roomID
+	}
+	if strings.HasPrefix(roomID, "//") {
+		return "https:" + roomID
+	}
+	if strings.Contains(roomID, ".") && !strings.Contains(roomID, " ") {
+		return "https://" + roomID
+	}
+	return roomID
+}
+
+func addClientFromRequest(ctx context.Context, configPath, olcrtcPath string, r *http.Request) (string, error) {
+	_ = ctx
+	_ = olcrtcPath
+	var req addClientRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return "", fmt.Errorf("parse request: %w", err)
+	}
+	req.ClientID = strings.TrimSpace(req.ClientID)
+	req.FromClient = strings.TrimSpace(req.FromClient)
+	req.Refresh = strings.TrimSpace(req.Refresh)
+	req.Quota = normalizeQuota(req.Quota)
+	if err := validateClientIDStrict(req.ClientID); err != nil {
+		return "", err
+	}
+	if err := validateQuota(req.Quota); err != nil {
+		return "", err
+	}
+
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	cfg.ensureClientsFormat()
+	for _, client := range cfg.Clients {
+		if client.ClientID == req.ClientID {
+			return "", fmt.Errorf("client %q already exists", req.ClientID)
+		}
+	}
+
+	locations, err := createLocationsFromRequest(cfg, req)
+	if err != nil {
+		return "", err
+	}
+	for i := range locations {
+		locations[i].ClientID = req.ClientID
+	}
+
+	req.ClientProxy = normalizeProxy(req.ClientProxy)
+	if err := validateProxy(req.ClientProxy); err != nil {
+		return "", fmt.Errorf("client_proxy: %w", err)
+	}
+	cfg.Clients = append(cfg.Clients, Client{ClientID: req.ClientID, Refresh: req.Refresh, Quota: req.Quota, Proxy: req.ClientProxy, Locations: locations})
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
+		return "", err
+	}
+	if err := saveConfig(configPath, cfg); err != nil {
+		return "", err
+	}
+	return req.ClientID, nil
+}
+
+// olcMigrateClientAccess — при переименовании клиента переносит его запись
+// в access-control.json clients{} со старого id на новый (иначе настройки
+// контроля доступа осиротеют под старым id). Best-effort.
+func olcMigrateClientAccess(oldID, newID string) {
+	oldID = strings.TrimSpace(oldID)
+	newID = strings.TrimSpace(newID)
+	if oldID == "" || newID == "" || oldID == newID {
+		return
+	}
+	ac := olcAccessLoad()
+	if ac.Clients == nil {
+		return
+	}
+	cc, ok := ac.Clients[oldID]
+	if !ok {
+		return
+	}
+	ac.Clients[newID] = cc
+	delete(ac.Clients, oldID)
+	if err := olcAccessSave(ac); err != nil {
+		log.Printf("olc-access: migrate client %q->%q on rename: %v", oldID, newID, err)
+	}
+}
+
+func updateClientFromRequest(ctx context.Context, configPath, olcrtcPath, clientID string, r *http.Request) error {
+	_ = ctx
+	_ = olcrtcPath
+	var req updateClientRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return fmt.Errorf("parse request: %w", err)
+	}
+	req.ClientID = strings.TrimSpace(req.ClientID)
+	req.Refresh = strings.TrimSpace(req.Refresh)
+	req.Quota = normalizeQuota(req.Quota)
+	if err := validateQuota(req.Quota); err != nil {
+		return err
+	}
+	nextClientID := clientID
+	if req.ClientID != "" {
+		nextClientID = req.ClientID
+	}
+	if err := validateClientIDStrict(nextClientID); err != nil {
+		return err
+	}
+
+	var locations []Location
+	if updateRequestHasLocations(req) {
+		var err error
+		locations, err = locationsFromUpdateRequest(nextClientID, req)
+		if err != nil {
+			return err
+		}
+	}
+
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+
+	for i := range cfg.Clients {
+		if cfg.Clients[i].ClientID != clientID {
+			continue
+		}
+		if nextClientID != clientID {
+			for _, client := range cfg.Clients {
+				if client.ClientID == nextClientID {
+					return fmt.Errorf("client %q already exists", nextClientID)
+				}
+			}
+			cfg.Clients[i].ClientID = nextClientID
+			for j := range cfg.Clients[i].Locations {
+				cfg.Clients[i].Locations[j].ClientID = nextClientID
+			}
+		}
+		cfg.Clients[i].Refresh = req.Refresh
+		cfg.Clients[i].Quota = req.Quota
+		req.ClientProxy = normalizeProxy(req.ClientProxy)
+		if err := validateProxy(req.ClientProxy); err != nil {
+			return fmt.Errorf("client_proxy: %w", err)
+		}
+		cfg.Clients[i].Proxy = req.ClientProxy
+		if locations != nil {
+			cfg.Clients[i].Locations = locations
+		}
+
+		cfg.Normalize()
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			return err
+		}
+		if nextClientID != clientID {
+			olcMigrateClientAccess(clientID, nextClientID)
+		}
+		return nil
+	}
+	return fmt.Errorf("client %q not found", clientID)
+}
+
+func updateRequestHasLocations(req updateClientRequest) bool {
+	return len(req.Locations) > 0 ||
+		req.RoomID != "" ||
+		req.Key != "" ||
+		req.Carrier != "" ||
+		req.Transport != "" ||
+		req.DNS != "" ||
+		req.Name != "" ||
+		req.Proxy != (Socks5Proxy{}) ||
+		len(req.Payload) > 0
+}
+
+func createLocationsFromRequest(cfg Config, req addClientRequest) ([]Location, error) {
+	if len(req.Locations) > 0 {
+		return buildLocations(req.ClientID, req.Locations)
+	}
+	if req.RoomID != "" || req.Key != "" || req.Carrier != "" || req.Transport != "" || req.DNS != "" || req.Name != "" || req.Proxy != (Socks5Proxy{}) {
+		return buildLocations(req.ClientID, []locationRequest{{
+			Name:      req.Name,
+			RoomID:    req.RoomID,
+			Key:       req.Key,
+			Carrier:   req.Carrier,
+			Transport: req.Transport,
+			Payload:   req.Payload,
+			DNS:       req.DNS,
+			Proxy:     req.Proxy,
+		}})
+	}
+	return templateLocations(cfg, req.FromClient)
+}
+
+func locationsFromUpdateRequest(clientID string, req updateClientRequest) ([]Location, error) {
+	if len(req.Locations) > 0 {
+		return buildLocations(clientID, req.Locations)
+	}
+	return buildLocations(clientID, []locationRequest{{
+		Name:      req.Name,
+		RoomID:    req.RoomID,
+		Key:       req.Key,
+		Carrier:   req.Carrier,
+		Transport: req.Transport,
+		Payload:   req.Payload,
+		DNS:       req.DNS,
+	}})
+}
+
+// defaultLocationLink: panel/API default link (OLCRTC_DEFAULT_LINK, else tor).
+func defaultLocationLink() string {
+	if v := strings.TrimSpace(os.Getenv("OLCRTC_DEFAULT_LINK")); v != "" {
+		return strings.ToLower(v)
+	}
+	return "tor"
+}
+
+func buildLocations(clientID string, requests []locationRequest) ([]Location, error) {
+	if len(requests) == 0 {
+		return nil, errors.New("locations must not be empty")
+	}
+	locations := make([]Location, 0, len(requests))
+	seen := make(map[string]struct{}, len(requests))
+	for i, req := range requests {
+		req.Name = strings.TrimSpace(req.Name)
+		req.RoomID = normalizeRoomID(strings.TrimSpace(req.RoomID))
+		req.Key = strings.TrimSpace(req.Key)
+		req.Carrier = strings.TrimSpace(req.Carrier)
+		req.Transport = strings.TrimSpace(req.Transport)
+		req.Payload = cleanPayload(req.Payload)
+		req.DNS = strings.TrimSpace(req.DNS)
+		req.Proxy = normalizeProxy(req.Proxy)
+
+		prefix := fmt.Sprintf("locations[%d]", i)
+		if err := validateRoomIDStrict(req.RoomID, req.Carrier); err != nil {
+			return nil, fmt.Errorf("%s.room_id: %w", prefix, err)
+		}
+		if req.RoomID == "" || req.RoomID == "any" {
+			return nil, fmt.Errorf("%s.room_id must be concrete", prefix)
+		}
+		if err := validateRequestKey(req.Key); err != nil {
+			return nil, fmt.Errorf("%s.key: %w", prefix, err)
+		}
+		carrier := defaultString(req.Carrier, "wbstream")
+		transport := defaultString(req.Transport, "datachannel")
+		dns := defaultString(req.DNS, "1.1.1.1:53")
+		transportConfig := Transport{Type: transport, Payload: req.Payload}
+		if !isSupported(carrier, transport) {
+			return nil, fmt.Errorf("unsupported carrier/transport combination %s + %s", carrier, transport)
+		}
+		if err := validatePayload(transportConfig); err != nil {
+			return nil, fmt.Errorf("%s.transport: %w", prefix, err)
+		}
+		if err := validateProxy(req.Proxy); err != nil {
+			return nil, fmt.Errorf("%s.proxy: %w", prefix, err)
+		}
+		name := req.Name
+		if name == "" {
+			name = "Default location"
+		}
+		loc := Location{
+			Name:      name,
+			ClientID:  clientID,
+			Endpoint:  Endpoint{RoomID: req.RoomID, Key: req.Key},
+			Carrier:   carrier,
+			Transport: transportConfig,
+			Link:      defaultString(strings.TrimSpace(req.Link), defaultLocationLink()),
+			Data:      "data",
+			DNS:       dns,
+			Proxy:     req.Proxy,
+		}
+		key := locationKey(loc)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("%s location key %q is duplicated", prefix, key)
+		}
+		seen[key] = struct{}{}
+		locations = append(locations, loc)
+	}
+	return locations, nil
+}
+
+func validateRequestKey(key string) error {
+	if key == "" {
+		return errors.New("is required")
+	}
+	if len(key) != 64 {
+		return errors.New("must be 64 hex characters")
+	}
+	if _, err := hex.DecodeString(key); err != nil {
+		return errors.New("must be 64 hex characters")
+	}
+	return nil
+}
+
+func normalizeProxy(proxy Socks5Proxy) Socks5Proxy {
+	proxy.Addr = strings.TrimSpace(proxy.Addr)
+	proxy.User = strings.TrimSpace(proxy.User)
+	proxy.Routing = strings.ToLower(strings.TrimSpace(proxy.Routing))
+	if proxy.Routing == "" && (proxy.Enabled != nil || proxy.Addr != "") {
+		proxy.Routing = "split"
+	}
+	return proxy
+}
+
+func proxyEnabled(proxy Socks5Proxy) bool {
+	if proxy.Enabled != nil {
+		return *proxy.Enabled
+	}
+	return proxy.Addr != "" // legacy configs: a filled proxy was implicitly enabled
+}
+
+func boolPointer(v bool) *bool { return &v }
+
+func validateProxy(proxy Socks5Proxy) error {
+	if proxy.Routing != "" && proxy.Routing != "split" && proxy.Routing != "all" {
+		return errors.New("routing must be split or all")
+	}
+	if proxyEnabled(proxy) && proxy.Addr == "" {
+		return errors.New("addr is required when proxy is enabled")
+	}
+	if proxy.Addr == "" {
+		if proxy.Port != 0 {
+			return errors.New("addr is required when port is set")
+		}
+		if proxy.User != "" || proxy.Pass != "" {
+			return errors.New("addr is required when credentials are set")
+		}
+		return nil
+	}
+	if proxy.Port <= 0 || proxy.Port > 65535 {
+		return errors.New("port must be between 1 and 65535")
+	}
+	if len(proxy.User) > 255 {
+		return errors.New("user must be at most 255 bytes")
+	}
+	if len(proxy.Pass) > 255 {
+		return errors.New("pass must be at most 255 bytes")
+	}
+	return nil
+}
+
+// olcCleanupDeletedClientV2 removes all per-client state stored outside config.json.
+// Cleanup is best-effort after config.json has been saved: a stale auxiliary file must not
+// resurrect selective settings if the same client ID is created again.
+func olcCleanupDeletedClientV2(clientID string) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return
+	}
+
+	olcAccessMu.Lock()
+	ac := olcAccessLoad()
+	if ac.Clients != nil {
+		if _, ok := ac.Clients[clientID]; ok {
+			delete(ac.Clients, clientID)
+			if err := olcAccessSave(ac); err != nil {
+				log.Printf("olc-delete: access cleanup for client %q: %v", clientID, err)
+			}
+		}
+	}
+	attempts := olcAccessLoadAttempts()
+	keptAttempts := attempts[:0]
+	for _, attempt := range attempts {
+		if attempt.ClientID != clientID {
+			keptAttempts = append(keptAttempts, attempt)
+		}
+	}
+	if len(keptAttempts) != len(attempts) {
+		_olcAccessWriteAttempts(keptAttempts)
+	}
+	olcAccessMu.Unlock()
+
+	olcConnJournalMu.Lock()
+	olcConnJournalLoad()
+	keptConnections := olcConnJournal[:0]
+	for _, record := range olcConnJournal {
+		if record.ClientID != clientID {
+			keptConnections = append(keptConnections, record)
+		}
+	}
+	olcConnJournal = keptConnections
+	if olcConnClearedClients == nil {
+		olcConnClearedClients = map[string]string{}
+	}
+	// Prevent buffered pre-delete log lines from recreating removed records before reload finishes.
+	olcConnClearedClients[clientID] = time.Now().UTC().Format(time.RFC3339)
+	olcConnJournalSave()
+	olcConnJournalMu.Unlock()
+
+	olcKeyRotationMu.Lock()
+	rotation := olcKeyRotationLoad()
+	rotationChanged := false
+	if _, ok := rotation.Clients[clientID]; ok {
+		delete(rotation.Clients, clientID)
+		rotationChanged = true
+	}
+	if _, ok := rotation.Rounds[clientID]; ok {
+		delete(rotation.Rounds, clientID)
+		rotationChanged = true
+	}
+	if rotationChanged {
+		if err := olcKeyRotationSave(rotation); err != nil {
+			log.Printf("olc-delete: key rotation cleanup for client %q: %v", clientID, err)
+		}
+	}
+	olcKeyRotationMu.Unlock()
+
+	olcKeyRandMu.Lock()
+	keyRand := olcKeyRandLoad()
+	if _, ok := keyRand.Clients[clientID]; ok {
+		delete(keyRand.Clients, clientID)
+		if err := olcKeyRandSave(keyRand); err != nil {
+			log.Printf("olc-delete: key randomization cleanup for client %q: %v", clientID, err)
+		}
+	}
+	olcKeyRandMu.Unlock()
+}
+
+// olcCleanupDeletedLocationV2 removes selective room references and connection history.
+// Rotation and both randomization settings are client-scoped, so they remain for the client.
+func olcCleanupDeletedLocationV2(clientID, roomID string) {
+	clientID = strings.TrimSpace(clientID)
+	roomID = strings.TrimSpace(roomID)
+	if clientID == "" || roomID == "" {
+		return
+	}
+
+	olcAccessMu.Lock()
+	ac := olcAccessLoad()
+	changed := false
+	filterRooms := func(rooms []string) []string {
+		kept := rooms[:0]
+		for _, room := range rooms {
+			if room != roomID {
+				kept = append(kept, room)
+			} else {
+				changed = true
+			}
+		}
+		return kept
+	}
+	ac.ConnInstances = filterRooms(ac.ConnInstances)
+	if clientAccess := ac.Clients[clientID]; clientAccess != nil {
+		clientAccess.ConnInstances = filterRooms(clientAccess.ConnInstances)
+	}
+	if changed {
+		if err := olcAccessSave(ac); err != nil {
+			log.Printf("olc-delete: access cleanup for location %q/%q: %v", clientID, roomID, err)
+		}
+	}
+	olcAccessMu.Unlock()
+
+	olcConnJournalMu.Lock()
+	olcConnJournalLoad()
+	kept := olcConnJournal[:0]
+	for _, record := range olcConnJournal {
+		if record.ClientID != clientID || record.RoomID != roomID {
+			kept = append(kept, record)
+		}
+	}
+	if len(kept) != len(olcConnJournal) {
+		olcConnJournal = kept
+		olcConnJournalSave()
+	}
+	olcConnJournalMu.Unlock()
+}
+
+func deleteClient(configPath, clientID string) error {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+
+	next := cfg.Clients[:0]
+	deleted := false
+	for _, client := range cfg.Clients {
+		if client.ClientID == clientID {
+			deleted = true
+			continue
+		}
+		next = append(next, client)
+	}
+	if !deleted {
+		return fmt.Errorf("client %q not found", clientID)
+	}
+	cfg.Clients = next
+	if len(cfg.Clients) == 0 {
+		cfg.Locations = nil
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if err := saveConfig(configPath, cfg); err != nil {
+		return err
+	}
+	olcCleanupDeletedClientV2(clientID)
+	return nil
+}
+
+func panelHostSyncScript() string {
+	for _, c := range []string{
+		"/opt/Olc-cost-l/scripts/olc-sync-panel-host.sh",
+		"/usr/local/bin/olc-sync-panel-host",
+	} {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+func syncPanelCarrierHost(action, carrier, roomID string) {
+	script := panelHostSyncScript()
+	if script == "" {
+		return
+	}
+	carrier = strings.TrimSpace(carrier)
+	roomID = strings.TrimSpace(roomID)
+	if carrier == "" || roomID == "" {
+		return
+	}
+	cmd := exec.Command("bash", script, action, carrier, roomID)
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("panel host sync %s %s: %v (%s)", action, roomID, err, strings.TrimSpace(string(out)))
+	}
+}
+
+func splitAnalyzeScript() string {
+	for _, c := range []string{
+		filepath.Join(olcRepoRoot(), "scripts/olc-split-analyze.sh"),
+		"/usr/local/bin/olc-split-analyze",
+	} {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+func runSplitTool(ctx context.Context, args []string, input any, timeout time.Duration) (map[string]any, error) {
+	script := splitAnalyzeScript()
+	if script == "" {
+		return map[string]any{"status": "missing", "error": "olc-split-analyze.sh not found"}, nil
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmdArgs := append([]string{script}, args...)
+	cmd := exec.CommandContext(ctx, "bash", cmdArgs...)
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+	if input != nil {
+		b, err := json.Marshal(input)
+		if err != nil {
+			return nil, err
+		}
+		cmd.Env = append(cmd.Env, "OLC_SPLIT_TOOL_INPUT="+string(b))
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		return nil, fmt.Errorf("parse split tool output: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return decoded, nil
+}
+
+func splitDiscoveryManifest() map[string]any {
+	out, err := runSplitTool(context.Background(), []string{"manifest"}, nil, 15*time.Second)
+	if err != nil {
+		return map[string]any{"schema": 1, "groups": []any{}, "error": err.Error()}
+	}
+	return out
+}
+
+func addLocationFromRequest(ctx context.Context, configPath, olcrtcPath, clientID string, r *http.Request) error {
+	_ = ctx
+	_ = olcrtcPath
+	clientID = strings.TrimSpace(clientID)
+	if err := validateClientIDStrict(clientID); err != nil {
+		return err
+	}
+	var req addClientRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return fmt.Errorf("parse request: %w", err)
+	}
+	req.ClientID = clientID
+	req.Carrier = strings.TrimSpace(req.Carrier)
+	req.Transport = strings.TrimSpace(req.Transport)
+	req.Payload = cleanPayload(req.Payload)
+	req.DNS = strings.TrimSpace(req.DNS)
+	req.Name = strings.TrimSpace(req.Name)
+	locs, err := createLocationsFromRequest(Config{}, req)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+	for i := range cfg.Clients {
+		if cfg.Clients[i].ClientID == clientID {
+			cfg.Clients[i].Locations = append(cfg.Clients[i].Locations, locs...)
+			cfg.Normalize()
+			if err := cfg.Validate(); err != nil {
+				return err
+			}
+			return saveConfig(configPath, cfg)
+		}
+	}
+	return fmt.Errorf("client %q not found", clientID)
+}
+
+func asyncReloadAfterLocationDelete(reloadFn func() error) {
+	go func() {
+		if err := reloadFn(); err != nil {
+			log.Printf("reload after location delete: %v", err)
+		}
+	}()
+}
+
+func deleteLocation(configPath, clientID, roomID string) error {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+	for i := range cfg.Clients {
+		if cfg.Clients[i].ClientID != clientID {
+			continue
+		}
+		next := cfg.Clients[i].Locations[:0]
+		deleted := false
+		for _, loc := range cfg.Clients[i].Locations {
+			if loc.Endpoint.RoomID == roomID {
+				deleted = true
+				continue
+			}
+			next = append(next, loc)
+		}
+		if !deleted {
+			return fmt.Errorf("location %q not found", roomID)
+		}
+		cfg.Clients[i].Locations = next
+		cfg.Normalize()
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			return err
+		}
+		olcCleanupDeletedLocationV2(clientID, roomID)
+		return nil
+	}
+	return fmt.Errorf("client %q not found", clientID)
+}
+
+func regenerateClientRoom(ctx context.Context, configPath, olcrtcPath, clientID string) error {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return errors.New("client_id is required")
+	}
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+	for i := range cfg.Clients {
+		if cfg.Clients[i].ClientID != clientID {
+			continue
+		}
+		for j := range cfg.Clients[i].Locations {
+			loc := &cfg.Clients[i].Locations[j]
+			loc.Endpoint.RoomID, err = generateRoomID(ctx, olcrtcPath, loc.Carrier, loc.DNS)
+			if err != nil {
+				return err
+			}
+		}
+		cfg.Normalize()
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return saveConfig(configPath, cfg)
+	}
+	return fmt.Errorf("client %q not found", clientID)
+}
+
+func rotateClientKey(configPath, clientID string) error {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return errors.New("client_id is required")
+	}
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+	for i := range cfg.Clients {
+		if cfg.Clients[i].ClientID != clientID {
+			continue
+		}
+		for j := range cfg.Clients[i].Locations {
+			cfg.Clients[i].Locations[j].Endpoint.Key, err = randomHex(32)
+			if err != nil {
+				return err
+			}
+		}
+		cfg.Normalize()
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return saveConfig(configPath, cfg)
+	}
+	return fmt.Errorf("client %q not found", clientID)
+}
+
+func (c *Config) ensureClientsFormat() {
+	if len(c.Clients) != 0 {
+		for i := range c.Clients {
+			for j := range c.Clients[i].Locations {
+				if c.Clients[i].Locations[j].ClientID == "" {
+					c.Clients[i].Locations[j].ClientID = c.Clients[i].ClientID
+				}
+			}
+		}
+		return
+	}
+
+	byClient := make(map[string][]Location)
+	for _, loc := range c.Locations {
+		byClient[loc.ClientID] = append(byClient[loc.ClientID], loc)
+	}
+	clientIDs := make([]string, 0, len(byClient))
+	for id := range byClient {
+		clientIDs = append(clientIDs, id)
+	}
+	sort.Strings(clientIDs)
+	c.Clients = make([]Client, 0, len(clientIDs))
+	for _, id := range clientIDs {
+		c.Clients = append(c.Clients, Client{ClientID: id, Locations: byClient[id]})
+	}
+}
+
+func templateLocations(cfg Config, fromClient string) ([]Location, error) {
+	if fromClient == "" && len(cfg.Clients) > 0 {
+		fromClient = cfg.Clients[0].ClientID
+	}
+	for _, client := range cfg.Clients {
+		if client.ClientID != fromClient {
+			continue
+		}
+		if len(client.Locations) == 0 {
+			return nil, fmt.Errorf("client %q has no locations", fromClient)
+		}
+		locations := make([]Location, len(client.Locations))
+		copy(locations, client.Locations)
+		return locations, nil
+	}
+	return nil, fmt.Errorf("template client %q not found", fromClient)
+}
+
+func generateRoomID(ctx context.Context, olcrtcPath, carrier, dns string) (string, error) {
+	genCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cfg := olcrtcRuntimeConfig{
+		Mode: "gen",
+		Auth: olcrtcAuthConfig{Provider: carrier},
+		Net:  olcrtcNetConfig{DNS: dns},
+		Gen:  &olcrtcGenConfig{Amount: 1},
+	}
+	configPath, err := writeTempOlcrtcConfig("olcrtc-manager-gen", cfg)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.Remove(configPath) }()
+
+	out, err := exec.CommandContext(genCtx, olcrtcPath, configPath).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("generate room id: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line, nil
+		}
+	}
+	return "", errors.New("olcrtc generated empty room id")
+}
+
+func exitProxyReachable(addr string, port int) bool {
+	if addr == "" || port <= 0 {
+		return false
+	}
+	d := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := d.Dial("tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func directCIDRsFileFromEnv() string {
+	if p := strings.TrimSpace(os.Getenv("OLCRTC_DIRECT_CIDRS")); p != "" {
+		return p
+	}
+	const defaultPath = "/var/lib/olcrtc/ru-cidrs.txt"
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+	return ""
+}
+
+func directDomainsFileFromEnv() string {
+	if p := strings.TrimSpace(os.Getenv("OLCRTC_DIRECT_DOMAINS")); p != "" {
+		return p
+	}
+	const defaultPath = "/var/lib/olcrtc/ru-direct-domains.txt"
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+	return ""
+}
+
+func blockedTorDomainsFileFromEnv() string {
+	if p := strings.TrimSpace(os.Getenv("OLCRTC_BLOCKED_TOR_DOMAINS")); p != "" {
+		return p
+	}
+	const defaultPath = "/var/lib/olcrtc/ru-blocked-tor-domains.txt"
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+	return ""
+}
+
+func forceTorDomainsFileFromEnv() string {
+	if p := strings.TrimSpace(os.Getenv("OLCRTC_FORCE_TOR_DOMAINS")); p != "" {
+		return p
+	}
+	const defaultPath = "/var/lib/olcrtc/force-tor-domains.txt"
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+	return ""
+}
+
+func exitProxyFromEnv() (addr string, port int) {
+	raw := strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY"))
+	if raw == "" {
+		addr = strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY_ADDR"))
+		if addr == "" {
+			return "", 0
+		}
+		port, _ = strconv.Atoi(strings.TrimSpace(os.Getenv("OLCRTC_EXIT_PROXY_PORT")))
+		if port <= 0 {
+			port = 9050
+		}
+	} else {
+		host, portStr, err := net.SplitHostPort(raw)
+		if err != nil {
+			addr, port = raw, 9050
+		} else {
+			addr = host
+			port, _ = strconv.Atoi(portStr)
+			if port <= 0 {
+				port = 9050
+			}
+		}
+	}
+	if addr == "" {
+		return "", 0
+	}
+	if !exitProxyReachable(addr, port) {
+		log.Printf("exit proxy %s:%d unreachable, olcrtc runs without SOCKS (Jitsi stays up)", addr, port)
+		return "", 0
+	}
+	return addr, port
+}
+
+func defaultLivenessForTransport(transport string) *olcrtcLivenessConfig {
+	switch transport {
+	case "datachannel":
+		return &olcrtcLivenessConfig{Interval: "10s", Timeout: "5s", Failures: 3}
+	case "vp8channel", "seichannel", "videochannel":
+		return &olcrtcLivenessConfig{Interval: "10s", Timeout: "5s", Failures: 3}
+	default:
+		return &olcrtcLivenessConfig{Interval: "10s", Timeout: "5s", Failures: 3}
+	}
+}
+
+func ffmpegPathFromEnv() string {
+	if v := strings.TrimSpace(os.Getenv("OLCRTC_FFMPEG")); v != "" {
+		return v
+	}
+	if p, err := exec.LookPath("ffmpeg"); err == nil {
+		return p
+	}
+	return ""
+}
+
+func serverConfig(loc Location) (olcrtcRuntimeConfig, error) {
+	cfg := olcrtcRuntimeConfig{
+		Mode:   "srv",
+		Auth:   olcrtcAuthConfig{Provider: loc.Carrier},
+		Room:   olcrtcRoomConfig{ID: loc.Endpoint.RoomID},
+		Crypto: olcrtcCryptoConfig{Key: loc.Endpoint.Key},
+		Net: olcrtcNetConfig{
+			Transport: loc.Transport.Type,
+			DNS:       loc.DNS,
+		},
+		Liveness: defaultLivenessForTransport(loc.Transport.Type),
+		Data:     loc.Data,
+		FFmpeg:   ffmpegPathFromEnv(),
+	}
+	if err := applyTransportPayload(&cfg, loc.Transport); err != nil {
+		return olcrtcRuntimeConfig{}, err
+	}
+	// A configured global/client/instance proxy is the server-side egress.
+	// It is separate from the local SOCKS listener in OlcBox. Split routing remains on by default.
+	if proxyEnabled(loc.Proxy) {
+		cfg.SOCKS = olcrtcSocksConfig{ProxyAddr: loc.Proxy.Addr, ProxyPort: loc.Proxy.Port, ProxyUser: loc.Proxy.User, ProxyPass: loc.Proxy.Pass}
+		applyProxyRouting(&cfg, loc.Proxy.Routing)
+	} else if !strings.EqualFold(strings.TrimSpace(loc.Link), "direct") {
+		if proxyAddr, proxyPort := exitProxyFromEnv(); proxyAddr != "" {
+			cfg.SOCKS = olcrtcSocksConfig{ProxyAddr: proxyAddr, ProxyPort: proxyPort}
+			applyProxyRouting(&cfg, "split")
+		}
+	}
+
+	return cfg, nil
+}
+
+func applyTransportPayload(cfg *olcrtcRuntimeConfig, transport Transport) error {
+	payload := cleanPayload(transport.Payload)
+	switch transport.Type {
+	case "datachannel":
+		return nil
+	case "vp8channel":
+		vp8 := olcrtcVP8Config{}
+		if err := setPayloadInt(payload, "vp8-fps", &vp8.FPS); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "vp8-batch", &vp8.BatchSize); err != nil {
+			return err
+		}
+		if vp8 != (olcrtcVP8Config{}) {
+			cfg.VP8 = &vp8
+		}
+	case "seichannel":
+		sei := olcrtcSEIConfig{}
+		if err := setPayloadInt(payload, "fps", &sei.FPS); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "batch", &sei.BatchSize); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "frag", &sei.FragmentSize); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "ack-ms", &sei.AckTimeoutMS); err != nil {
+			return err
+		}
+		if sei != (olcrtcSEIConfig{}) {
+			cfg.SEI = &sei
+		}
+	case "videochannel":
+		video := olcrtcVideoConfig{}
+		if err := setPayloadInt(payload, "video-w", &video.Width); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "video-h", &video.Height); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "video-fps", &video.FPS); err != nil {
+			return err
+		}
+		if err := setPayloadNonNegativeInt(payload, "video-qr-size", &video.QRSize); err != nil {
+			return err
+		}
+		if err := setPayloadInt(payload, "video-tile-module", &video.TileModule); err != nil {
+			return err
+		}
+		if err := setPayloadNonNegativeInt(payload, "video-tile-rs", &video.TileRS); err != nil {
+			return err
+		}
+		video.Bitrate = payload["video-bitrate"]
+		video.HW = payload["video-hw"]
+		video.Codec = payload["video-codec"]
+		video.QRRecovery = payload["video-qr-recovery"]
+		if video != (olcrtcVideoConfig{}) {
+			cfg.Video = &video
+		}
+	default:
+		return fmt.Errorf("unknown transport %q", transport.Type)
+	}
+	return nil
+}
+
+func setPayloadInt(payload map[string]string, key string, dst *int) error {
+	value := strings.TrimSpace(payload[key])
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fmt.Errorf("%s must be a positive integer", key)
+	}
+	*dst = parsed
+	return nil
+}
+
+func setPayloadNonNegativeInt(payload map[string]string, key string, dst *int) error {
+	value := strings.TrimSpace(payload[key])
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return fmt.Errorf("%s must be a non-negative integer", key)
+	}
+	*dst = parsed
+	return nil
+}
+
+func managerRunDir() string {
+	if v := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_RUN_DIR")); v != "" {
+		return v
+	}
+	return "/var/lib/olcrtc/manager-run"
+}
+
+func pruneManagerRunDir(dir string, keep int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type item struct {
+		name string
+		mod  time.Time
+	}
+	var files []item
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "olcrtc-manager-srv-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, item{e.Name(), info.ModTime()})
+	}
+	if len(files) <= keep {
+		return
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
+	for _, f := range files[keep:] {
+		_ = os.Remove(filepath.Join(dir, f.name))
+	}
+}
+
+func writeTempOlcrtcConfig(prefix string, cfg olcrtcRuntimeConfig) (string, error) {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal olcrtc config: %w", err)
+	}
+	dir := managerRunDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("mkdir manager run dir: %w", err)
+	}
+	pruneManagerRunDir(dir, 32)
+	file, err := os.CreateTemp(dir, prefix+"-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("create olcrtc config: %w", err)
+	}
+	path := file.Name()
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("write olcrtc config: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close olcrtc config: %w", err)
+	}
+	return path, nil
+}
+
+func randomHex(size int) (string, error) {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate key: %w", err)
+	}
+	const hex = "0123456789abcdef"
+	out := make([]byte, len(buf)*2)
+	for i, b := range buf {
+		out[i*2] = hex[b>>4]
+		out[i*2+1] = hex[b&0x0f]
+	}
+	return string(out), nil
+}
+
+func cleanPayload(payload map[string]string) map[string]string {
+	if len(payload) == 0 {
+		return nil
+	}
+	cleaned := make(map[string]string)
+	for key, value := range payload {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		cleaned[key] = value
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
+}
+
+func normalizeQuota(q Quota) Quota {
+	q.ExpiresAt = strings.TrimSpace(q.ExpiresAt)
+	if q.UsedBytes == 0 && q.UsedGB > 0 {
+		q.UsedBytes = uint64(q.UsedGB) * 1024 * 1024 * 1024
+	}
+	if q.UsedBytes > 0 {
+		q.UsedGB = int(q.UsedBytes / (1024 * 1024 * 1024))
+	}
+	return q
+}
+
+func validateQuota(q Quota) error {
+	if q.SpeedMbps < 0 {
+		return errors.New("quota.speed_mbps must be non-negative")
+	}
+	if q.TrafficGB < 0 {
+		return errors.New("quota.traffic_gb must be non-negative")
+	}
+	if q.UsedGB < 0 {
+		return errors.New("quota.used_gb must be non-negative")
+	}
+	if q.ExpiresAt != "" {
+		if _, err := time.Parse("2006-01-02", q.ExpiresAt); err != nil {
+			return errors.New("quota.expires_at must use YYYY-MM-DD")
+		}
+	}
+	return nil
+}
+
+func quotaStatus(q Quota, now time.Time) string {
+	if q.ExpiresAt != "" {
+		expires, err := time.Parse("2006-01-02", q.ExpiresAt)
+		if err == nil && now.After(expires.Add(24*time.Hour-time.Nanosecond)) {
+			return "expired"
+		}
+	}
+	if q.TrafficGB > 0 && quotaUsedBytes(q) >= quotaTrafficBytes(q) {
+		return "traffic_exceeded"
+	}
+	return "active"
+}
+
+func quotaUsedBytes(q Quota) uint64 {
+	if q.UsedBytes > 0 {
+		return q.UsedBytes
+	}
+	if q.UsedGB > 0 {
+		return uint64(q.UsedGB) * 1024 * 1024 * 1024
+	}
+	return 0
+}
+
+func quotaTrafficBytes(q Quota) uint64 {
+	if q.TrafficGB <= 0 {
+		return 0
+	}
+	return uint64(q.TrafficGB) * 1024 * 1024 * 1024
+}
+
+func globalProxyPolicy() Socks5Proxy {
+	env := readPanelEnvMap()
+	enabled := env["OLCRTC_GLOBAL_SOCKS_ENABLED"] == "1"
+	port, _ := strconv.Atoi(strings.TrimSpace(env["OLCRTC_GLOBAL_SOCKS_PORT"]))
+	return normalizeProxy(Socks5Proxy{Enabled: boolPointer(enabled), Addr: env["OLCRTC_GLOBAL_SOCKS_ADDR"], Port: port, User: env["OLCRTC_GLOBAL_SOCKS_USER"], Pass: env["OLCRTC_GLOBAL_SOCKS_PASS"], Routing: env["OLCRTC_GLOBAL_SOCKS_ROUTING"]})
+}
+
+func effectiveProxyPolicyWithGlobal(global Socks5Proxy, cfg Config, loc Location) (Socks5Proxy, string) {
+	if proxyEnabled(global) {
+		return normalizeProxy(global), "global"
+	}
+	for _, client := range cfg.Clients {
+		if client.ClientID == loc.ClientID && proxyEnabled(client.Proxy) {
+			return normalizeProxy(client.Proxy), "client"
+		}
+	}
+	if proxyEnabled(loc.Proxy) {
+		return normalizeProxy(loc.Proxy), "instance"
+	}
+	return Socks5Proxy{}, "automatic"
+}
+
+func effectiveProxyPolicy(cfg Config, loc Location) (Socks5Proxy, string) {
+	return effectiveProxyPolicyWithGlobal(globalProxyPolicy(), cfg, loc)
+}
+
+func applyProxyRouting(cfg *olcrtcRuntimeConfig, routing string) {
+	if strings.EqualFold(strings.TrimSpace(routing), "all") {
+		return
+	}
+	flags := readFeatureFlags()
+	if flags["split"] || flags["zapret"] {
+		cfg.SOCKS.DirectCIDRsFile = directCIDRsFileFromEnv()
+		cfg.SOCKS.DirectDomainsFile = directDomainsFileFromEnv()
+		cfg.SOCKS.BlockedTorDomainsFile = blockedTorDomainsFileFromEnv()
+		cfg.SOCKS.ForceTorDomainsFile = forceTorDomainsFileFromEnv()
+	}
+}
+
+func activeLocations(cfg Config, now time.Time) []Location {
+	quotas := make(map[string]Quota, len(cfg.Clients))
+	for _, client := range cfg.Clients {
+		quotas[client.ClientID] = client.Quota
+	}
+	out := make([]Location, 0, len(cfg.Locations))
+	for _, loc := range cfg.Locations {
+		if quotaStatus(quotas[loc.ClientID], now) != "active" {
+			continue
+		}
+		loc.Proxy, _ = effectiveProxyPolicy(cfg, loc)
+		out = append(out, loc)
+	}
+	return out
+}
+
+type logBuffer struct {
+	mu    sync.RWMutex
+	lines []LogLine
+	next  int
+	full  bool
+}
+
+func newLogBuffer(size int) *logBuffer {
+	return &logBuffer{lines: make([]LogLine, size)}
+}
+
+func (b *logBuffer) Append(stream, line string) {
+	if b == nil || len(b.lines) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lines[b.next] = LogLine{
+		Time:   time.Now().UTC().Format(time.RFC3339),
+		Stream: stream,
+		Line:   line,
+	}
+	b.next = (b.next + 1) % len(b.lines)
+	if b.next == 0 {
+		b.full = true
+	}
+}
+
+func (b *logBuffer) Snapshot() []LogLine {
+	if b == nil {
+		return nil
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if !b.full {
+		return append([]LogLine(nil), b.lines[:b.next]...)
+	}
+	out := make([]LogLine, 0, len(b.lines))
+	out = append(out, b.lines[b.next:]...)
+	out = append(out, b.lines[:b.next]...)
+	return out
+}
+
+func (b *logBuffer) Count() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.full {
+		return len(b.lines)
+	}
+	return b.next
+}
+
+func (b *logBuffer) PeerSummary() (int, []string, string, bool) {
+	lines := b.Snapshot()
+	for i := len(lines) - 1; i >= 0; i-- {
+		if count, devices, ok := parsePeerSummaryLine(lines[i].Line); ok {
+			return count, devices, lines[i].Time, true
+		}
+	}
+	return 0, nil, "", false
+}
+func peerSummaryIsCurrent(running bool, started time.Time, at string) bool {
+	if !running {
+		return false
+	}
+	when, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return false
+	}
+	return started.IsZero() || !when.Before(started.UTC().Truncate(time.Second))
+}
+
+func (p *process) currentPeerSummary() (int, []string, string, bool) {
+	if p == nil || p.logs == nil {
+		return 0, nil, "", false
+	}
+	p.mu.RLock()
+	running, started := p.running, p.started
+	p.mu.RUnlock()
+	count, devices, at, ok := p.logs.PeerSummary()
+	if !ok || !peerSummaryIsCurrent(running, started, at) {
+		return 0, nil, "", false
+	}
+	return count, devices, at, true
+}
+
+func parsePeerSummaryLine(line string) (int, []string, bool) {
+	// Формат olcrtc-core: "Current peers count: N, Devices: [dev1 dev2 ...]"
+	const marker = "Current peers count:"
+	idx := strings.Index(line, marker)
+	if idx < 0 {
+		return 0, nil, false
+	}
+	rest := strings.TrimSpace(line[idx+len(marker):])
+	countStr, tail, ok := strings.Cut(rest, ",")
+	if !ok {
+		return 0, nil, false
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(countStr))
+	if err != nil || count < 0 {
+		return 0, nil, false
+	}
+	di := strings.Index(tail, "Devices:")
+	if di < 0 {
+		return 0, nil, false
+	}
+	devPart := strings.TrimSpace(tail[di+len("Devices:"):])
+	if !strings.HasPrefix(devPart, "[") {
+		return 0, nil, false
+	}
+	k := strings.Index(devPart, "]")
+	if k < 0 {
+		return 0, nil, false
+	}
+	devPart = devPart[1:k]
+	devPart = strings.TrimSpace(devPart)
+	var devices []string
+	if devPart != "" {
+		for _, d := range strings.FieldsFunc(devPart, func(r rune) bool { return r == ' ' || r == ',' }) {
+			if d = strings.TrimSpace(d); d != "" {
+				devices = append(devices, d)
+			}
+		}
+	}
+	return count, devices, true
+}
+
+type logWriter struct {
+	stream string
+	buffer *logBuffer
+}
+
+func (w logWriter) Write(p []byte) (int, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(p))
+	for scanner.Scan() {
+		w.buffer.Append(w.stream, scanner.Text())
+	}
+	return len(p), nil
+}
+
+func (p *process) state() RuntimeState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	state := RuntimeState{
+		Status:   "exited",
+		Running:  p.running,
+		LogCount: p.logs.Count(),
+		Restarts: p.restarts,
+	}
+	if p.running {
+		state.Status = "running"
+	}
+	if !p.started.IsZero() {
+		state.StartedAt = p.started.UTC().Format(time.RFC3339)
+	}
+	if !p.exited.IsZero() {
+		state.ExitedAt = p.exited.UTC().Format(time.RFC3339)
+	}
+	if p.exitErr != "" {
+		state.ExitError = p.exitErr
+	}
+	if p.cmd != nil && p.cmd.Process != nil && p.running {
+		state.PID = p.cmd.Process.Pid
+		state.MemoryBytes = processMemoryBytes(state.PID)
+	}
+	if count, devices, at, ok := p.logs.PeerSummary(); ok && peerSummaryIsCurrent(p.running, p.started, at) {
+		state.PeerCount = &count
+		state.PeerDevices = devices
+		state.PeerAt = at
+	}
+	return state
+}
+
+func processMemoryBytes(pid int) uint64 {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
+	if err != nil {
+		return 0
+	}
+	return parseProcStatusMemoryBytes(data)
+}
+
+func parseProcStatusMemoryBytes(data []byte) uint64 {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "VmRSS:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0
+		}
+		return kb * 1024
+	}
+	return 0
+}
+
+func (p *process) markExited(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.running = false
+	p.exited = time.Now()
+	if err != nil {
+		p.exitErr = err.Error()
+	}
+}
+
+type Metrics struct {
+	Runtime  string        `json:"runtime"`
+	Go       GoMetrics     `json:"go"`
+	Memory   MemoryMetrics `json:"memory"`
+	Manager  RuntimeState  `json:"manager"`
+	Children []ChildMetric `json:"children"`
+}
+
+type GoMetrics struct {
+	Version    string `json:"version"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	Goroutines int    `json:"goroutines"`
+}
+
+type MemoryMetrics struct {
+	AllocBytes      uint64 `json:"alloc_bytes"`
+	SysBytes        uint64 `json:"sys_bytes"`
+	HeapAllocBytes  uint64 `json:"heap_alloc_bytes"`
+	HeapInuseBytes  uint64 `json:"heap_inuse_bytes"`
+	StackInuseBytes uint64 `json:"stack_inuse_bytes"`
+}
+
+type ChildMetric struct {
+	ClientID  string       `json:"client_id"`
+	RoomID    string       `json:"room_id"`
+	Transport string       `json:"transport"`
+	Name      string       `json:"name"`
+	Runtime   RuntimeState `json:"runtime"`
+}
+
+func collectMetrics(supervisor *Supervisor) Metrics {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	metrics := Metrics{
+		Runtime: time.Now().UTC().Format(time.RFC3339),
+		Go: GoMetrics{
+			Version:    runtime.Version(),
+			OS:         runtime.GOOS,
+			Arch:       runtime.GOARCH,
+			Goroutines: runtime.NumGoroutine(),
+		},
+		Memory: MemoryMetrics{
+			AllocBytes:      mem.Alloc,
+			SysBytes:        mem.Sys,
+			HeapAllocBytes:  mem.HeapAlloc,
+			HeapInuseBytes:  mem.HeapInuse,
+			StackInuseBytes: mem.StackInuse,
+		},
+		Manager: RuntimeState{
+			Status:    "running",
+			Running:   true,
+			PID:       os.Getpid(),
+			StartedAt: managerStartedAt.UTC().Format(time.RFC3339),
+		},
+	}
+
+	supervisor.mu.RLock()
+	defer supervisor.mu.RUnlock()
+	metrics.Children = make([]ChildMetric, 0, len(supervisor.processes))
+	for _, p := range supervisor.processes {
+		metrics.Children = append(metrics.Children, ChildMetric{
+			ClientID:  p.location.ClientID,
+			RoomID:    p.location.Endpoint.RoomID,
+			Transport: p.location.Transport.Type,
+			Name:      p.location.Name,
+			Runtime:   p.state(),
+		})
+	}
+	sort.Slice(metrics.Children, func(i, j int) bool {
+		return strings.Join([]string{metrics.Children[i].ClientID, metrics.Children[i].RoomID, metrics.Children[i].Transport}, ":") <
+			strings.Join([]string{metrics.Children[j].ClientID, metrics.Children[j].RoomID, metrics.Children[j].Transport}, ":")
+	})
+	return metrics
+}
+
+type quotaRule struct {
+	ClientID string
+	ClassID  uint32
+	Cgroup   string
+	Last     uint64
+	Dev      string
+	Iface    string
+}
+
+type QuotaEnforcer struct {
+	configPath string
+	supervisor *Supervisor
+	mu         sync.Mutex
+	rules      map[string]quotaRule
+}
+
+func NewQuotaEnforcer(configPath string, supervisor *Supervisor) *QuotaEnforcer {
+	q := &QuotaEnforcer{
+		configPath: configPath,
+		supervisor: supervisor,
+		rules:      make(map[string]quotaRule),
+	}
+	q.cleanupStale(context.Background())
+	return q
+}
+
+func (q *QuotaEnforcer) Run(ctx context.Context) {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			if err := q.Collect(ctx); err != nil {
+				log.Printf("quota accounting collect failed: %v", err)
+			}
+			timer.Reset(30 * time.Second)
+		}
+	}
+}
+
+func (q *QuotaEnforcer) Register(loc Location, quota Quota, p *process) error {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return errors.New("process is not running")
+	}
+	key := locationKey(loc)
+	classID := quotaClassID(key)
+	cgroup := filepath.Join("/sys/fs/cgroup/net_cls,net_prio/olcrtc-manager", quotaSafeName(key))
+	dev := defaultRouteInterface(context.Background())
+	iface := ""
+	if p.netns != nil {
+		iface = p.netns.HostIf
+	}
+
+	if p.netns != nil {
+		last := uint64(0)
+		if iface != "" {
+			if bytes, err := interfaceTXBytes(iface); err == nil {
+				last = bytes
+			}
+		}
+		q.mu.Lock()
+		if existing, ok := q.rules[key]; ok && existing.Iface == iface {
+			last = existing.Last
+		}
+		q.rules[key] = quotaRule{ClientID: loc.ClientID, ClassID: classID, Cgroup: cgroup, Dev: dev, Iface: iface, Last: last}
+		q.mu.Unlock()
+		if quota.SpeedMbps > 0 {
+			if err := applyNetnsSpeed(context.Background(), p.netns, quota.SpeedMbps); err != nil {
+				log.Printf("speed limit unavailable for %s: %v", key, err)
+			}
+		} else {
+			_ = runCmd(context.Background(), "tc", "qdisc", "del", "dev", p.netns.HostIf, "root")
+			_ = runCmd(context.Background(), "ip", "netns", "exec", p.netns.Name, "tc", "qdisc", "del", "dev", p.netns.NsIf, "root")
+		}
+		return nil
+	}
+
+	q.mu.Lock()
+	last := uint64(0)
+	if existing, ok := q.rules[key]; ok {
+		last = existing.Last
+	}
+	q.rules[key] = quotaRule{ClientID: loc.ClientID, ClassID: classID, Cgroup: cgroup, Dev: dev, Iface: iface, Last: last}
+	q.mu.Unlock()
+
+	if err := os.MkdirAll(cgroup, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(cgroup, "net_cls.classid"), []byte(strconv.FormatUint(uint64(classID), 10)), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(cgroup, "tasks"), []byte(strconv.Itoa(p.cmd.Process.Pid)), 0o644); err != nil {
+		return err
+	}
+	q.deleteRule(context.Background(), "INPUT", classID)
+	if err := q.iptables(context.Background(), "-I", "INPUT", "1", "-m", "cgroup", "--cgroup", quotaClassArg(classID), "-m", "comment", "--comment", "olcrtc-manager"); err != nil {
+		return err
+	}
+	if quota.SpeedMbps > 0 && dev != "" && iface == "" {
+		if err := q.applySpeedLimit(context.Background(), dev, classID, quota.SpeedMbps); err != nil {
+			log.Printf("speed limit unavailable for %s: %v", key, err)
+		}
+	}
+	return nil
+}
+
+func (q *QuotaEnforcer) Unregister(key string) {
+	q.mu.Lock()
+	rule, ok := q.rules[key]
+	if ok {
+		delete(q.rules, key)
+	}
+	q.mu.Unlock()
+	if !ok {
+		return
+	}
+	q.deleteRule(context.Background(), "INPUT", rule.ClassID)
+	if rule.Dev != "" {
+		q.deleteSpeedLimit(context.Background(), rule.Dev, rule.ClassID)
+	}
+	_ = os.Remove(filepath.Join(rule.Cgroup, "tasks"))
+	_ = os.Remove(rule.Cgroup)
+}
+
+func (q *QuotaEnforcer) Collect(ctx context.Context) error {
+	q.mu.Lock()
+	rules := make([]quotaRule, 0, len(q.rules))
+	for _, rule := range q.rules {
+		rules = append(rules, rule)
+	}
+	q.mu.Unlock()
+	if len(rules) == 0 {
+		return nil
+	}
+
+	deltaByClient := make(map[string]uint64)
+	for _, rule := range rules {
+		bytes, err := q.ruleBytes(ctx, rule)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		if bytes > rule.Last {
+			deltaByClient[rule.ClientID] += bytes - rule.Last
+		}
+		q.updateLast(rule.ClassID, bytes)
+	}
+	if len(deltaByClient) == 0 {
+		return nil
+	}
+
+	cfg, err := loadConfig(q.configPath)
+	if err != nil {
+		return err
+	}
+	cfg.ensureClientsFormat()
+	changed := false
+	for i := range cfg.Clients {
+		bytes, ok := deltaByClient[cfg.Clients[i].ClientID]
+		if !ok {
+			continue
+		}
+		cfg.Clients[i].Quota.UsedBytes = quotaUsedBytes(cfg.Clients[i].Quota) + bytes
+		cfg.Clients[i].Quota.UsedGB = int(cfg.Clients[i].Quota.UsedBytes / (1024 * 1024 * 1024))
+		changed = true
+	}
+	if changed {
+		cfg.Normalize()
+		if err := saveConfigWithoutBackup(q.configPath, cfg); err != nil {
+			return err
+		}
+	}
+	if q.supervisor != nil {
+		q.supervisor.ApplyQuotaConfig(cfg, time.Now())
+	}
+	return nil
+}
+
+func (q *QuotaEnforcer) updateLast(classID uint32, bytes uint64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for key, rule := range q.rules {
+		if rule.ClassID == classID {
+			rule.Last = bytes
+			q.rules[key] = rule
+			return
+		}
+	}
+}
+
+// LocationBytesForKey — текущий счётчик байт для инстанса (по locationKey).
+// Best-effort: доступно только если для инстанса зарегистрировано правило квоты
+// (netns/cgroup). Возвращает (bytes, true) при наличии правила.
+func (q *QuotaEnforcer) LocationBytesForKey(key string) (uint64, bool) {
+	if q == nil {
+		return 0, false
+	}
+	q.mu.Lock()
+	rule, ok := q.rules[key]
+	q.mu.Unlock()
+	if !ok {
+		return 0, false
+	}
+	b, err := q.ruleBytes(context.Background(), rule)
+	if err != nil {
+		return 0, false
+	}
+	return b, true
+}
+
+func (q *QuotaEnforcer) ruleBytes(ctx context.Context, rule quotaRule) (uint64, error) {
+	if rule.Iface != "" {
+		return interfaceTXBytes(rule.Iface)
+	}
+	inBytes, err := q.chainBytes(ctx, "INPUT", rule.ClassID)
+	if err != nil {
+		return 0, err
+	}
+	return inBytes, nil
+}
+
+func interfaceTXBytes(iface string) (uint64, error) {
+	data, err := os.ReadFile(filepath.Join("/sys/class/net", iface, "statistics", "tx_bytes"))
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+}
+
+func (q *QuotaEnforcer) chainBytes(ctx context.Context, chain string, classID uint32) (uint64, error) {
+	out, err := q.iptablesOutput(ctx, "-L", chain, "-v", "-n", "-x")
+	if err != nil {
+		return 0, err
+	}
+	needle := "cgroup " + strconv.FormatUint(uint64(classID), 10)
+	var total uint64
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, needle) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		bytes, err := strconv.ParseUint(fields[1], 10, 64)
+		if err == nil {
+			total += bytes
+		}
+	}
+	return total, nil
+}
+
+func (q *QuotaEnforcer) deleteRule(ctx context.Context, chain string, classID uint32) {
+	for i := 0; i < 8; i++ {
+		if err := q.iptables(ctx, "-D", chain, "-m", "cgroup", "--cgroup", quotaClassArg(classID), "-m", "comment", "--comment", "olcrtc-manager"); err != nil {
+			return
+		}
+	}
+}
+
+func (q *QuotaEnforcer) cleanupStale(ctx context.Context) {
+	for _, chain := range []string{"INPUT", "OUTPUT"} {
+		for i := 0; i < 64; i++ {
+			line, ok := q.firstCgroupRuleLine(ctx, chain)
+			if !ok {
+				break
+			}
+			if err := q.iptables(ctx, "-D", chain, strconv.Itoa(line)); err != nil {
+				break
+			}
+		}
+	}
+	if dev := defaultRouteInterface(ctx); dev != "" {
+		_ = q.tc(ctx, "qdisc", "del", "dev", dev, "root")
+		_ = q.tc(ctx, "qdisc", "del", "dev", dev, "ingress")
+	}
+	cleanupManagerNetns(ctx)
+	_ = os.RemoveAll("/sys/fs/cgroup/net_cls,net_prio/olcrtc-manager")
+}
+
+func cleanupManagerNetns(ctx context.Context) {
+	if out, err := exec.CommandContext(ctx, "ip", "netns", "list").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			name := strings.Fields(line)
+			if len(name) == 0 || !strings.HasPrefix(name[0], "olc-") {
+				continue
+			}
+			_ = runCmd(ctx, "ip", "netns", "del", name[0])
+			_ = os.RemoveAll(filepath.Join("/etc/netns", name[0]))
+		}
+	}
+	if out, err := exec.CommandContext(ctx, "ip", "-o", "link", "show").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			name := strings.TrimSuffix(fields[1], ":")
+			name = strings.Split(name, "@")[0]
+			if strings.HasPrefix(name, "olh") {
+				_ = runCmd(ctx, "ip", "link", "del", name)
+			}
+		}
+	}
+}
+
+func (q *QuotaEnforcer) firstCgroupRuleLine(ctx context.Context, chain string) (int, bool) {
+	out, err := q.iptablesOutput(ctx, "-L", chain, "-v", "-n", "-x", "--line-numbers")
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "cgroup ") || !strings.Contains(line, "olcrtc-manager") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func (q *QuotaEnforcer) iptables(ctx context.Context, args ...string) error {
+	_, err := q.iptablesOutput(ctx, args...)
+	return err
+}
+
+func (q *QuotaEnforcer) iptablesOutput(ctx context.Context, args ...string) ([]byte, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cmdCtx, "iptables", args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("iptables %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return out, nil
+}
+
+func (q *QuotaEnforcer) applySpeedLimit(ctx context.Context, dev string, classID uint32, speedMbps int) error {
+	rate := strconv.Itoa(speedMbps) + "mbit"
+	class := tcClassID(classID)
+	_ = q.tc(ctx, "qdisc", "add", "dev", dev, "root", "handle", "10:", "htb", "default", "ffff")
+	_ = q.tc(ctx, "class", "add", "dev", dev, "parent", "10:", "classid", "10:ffff", "htb", "rate", "10gbit", "ceil", "10gbit")
+	_ = q.tc(ctx, "class", "del", "dev", dev, "classid", class)
+	if err := q.tc(ctx, "class", "add", "dev", dev, "parent", "10:", "classid", class, "htb", "rate", rate, "ceil", rate); err != nil {
+		return err
+	}
+	q.ensureCgroupFilter(ctx, dev)
+	return nil
+}
+
+func (q *QuotaEnforcer) deleteSpeedLimit(ctx context.Context, dev string, classID uint32) {
+	class := tcClassID(classID)
+	_ = q.tc(ctx, "class", "del", "dev", dev, "classid", class)
+}
+
+func (q *QuotaEnforcer) ensureCgroupFilter(ctx context.Context, dev string) {
+	out, err := q.tcOutput(ctx, "filter", "show", "dev", dev, "parent", "10:")
+	if err == nil && strings.Contains(string(out), "cgroup") {
+		return
+	}
+	_ = q.tc(ctx, "filter", "add", "dev", dev, "parent", "10:", "protocol", "ip", "prio", "10", "handle", "1:", "cgroup")
+	_ = q.tc(ctx, "filter", "add", "dev", dev, "parent", "10:", "protocol", "ipv6", "prio", "10", "handle", "1:", "cgroup")
+}
+
+func (q *QuotaEnforcer) tc(ctx context.Context, args ...string) error {
+	_, err := q.tcOutput(ctx, args...)
+	return err
+}
+
+func (q *QuotaEnforcer) tcOutput(ctx context.Context, args ...string) ([]byte, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cmdCtx, "tc", args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("tc %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return out, nil
+}
+
+func defaultRouteInterface(ctx context.Context) string {
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cmdCtx, "ip", "route", "show", "default").Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(out))
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == "dev" {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
+func quotaClassID(key string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return 0x100000 + (h.Sum32() & 0x00ffff)
+}
+
+func quotaClassArg(classID uint32) string {
+	return fmt.Sprintf("0x%x", classID)
+}
+
+func tcClassID(classID uint32) string {
+	return fmt.Sprintf("%x:%x", classID>>16, classID&0xffff)
+}
+
+func quotaSafeName(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+		if b.Len() >= 96 {
+			break
+		}
+	}
+	if b.Len() == 0 {
+		return "location"
+	}
+	return b.String()
+}
+
+func saveConfig(path string, cfg Config) error {
+	backupConfig(path)
+	if err := writeConfig(path, cfg); err != nil {
+		return err
+	}
+	appendAudit(path, "config_saved", "")
+	return nil
+}
+
+func saveConfigWithoutBackup(path string, cfg Config) error {
+	return writeConfig(path, cfg)
+}
+
+func writeConfig(path string, cfg Config) error {
+	cfg.Normalize()
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write temp config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replace config: %w", err)
+	}
+	return nil
+}
+
+func backupConfig(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(filepath.Dir(path), "backups")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	name := "config-" + time.Now().UTC().Format("20060102-150405") + ".json"
+	_ = os.WriteFile(filepath.Join(dir, name), data, 0o600)
+}
+
+func appendAudit(configPath, action, detail string) {
+	entry := map[string]string{
+		"time":   time.Now().UTC().Format(time.RFC3339),
+		"action": action,
+		"detail": detail,
+	}
+	data, _ := json.Marshal(entry)
+	path := filepath.Join(filepath.Dir(configPath), "audit.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(data, '\n'))
+}
+
+func readAudit(configPath string, limit int) []map[string]string {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(configPath), "audit.log"))
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if limit <= 0 || limit > len(lines) {
+		limit = len(lines)
+	}
+	out := make([]map[string]string, 0, limit)
+	for i := len(lines) - limit; i < len(lines); i++ {
+		var entry map[string]string
+		if json.Unmarshal([]byte(lines[i]), &entry) == nil {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func (s *Supervisor) stopLocked(id string) {
+	p, ok := s.processes[id]
+	if !ok {
+		return
+	}
+	if s.quota != nil {
+		s.quota.Unregister(id)
+	}
+	stopProcess(p)
+	delete(s.processes, id)
+}
+
+func locationsByKey(locations []Location) map[string]Location {
+	byKey := make(map[string]Location, len(locations))
+	for _, loc := range locations {
+		byKey[locationKey(loc)] = loc
+	}
+	return byKey
+}
+
+func stopProcessMap(processes map[string]*process) {
+	for _, p := range processes {
+		stopProcess(p)
+	}
+}
+
+func waitProcessStopped(ctx context.Context, p *process, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !p.state().Running {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("timed out waiting for olcrtc to stop")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+type netnsRuntime struct {
+	Name   string
+	HostIf string
+	NsIf   string
+	HostIP string
+	NsIP   string
+	Dev    string
+}
+
+func setupNetns(ctx context.Context, loc Location) (*netnsRuntime, error) {
+	key := locationKey(loc)
+	token := fmt.Sprintf("%08x", quotaClassID(key)&0xffffffff)
+	suffix, err := randomHex(2)
+	if err != nil {
+		return nil, err
+	}
+	ns := &netnsRuntime{
+		Name:   "olc-" + token + "-" + suffix,
+		HostIf: "olh" + token + suffix,
+		NsIf:   "oln" + token + suffix,
+		Dev:    defaultRouteInterface(ctx),
+	}
+	hostIP, nsIP := netnsIPs(key)
+	ns.HostIP = hostIP
+	ns.NsIP = nsIP
+	if ns.Dev == "" {
+		return nil, errors.New("default route interface not found")
+	}
+
+	cleanupNetns(ctx, ns)
+	if err := runCmd(ctx, "ip", "netns", "add", ns.Name); err != nil {
+		return nil, err
+	}
+	if err := writeNetnsResolv(ns.Name, loc.DNS); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "link", "add", ns.HostIf, "type", "veth", "peer", "name", ns.NsIf); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "link", "set", ns.NsIf, "netns", ns.Name); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "addr", "add", ns.HostIP+"/30", "dev", ns.HostIf); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "link", "set", ns.HostIf, "up"); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "netns", "exec", ns.Name, "ip", "addr", "add", ns.NsIP+"/30", "dev", ns.NsIf); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "netns", "exec", ns.Name, "ip", "link", "set", "lo", "up"); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "netns", "exec", ns.Name, "ip", "link", "set", ns.NsIf, "up"); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	if err := runCmd(ctx, "ip", "netns", "exec", ns.Name, "ip", "route", "add", "default", "via", ns.HostIP); err != nil {
+		cleanupNetns(ctx, ns)
+		return nil, err
+	}
+	_ = runCmd(ctx, "sysctl", "-w", "net.ipv4.ip_forward=1")
+	addNetnsFirewall(ctx, ns)
+
+	quota := quotaForClientConfigPath(loc.ClientID)
+	if quota.SpeedMbps > 0 {
+		if err := applyNetnsSpeed(ctx, ns, quota.SpeedMbps); err != nil {
+			log.Printf("speed limit unavailable for %s: %v", locationKey(loc), err)
+		}
+	}
+	return ns, nil
+}
+
+func quotaForClientConfigPath(clientID string) Quota {
+	if adminConfigPath == "" {
+		return Quota{}
+	}
+	cfg, err := loadConfig(adminConfigPath)
+	if err != nil {
+		return Quota{}
+	}
+	cfg.ensureClientsFormat()
+	return quotaForClient(cfg, clientID)
+}
+
+func cleanupNetns(ctx context.Context, ns *netnsRuntime) {
+	if ns == nil {
+		return
+	}
+	delNetnsFirewall(ctx, ns)
+	_ = runCmd(ctx, "ip", "link", "del", ns.HostIf)
+	_ = runCmd(ctx, "ip", "netns", "del", ns.Name)
+	_ = os.RemoveAll(filepath.Join("/etc/netns", ns.Name))
+}
+
+func addNetnsFirewall(ctx context.Context, ns *netnsRuntime) {
+	delNetnsFirewall(ctx, ns)
+	_ = runCmd(ctx, "iptables", "-t", "nat", "-I", "POSTROUTING", "1", "-s", ns.NsIP+"/32", "-o", ns.Dev, "-j", "MASQUERADE", "-m", "comment", "--comment", "olcrtc-manager-netns")
+	_ = runCmd(ctx, "iptables", "-I", "FORWARD", "1", "-i", ns.HostIf, "-o", ns.Dev, "-j", "ACCEPT", "-m", "comment", "--comment", "olcrtc-manager-netns")
+	_ = runCmd(ctx, "iptables", "-I", "FORWARD", "1", "-i", ns.Dev, "-o", ns.HostIf, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT", "-m", "comment", "--comment", "olcrtc-manager-netns")
+}
+
+func delNetnsFirewall(ctx context.Context, ns *netnsRuntime) {
+	for i := 0; i < 8; i++ {
+		if runCmd(ctx, "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", ns.NsIP+"/32", "-o", ns.Dev, "-j", "MASQUERADE", "-m", "comment", "--comment", "olcrtc-manager-netns") != nil {
+			break
+		}
+	}
+	for i := 0; i < 8; i++ {
+		if runCmd(ctx, "iptables", "-D", "FORWARD", "-i", ns.HostIf, "-o", ns.Dev, "-j", "ACCEPT", "-m", "comment", "--comment", "olcrtc-manager-netns") != nil {
+			break
+		}
+	}
+	for i := 0; i < 8; i++ {
+		if runCmd(ctx, "iptables", "-D", "FORWARD", "-i", ns.Dev, "-o", ns.HostIf, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT", "-m", "comment", "--comment", "olcrtc-manager-netns") != nil {
+			break
+		}
+	}
+}
+
+func applyNetnsSpeed(ctx context.Context, ns *netnsRuntime, speedMbps int) error {
+	rate := strconv.Itoa(speedMbps) + "mbit"
+	if err := applyHTBSpeed(ctx, ns.HostIf, rate); err != nil {
+		return err
+	}
+	if err := runCmd(ctx, "ip", "netns", "exec", ns.Name, "tc", "qdisc", "replace", "dev", ns.NsIf, "root", "handle", "1:", "htb", "default", "10"); err != nil {
+		return err
+	}
+	if err := runCmd(ctx, "ip", "netns", "exec", ns.Name, "tc", "class", "replace", "dev", ns.NsIf, "parent", "1:", "classid", "1:10", "htb", "rate", rate, "ceil", rate); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyHTBSpeed(ctx context.Context, dev, rate string) error {
+	if err := runCmd(ctx, "tc", "qdisc", "replace", "dev", dev, "root", "handle", "1:", "htb", "default", "10"); err != nil {
+		return err
+	}
+	return runCmd(ctx, "tc", "class", "replace", "dev", dev, "parent", "1:", "classid", "1:10", "htb", "rate", rate, "ceil", rate)
+}
+
+func writeNetnsResolv(nsName, dns string) error {
+	host := strings.TrimSpace(dns)
+	if strings.Contains(host, ":") {
+		host, _, _ = net.SplitHostPort(host)
+	}
+	if net.ParseIP(host) == nil {
+		host = "1.1.1.1"
+	}
+	dir := filepath.Join("/etc/netns", nsName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "resolv.conf"), []byte("nameserver "+host+"\n"), 0o644)
+}
+
+func netnsIPs(key string) (string, string) {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	n := h.Sum32() % 16000
+	second := 200 + int(n/4096)
+	third := int(n%4096) / 16
+	fourth := 1 + int(n%16)*4
+	return fmt.Sprintf("10.%d.%d.%d", second, third, fourth), fmt.Sprintf("10.%d.%d.%d", second, third, fourth+1)
+}
+
+func runCmd(ctx context.Context, name string, args ...string) error {
+	cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cmdCtx, name, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func startInstance(ctx context.Context, olcrtcPath string, loc Location) (*process, error) {
+	cfg, err := serverConfig(loc)
+	if err != nil {
+		return nil, fmt.Errorf("build olcrtc config for %s: %w", locationKey(loc), err)
+	}
+	configPath, err := writeTempOlcrtcConfig("olcrtc-manager-srv", cfg)
+	if err != nil {
+		return nil, err
+	}
+	hostNetwork := strings.EqualFold(strings.TrimSpace(os.Getenv("OLCRTC_HOST_NETWORK")), "1") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("OLCRTC_HOST_NETWORK")), "true")
+
+	var (
+		cmd *exec.Cmd
+		ns  *netnsRuntime
+	)
+	if hostNetwork {
+		cmd = exec.CommandContext(ctx, olcrtcPath, configPath)
+	} else {
+		ns, err = setupNetns(ctx, loc)
+		if err != nil {
+			_ = os.Remove(configPath)
+			return nil, fmt.Errorf("setup netns for %s: %w", locationKey(loc), err)
+		}
+		cmdArgs := []string{"netns", "exec", ns.Name, olcrtcPath, configPath}
+		cmd = exec.CommandContext(ctx, "ip", cmdArgs...)
+	}
+	// Olc-cost-l: прокидываем идентификаторы клиента/инстанса для AuthHook
+	// olcrtc-core (per-client / per-instance контроль подключения).
+	cmd.Env = append(os.Environ(),
+		"OLCRTC_CLIENT_ID="+loc.ClientID,
+		"OLCRTC_ROOM_ID="+loc.Endpoint.RoomID,
+		"OLCRTC_INSTANCE="+locationKey(loc))
+	// Olc-cost-l key-randomization (эпик A): рандомизированные ключи расшифровки
+	// Тип1 передаёт статичный alt-key; тип2 передаёт режим+секрет, а core
+	// вычисляет current+previous-second ciphers при первом фрейме.
+	if enabled, randType, secret := olcKeyRandForClient(loc.ClientID); enabled && randType == 2 && secret != "" {
+		cmd.Env = append(cmd.Env, "OLCRTC_ALT_KEY_MODE=2", "OLCRTC_ALT_KEY_SECRET="+secret, "OLCRTC_ALT_KEY_SEED_HEX="+hex.EncodeToString([]byte(olcKeyRandSeed(loc))))
+	} else if olcAltKeys := olcAltKeysForLocation(loc); len(olcAltKeys) > 0 {
+		cmd.Env = append(cmd.Env, "OLCRTC_ALT_KEYS="+strings.Join(olcAltKeys, ","))
+	}
+	logs := newLogBuffer(500)
+	cmd.Stdout = logWriter{stream: "stdout", buffer: logs}
+	cmd.Stderr = logWriter{stream: "stderr", buffer: logs}
+
+	if err := cmd.Start(); err != nil {
+		if ns != nil {
+			cleanupNetns(context.Background(), ns)
+		}
+		_ = os.Remove(configPath)
+		return nil, fmt.Errorf("start olcrtc for %s: %w", locationKey(loc), err)
+	}
+
+	startedIn := "netns"
+	if hostNetwork {
+		startedIn = "host"
+	} else if ns != nil {
+		startedIn = ns.Name
+	}
+	p := &process{location: loc, cmd: cmd, netns: ns, logs: logs, done: make(chan error, 1), started: time.Now(), running: true}
+	log.Printf("started olcrtc for %s in %s: %s %s", locationKey(loc), startedIn, olcrtcPath, configPath)
+
+	go func() {
+		err := cmd.Wait()
+		p.markExited(err)
+		if ns != nil {
+			cleanupNetns(context.Background(), ns)
+		}
+		_ = os.Remove(configPath)
+		p.done <- err
+	}()
+
+	return p, nil
+}
+
+func stopProcess(p *process) {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return
+	}
+	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+}
+
+func isLoopbackRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func startInstances(ctx context.Context, olcrtcPath string, locations []Location) ([]*process, error) {
+	processes := make([]*process, 0, len(locations))
+	for _, loc := range locations {
+		p, err := startInstance(ctx, olcrtcPath, loc)
+		if err != nil {
+			stopInstances(processes)
+			return nil, err
+		}
+		processes = append(processes, p)
+	}
+	return processes, nil
+}
+
+func stopInstances(processes []*process) {
+	for _, p := range processes {
+		stopProcess(p)
+	}
+}
+
+func loadConfig(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("parse config: %w", err)
+	}
+
+	secretWasEmpty := cfg.RandomizationSecret == ""
+	cfg.Normalize()
+	needsSave := false
+	if warns := sanitizeConfigInvalidLocations(&cfg); len(warns) > 0 {
+		for _, w := range warns {
+			log.Printf("config sanitize: %s", w)
+		}
+		needsSave = true
+	}
+	if secretWasEmpty && cfg.RandomizationSecret != "" {
+		needsSave = true
+	}
+
+	if needsSave {
+		_ = saveConfig(path, cfg)
+	}
+	return cfg, nil
+}
+
+func (c *Config) Normalize() {
+	if c.Version == 0 && c.LegacyVersion != 0 {
+		c.Version = c.LegacyVersion
+	}
+
+	if path, err := normalizeSubscriptionPath(c.SubscriptionPath); err == nil {
+		c.SubscriptionPath = path
+	}
+	c.Refresh = strings.TrimSpace(c.Refresh)
+	for i := range c.Clients {
+		c.Clients[i].Refresh = strings.TrimSpace(c.Clients[i].Refresh)
+		c.Clients[i].Proxy = normalizeProxy(c.Clients[i].Proxy)
+	}
+
+	if len(c.Clients) == 0 {
+		return
+	}
+
+	locations := make([]Location, 0)
+	for _, client := range c.Clients {
+		for _, loc := range client.Locations {
+			if loc.ClientID == "" {
+				loc.ClientID = client.ClientID
+			}
+			loc.Proxy = normalizeProxy(loc.Proxy)
+			locations = append(locations, loc)
+		}
+	}
+	c.Locations = locations
+
+	c.initRandomizationSecret()
+}
+
+func (c *Config) initRandomizationSecret() {
+	if c.RandomizationSecret != "" {
+		return
+	}
+
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Printf("WARN: failed to generate randomization secret: %v", err)
+		return
+	}
+	c.RandomizationSecret = hex.EncodeToString(buf)
+}
+
+func generateRandomizedID(clientID, secret string) string {
+	if secret == "" {
+		return ""
+	}
+
+	data := fmt.Sprintf("%s:%d", clientID, time.Now().UnixNano())
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(data))
+	hash := hex.EncodeToString(h.Sum(nil))
+
+	if len(hash) > 16 {
+		return hash[:16]
+	}
+	return hash
+}
+
+// rotatingHashAt — тип 2: HMAC(secret, clientID@sec)[:16] для конкретной секунды.
+func rotatingHashAt(clientID, secret string, sec int64) string {
+	if secret == "" {
+		return ""
+	}
+	data := fmt.Sprintf("%s@%d", clientID, sec)
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(data))
+	hash := hex.EncodeToString(h.Sum(nil))
+	if len(hash) > 16 {
+		return hash[:16]
+	}
+	return hash
+}
+
+// rotatingHashMatches — окно приёма: текущая И предыдущая секунда.
+func rotatingHashMatches(clientID, secret, candidate string) bool {
+	if candidate == "" || secret == "" {
+		return false
+	}
+	now := time.Now().Unix()
+	if hmac.Equal([]byte(candidate), []byte(rotatingHashAt(clientID, secret, now))) {
+		return true
+	}
+	return hmac.Equal([]byte(candidate), []byte(rotatingHashAt(clientID, secret, now-1)))
+}
+
+// autologiEnabled reports whether log views should auto-refresh. Defaults to
+// true (ON) when unset.
+func autologiEnabled(cfg Config) bool {
+	if cfg.GlobalSettings == nil || cfg.GlobalSettings.Logs == nil || cfg.GlobalSettings.Logs.AutoRefresh == nil {
+		return true
+	}
+	return *cfg.GlobalSettings.Logs.AutoRefresh
+}
+
+func globalRandomizationEnabled(cfg Config) bool {
+	if cfg.GlobalSettings == nil || cfg.GlobalSettings.Subscription == nil {
+		return false
+	}
+	return cfg.GlobalSettings.Subscription.RandomizationEnabled
+}
+
+// randTypeFor — эффективный тип рандомизации для клиента (0=выкл, 1=статичный, 2=ротация).
+// Глобальная рандомизация имеет приоритет над per-client (зеркало гейтинга UI).
+func randTypeFor(client Client, cfg Config) int {
+	if olcRandScope(cfg) == "crypto" {
+		return 0
+	}
+	if globalRandomizationEnabled(cfg) {
+		if cfg.GlobalSettings != nil && cfg.GlobalSettings.Subscription != nil && cfg.GlobalSettings.Subscription.RandType > 0 {
+			return cfg.GlobalSettings.Subscription.RandType
+		}
+		return 1
+	}
+	if client.Randomization != nil && client.Randomization.Enabled {
+		if client.Randomization.RandType > 0 {
+			return client.Randomization.RandType
+		}
+		return 1
+	}
+	return 0
+}
+
+func resolveClientID(requestedID string, cfg Config) (string, error) {
+	// 1. requested == оригинальный client_id.
+	for _, client := range cfg.Clients {
+		if client.ClientID == requestedID {
+			switch randTypeFor(client, cfg) {
+			case 0:
+				return requestedID, nil // рандомизация выкл — обычный доступ
+			case 1, 2:
+				// Both types hide the original client_id. Only an explicitly
+				// allowed device may use it via olcResolveClientIDWithAccess.
+				return "", errors.New("not found")
+			}
+		}
+	}
+
+	// Legacy/upstream configs may expose clients only through the flat
+	// cfg.Locations list. With no Client record there is no per-client
+	// randomization state to hide the original ID, so retain the original
+	// subscription handler behaviour for that format.
+	for _, loc := range cfg.Locations {
+		if loc.ClientID == requestedID {
+			return requestedID, nil
+		}
+	}
+
+	// 2. requested == статичный RandomizedID (тип 1).
+	for _, client := range cfg.Clients {
+		if requestedID != "" && client.Randomization != nil && client.Randomization.RandomizedID == requestedID {
+			if randTypeFor(client, cfg) != 0 {
+				return client.ClientID, nil
+			}
+			return "", errors.New("not found")
+		}
+	}
+
+	// 3. requested == ротирующийся хэш (тип 2, окно текущая/предыдущая секунда).
+	for _, client := range cfg.Clients {
+		if randTypeFor(client, cfg) == 2 && rotatingHashMatches(client.ClientID, cfg.RandomizationSecret, requestedID) {
+			return client.ClientID, nil
+		}
+	}
+
+	return "", errors.New("not found")
+}
+
+func (c Config) Validate() error {
+	if c.Port <= 0 || c.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", c.Port)
+	}
+	if _, err := normalizeSubscriptionPath(c.SubscriptionPath); err != nil {
+		return fmt.Errorf("subscription_path: %w", err)
+	}
+	if err := validateRefresh(c.Refresh); err != nil {
+		return fmt.Errorf("refresh: %w", err)
+	}
+	for i, client := range c.Clients {
+		if err := validateRefresh(client.Refresh); err != nil {
+			return fmt.Errorf("clients[%d].refresh: %w", i, err)
+		}
+		if err := validateQuota(client.Quota); err != nil {
+			return fmt.Errorf("clients[%d].quota: %w", i, err)
+		}
+		if err := validateProxy(client.Proxy); err != nil {
+			return fmt.Errorf("clients[%d].proxy: %w", i, err)
+		}
+	}
+
+	ids := make(map[string]struct{}, len(c.Locations))
+	for i, loc := range c.Locations {
+		prefix := fmt.Sprintf("locations[%d]", i)
+		if loc.ClientID == "" {
+			return fmt.Errorf("%s.client-id is required", prefix)
+		}
+		if loc.Endpoint.RoomID == "" || loc.Endpoint.RoomID == "any" {
+			return fmt.Errorf("%s.endpoint.room_id must be concrete", prefix)
+		}
+		if loc.Endpoint.Key == "" {
+			return fmt.Errorf("%s.endpoint.key is required", prefix)
+		}
+		if loc.Carrier == "" {
+			return fmt.Errorf("%s.carrier is required", prefix)
+		}
+		if loc.Transport.Type == "" {
+			return fmt.Errorf("%s.transport.type is required", prefix)
+		}
+		if err := validateProxy(loc.Proxy); err != nil {
+			return fmt.Errorf("%s.proxy: %w", prefix, err)
+		}
+		key := locationKey(loc)
+		if _, exists := ids[key]; exists {
+			return fmt.Errorf("%s location key %q is duplicated", prefix, key)
+		}
+		ids[key] = struct{}{}
+		if !isSupported(loc.Carrier, loc.Transport.Type) {
+			return fmt.Errorf("%s: unsupported carrier/transport combination %s + %s", prefix, loc.Carrier, loc.Transport.Type)
+		}
+		if err := validatePayload(loc.Transport); err != nil {
+			return fmt.Errorf("%s.transport: %w", prefix, err)
+		}
+		if loc.Link == "" {
+			return fmt.Errorf("%s.link is required", prefix)
+		}
+		if loc.Data == "" {
+			return fmt.Errorf("%s.data is required", prefix)
+		}
+		if loc.DNS == "" {
+			return fmt.Errorf("%s.dns is required", prefix)
+		}
+	}
+	return nil
+}
+
+func locationKey(loc Location) string {
+	return strings.Join([]string{loc.ClientID, loc.Endpoint.RoomID, loc.Transport.Type}, ":")
+}
+
+func isSupported(carrier, transport string) bool {
+	matrix := map[string]map[string]bool{
+		"telemost": {
+			"datachannel":  false,
+			"vp8channel":   true,
+			"seichannel":   true,
+			"videochannel": false,
+		},
+		"wbstream": {
+			"datachannel":  true,
+			"vp8channel":   true,
+			"seichannel":   true,
+			"videochannel": false,
+		},
+		"jitsi": {
+			"datachannel":  true,
+			"vp8channel":   true,
+			"seichannel":   true,
+			"videochannel": false,
+		},
+	}
+	return matrix[carrier][transport]
+}
+
+func validatePayload(t Transport) error {
+	allowed := map[string]map[string]struct{}{
+		"datachannel":  {},
+		"vp8channel":   {"vp8-fps": {}, "vp8-batch": {}},
+		"seichannel":   {"fps": {}, "batch": {}, "frag": {}, "ack-ms": {}},
+		"videochannel": {"video-w": {}, "video-h": {}, "video-fps": {}, "video-bitrate": {}, "video-hw": {}, "video-codec": {}, "video-qr-size": {}, "video-qr-recovery": {}, "video-tile-module": {}, "video-tile-rs": {}},
+	}
+
+	keys, ok := allowed[t.Type]
+	if !ok {
+		return fmt.Errorf("unknown transport %q", t.Type)
+	}
+	for key := range t.Payload {
+		if _, ok := keys[key]; !ok {
+			return fmt.Errorf("unsupported payload key %q for %s", key, t.Type)
+		}
+	}
+	if _, err := serverConfig(Location{Transport: t}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func resolveOlcrtcPath() (string, error) {
+	if path := os.Getenv("OLCRTC_PATH"); path != "" {
+		return path, nil
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable path: %w", err)
+	}
+	return filepath.Join(filepath.Dir(exe), "olcrtc"), nil
+}
+
+func envDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func tlsFilesFromEnv() (string, string, bool, error) {
+	cert := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_TLS_CERT"))
+	key := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_TLS_KEY"))
+	if cert == "" && key == "" {
+		return "", "", false, nil
+	}
+	if cert == "" || key == "" {
+		return "", "", false, errors.New("OLCRTC_MANAGER_TLS_CERT and OLCRTC_MANAGER_TLS_KEY must be set together")
+	}
+	return cert, key, true, nil
+}
+
+func defaultString(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func normalizeSubscriptionPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return "sub", nil
+	}
+	if strings.Contains(path, "\\") || strings.Contains(path, "?") || strings.Contains(path, "#") {
+		return "", errors.New("must be a plain URL path without query or fragment")
+	}
+	parts := strings.Split(path, "/")
+	reserved := map[string]struct{}{
+		"-":      {},
+		"admin":  {},
+		"api":    {},
+		"assets": {},
+	}
+	for i, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return "", errors.New("must not contain empty, . or .. segments")
+		}
+		if strings.ContainsAny(part, " \t\r\n") {
+			return "", errors.New("must not contain whitespace")
+		}
+		if i == 0 {
+			if _, ok := reserved[part]; ok {
+				return "", fmt.Errorf("must not start with reserved segment %q", part)
+			}
+		}
+	}
+	return strings.Join(parts, "/"), nil
+}
+
+func validateRefresh(refresh string) error {
+	if refresh == "" {
+		return nil
+	}
+	if len(refresh) < 2 {
+		return errors.New("must use intervals like 5s, 10m, 6h or 1d")
+	}
+	unit := refresh[len(refresh)-1]
+	if unit != 's' && unit != 'm' && unit != 'h' && unit != 'd' {
+		return errors.New("must end with s, m, h or d")
+	}
+	value := refresh[:len(refresh)-1]
+	if strings.HasPrefix(value, "0") {
+		return errors.New("must be greater than zero")
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return errors.New("must use intervals like 5s, 10m, 6h or 1d")
+		}
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return errors.New("must be greater than zero")
+	}
+	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func randomizationEnableHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		clientID = strings.TrimSuffix(clientID, "/randomization/enable")
+		rt := 1
+		if strings.TrimSpace(r.URL.Query().Get("rand_type")) == "2" {
+			rt = 2
+		}
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := false
+		var randomizedID string
+		for i := range cfg.Clients {
+			if cfg.Clients[i].ClientID == clientID {
+				if cfg.Clients[i].Randomization == nil {
+					cfg.Clients[i].Randomization = &ClientRandomization{}
+				}
+				cfg.Clients[i].Randomization.Enabled = true
+				cfg.Clients[i].Randomization.RandType = rt
+				if rt == 1 {
+					cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+					randomizedID = cfg.Clients[i].Randomization.RandomizedID
+				} else {
+					cfg.Clients[i].Randomization.RandomizedID = ""
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, affected, syncErr := olcSyncCryptoRandomization(cfg); syncErr != nil {
+			http.Error(w, syncErr.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			olcRestartCryptoClients(cfg, affected)
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "rand_type": rt, "randomized_id": randomizedID})
+	}
+}
+
+func randomizationDisableHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		clientID = strings.TrimSuffix(clientID, "/randomization/disable")
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := false
+		for i := range cfg.Clients {
+			if cfg.Clients[i].ClientID == clientID {
+				if cfg.Clients[i].Randomization != nil {
+					cfg.Clients[i].Randomization.Enabled = false
+					cfg.Clients[i].Randomization.RandType = 0
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, affected, syncErr := olcSyncCryptoRandomization(cfg); syncErr != nil {
+			http.Error(w, syncErr.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			olcRestartCryptoClients(cfg, affected)
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
+	}
+}
+func randomizationPatchHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			w.Header().Set("Allow", http.MethodPatch)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Enabled  bool `json:"enabled"`
+			RandType int  `json:"rand_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		clientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		clientID = strings.TrimSuffix(clientID, "/randomization")
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := false
+		var randomizedID string
+		randType := 0
+		for i := range cfg.Clients {
+			if cfg.Clients[i].ClientID == clientID {
+				if cfg.Clients[i].Randomization == nil {
+					cfg.Clients[i].Randomization = &ClientRandomization{}
+				}
+				wasEnabled := cfg.Clients[i].Randomization.Enabled
+				cfg.Clients[i].Randomization.Enabled = req.Enabled
+				if req.Enabled {
+					rt := req.RandType
+					if rt != 1 && rt != 2 {
+						rt = 1
+					}
+					cfg.Clients[i].Randomization.RandType = rt
+					randType = rt
+					if rt == 1 {
+						// Свежее включение → новый хэш; смена типа у уже включённого
+						// (edit-карандашик) → сохранить существующий хэш (не пересоздавать).
+						if !wasEnabled || cfg.Clients[i].Randomization.RandomizedID == "" {
+							cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+						}
+						randomizedID = cfg.Clients[i].Randomization.RandomizedID
+					} else {
+						cfg.Clients[i].Randomization.RandomizedID = ""
+					}
+				} else {
+					// выключение — сбросить тип (по дизайну: тип запоминается только при вкл.)
+					cfg.Clients[i].Randomization.RandType = 0
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, affected, syncErr := olcSyncCryptoRandomization(cfg); syncErr != nil {
+			http.Error(w, syncErr.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			olcRestartCryptoClients(cfg, affected)
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		if req.Enabled {
+			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": true, "rand_type": randType, "randomized_id": randomizedID})
+		} else {
+			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": false})
+		}
+	}
+}
+
+func randomizationRegenerateHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		clientID = strings.TrimSuffix(clientID, "/randomization/regenerate")
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := false
+		var randomizedID string
+		for i := range cfg.Clients {
+			if cfg.Clients[i].ClientID == clientID {
+				if cfg.Clients[i].Randomization == nil {
+					cfg.Clients[i].Randomization = &ClientRandomization{Enabled: true}
+				}
+				cfg.Clients[i].Randomization.RandomizedID = generateRandomizedID(clientID, cfg.RandomizationSecret)
+				randomizedID = cfg.Clients[i].Randomization.RandomizedID
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"randomized_id": randomizedID})
+	}
+}
+
+func subscriptionURLHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clientID := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		clientID = strings.TrimSuffix(clientID, "/subscription-url")
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var client *Client
+		for i := range cfg.Clients {
+			if cfg.Clients[i].ClientID == clientID {
+				client = &cfg.Clients[i]
+				break
+			}
+		}
+		if client == nil {
+			http.NotFound(w, r)
+			return
+		}
+		subPath := cfg.SubscriptionPath
+		if subPath == "" {
+			subPath = "sub"
+		}
+		var subURL string
+		switch randTypeFor(*client, cfg) {
+		case 1:
+			if client.Randomization != nil && client.Randomization.RandomizedID != "" {
+				subURL = fmt.Sprintf("/%s/%s", subPath, client.Randomization.RandomizedID)
+			} else {
+				subURL = fmt.Sprintf("/%s/%s", subPath, clientID)
+			}
+		case 2:
+			subURL = fmt.Sprintf("/%s/%s", subPath, rotatingHashAt(clientID, cfg.RandomizationSecret, time.Now().Unix()))
+		default:
+			subURL = fmt.Sprintf("/%s/%s", subPath, clientID)
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"url": subURL})
+	}
+}
+
+func autologiHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSONStatus(w, http.StatusOK, map[string]any{"auto_refresh": autologiEnabled(cfg)})
+			return
+		}
+		if r.Method != http.MethodPatch {
+			w.Header().Set("Allow", "GET, PATCH")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			AutoRefresh bool `json:"auto_refresh"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cfg.GlobalSettings == nil {
+			cfg.GlobalSettings = &GlobalSettings{}
+		}
+		if cfg.GlobalSettings.Logs == nil {
+			cfg.GlobalSettings.Logs = &LogsSettings{}
+		}
+		v := req.AutoRefresh
+		cfg.GlobalSettings.Logs.AutoRefresh = &v
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"auto_refresh": req.AutoRefresh})
+	}
+}
+
+// olcRandScope — текущий скоуп рандомизации: both|client_id|crypto (дефолт both).
+func olcRandScope(cfg Config) string {
+	if cfg.GlobalSettings != nil && cfg.GlobalSettings.Subscription != nil {
+		s := strings.TrimSpace(cfg.GlobalSettings.Subscription.RandScope)
+		if s == "client_id" || s == "crypto" {
+			return s
+		}
+	}
+	return "both"
+}
+
+func olcNewRandomizationSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+func olcCryptoRandomizationSecret(cfg Config) string {
+	if strings.TrimSpace(cfg.CryptoRandomizationSecret) != "" {
+		return cfg.CryptoRandomizationSecret
+	}
+	return cfg.RandomizationSecret
+}
+func olcCryptoRandTypeFor(client Client, cfg Config) int {
+	if olcRandScope(cfg) == "client_id" {
+		return 0
+	}
+	if globalRandomizationEnabled(cfg) {
+		if cfg.GlobalSettings != nil && cfg.GlobalSettings.Subscription != nil && cfg.GlobalSettings.Subscription.RandType == 2 {
+			return 2
+		}
+		return 1
+	}
+	if client.Randomization != nil && client.Randomization.Enabled {
+		if client.Randomization.RandType == 2 {
+			return 2
+		}
+		return 1
+	}
+	return 0
+}
+func olcApplyRandScopeTransition(cfg *Config, ac *olcAccessControl, sc string) (int, int, error) {
+	oldScope := olcRandScope(*cfg)
+	if cfg.CryptoRandomizationSecret == "" {
+		cfg.CryptoRandomizationSecret = cfg.RandomizationSecret
+	}
+	if sc == "crypto" && oldScope != "crypto" {
+		secret, err := olcNewRandomizationSecret()
+		if err != nil {
+			return 0, 0, err
+		}
+		cfg.RandomizationSecret = secret
+		for i := range cfg.Clients {
+			if cfg.Clients[i].Randomization != nil {
+				cfg.Clients[i].Randomization.RandomizedID = ""
+			}
+		}
+	}
+	if sc == "client_id" && oldScope != "client_id" {
+		secret, err := olcNewRandomizationSecret()
+		if err != nil {
+			return 0, 0, err
+		}
+		cfg.CryptoRandomizationSecret = secret
+	}
+	cfg.GlobalSettings.Subscription.RandScope = sc
+	if sc != "crypto" {
+		for i := range cfg.Clients {
+			c := &cfg.Clients[i]
+			if randTypeFor(*c, *cfg) == 1 {
+				if c.Randomization == nil {
+					c.Randomization = &ClientRandomization{}
+				}
+				if c.Randomization.RandomizedID == "" {
+					c.Randomization.RandomizedID = generateRandomizedID(c.ClientID, cfg.RandomizationSecret)
+				}
+			}
+		}
+	}
+	subReset, connReset := 0, 0
+	if sc == "crypto" {
+		if ac.Mode == "keyrand" {
+			ac.Mode = "monitor"
+			subReset++
+		}
+		for _, cc := range ac.Clients {
+			if cc != nil && cc.Mode == "keyrand" {
+				cc.Mode = "monitor"
+				subReset++
+			}
+		}
+	}
+	if sc == "client_id" {
+		if ac.ConnMode == "keyrand" || ac.EnforceConns {
+			ac.ConnMode = "off"
+			ac.EnforceConns = false
+			connReset++
+		}
+		for _, cc := range ac.Clients {
+			if cc != nil && (cc.ConnMode == "keyrand" || cc.ConnEnforce) {
+				cc.ConnMode = "off"
+				cc.ConnEnforce = false
+				connReset++
+			}
+		}
+	}
+	return subReset, connReset, nil
+}
+
+// randomizationScopeHandler — GET/PATCH скоупа рандомизации НЕЗАВИСИМО от enable/type.
+func randomizationScopeHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSONStatus(w, http.StatusOK, map[string]any{"rand_scope": olcRandScope(cfg)})
+			return
+		}
+		if r.Method != http.MethodPatch && r.Method != http.MethodPut && r.Method != http.MethodPost {
+			w.Header().Set("Allow", "GET, PATCH")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			RandScope string `json:"rand_scope"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		sc := strings.TrimSpace(req.RandScope)
+		if sc != "client_id" && sc != "crypto" {
+			sc = "both"
+		}
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cfg.GlobalSettings == nil {
+			cfg.GlobalSettings = &GlobalSettings{}
+		}
+		if cfg.GlobalSettings.Subscription == nil {
+			cfg.GlobalSettings.Subscription = &SubscriptionSettings{}
+		}
+		oldCfg := cfg
+		ac := olcAccessLoad()
+		subReset, connReset, transitionErr := olcApplyRandScopeTransition(&cfg, &ac, sc)
+		if transitionErr != nil {
+			http.Error(w, transitionErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if subReset > 0 || connReset > 0 {
+			if err := olcAccessSave(ac); err != nil {
+				_ = saveConfig(configPath, oldCfg)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if _, affected, syncErr := olcSyncCryptoRandomization(cfg); syncErr != nil {
+			http.Error(w, syncErr.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			olcRestartCryptoClients(cfg, affected)
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"rand_scope": sc, "subscription_plus_reset": subReset, "connection_plus_reset": connReset})
+	}
+}
+
+func globalRandomizationHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			gt := 0
+			if cfg.GlobalSettings != nil && cfg.GlobalSettings.Subscription != nil {
+				gt = cfg.GlobalSettings.Subscription.RandType
+			}
+			writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": globalRandomizationEnabled(cfg), "rand_type": gt, "rand_scope": olcRandScope(cfg)})
+			return
+		}
+		if r.Method != http.MethodPatch {
+			w.Header().Set("Allow", "GET, PATCH")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Enabled  bool `json:"enabled"`
+			RandType int  `json:"rand_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cfg.GlobalSettings == nil {
+			cfg.GlobalSettings = &GlobalSettings{}
+		}
+		if cfg.GlobalSettings.Subscription == nil {
+			cfg.GlobalSettings.Subscription = &SubscriptionSettings{}
+		}
+		cfg.GlobalSettings.Subscription.RandomizationEnabled = req.Enabled
+		if req.Enabled {
+			rt := req.RandType
+			if rt != 1 && rt != 2 {
+				rt = 1
+			}
+			cfg.GlobalSettings.Subscription.RandType = rt
+		} else {
+			cfg.GlobalSettings.Subscription.RandType = 0
+		}
+		if err := saveConfig(configPath, cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, affected, syncErr := olcSyncCryptoRandomization(cfg); syncErr != nil {
+			http.Error(w, syncErr.Error(), http.StatusInternalServerError)
+			return
+		} else {
+			olcRestartCryptoClients(cfg, affected)
+		}
+		if globalSupervisor != nil {
+			globalSupervisor.UpdateSettings(cfg)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]any{"enabled": req.Enabled, "rand_type": cfg.GlobalSettings.Subscription.RandType})
+	}
+}
+
+func subscriptionHandler(supervisor *Supervisor) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedID, ok := clientIDFromSubscriptionPath(r.URL.Path, supervisor.SubscriptionPath())
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		supervisor.mu.RLock()
+		cfg := supervisor.cfg
+		supervisor.mu.RUnlock()
+
+		// Контроль доступа по hwid устройства (глобальный + per-client). Попытка
+		// фиксируется ВСЕГДА (и при выключенном контроле, и при рандомизации).
+		// Бан-лист (устройства/IP/ban_no_hwid) действует в ЛЮБОМ режиме;
+		// enforce дополнительно блокирует неизвестных. Allowed в журнале =
+		// фактический исход (получил подписку или нет).
+		olcAC := olcAccessLoad()
+		olcHwid := strings.TrimSpace(r.Header.Get("x-hwid"))
+		olcIP := remoteHost(r)
+		olcCanonicalID := olcCanonicalClientID(requestedID, cfg)
+		olcActive, olcAllowedDev, olcDeny, olcMode := olcAccessDecision(olcAC, olcCanonicalID, olcHwid, olcIP)
+		olcPass := !olcDeny && (olcMode != "enforce" || olcAllowedDev)
+		if olcActive {
+			olcAccessRecordAttempt(olcAccessAttempt{
+				TS: time.Now().UTC().Format(time.RFC3339), HWID: olcHwid, IP: olcIP,
+				UA: r.Header.Get("User-Agent"), ClientID: olcCanonicalID, Path: r.URL.Path, Allowed: olcPass,
+			})
+			if !olcPass {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		// Разрешённое устройство может брать подписку по ОРИГИНАЛЬНОМУ client-id даже
+		// при включённой рандомизации; остальным — только рандомизированный id.
+		resolvedClientID, err := olcResolveClientIDWithAccess(requestedID, cfg, olcAccessOriginalIDBypass(olcMode, olcActive, olcAllowedDev, olcDeny))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Автосмена ключей (Z5-B): ротация на МОМЕНТ фетча подписки (синхронно с
+		// автообновлением olcbox — фетч==применение). Свободные инстансы клиента
+		// получают новый ключ и отдаются в ЭТОМ же ответе; занятые пропускаются.
+		olcKeyRotationOnFetch(supervisor, resolvedClientID)
+
+		sub, ok := supervisor.SubscriptionForClient(resolvedClientID, time.Now())
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		if hours := subscriptionRefreshHours(cfg, resolvedClientID); hours > 0 {
+			w.Header().Set("profile-update-interval", strconv.Itoa(hours))
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(sub))
+	})
+}
+
+func adminAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass := adminCredentials(configPathFromRequest(r))
+		if user == "" || pass == "" {
+			writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"setup_required": true})
+			return
+		}
+		if cookie, err := r.Cookie("olcrtc_session"); err == nil && adminSessions.Valid(cookie.Value) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		remote := remoteHost(r)
+		if authLimiter.Blocked(remote) {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, "too many auth failures; retry in 60 seconds", http.StatusTooManyRequests)
+			return
+		}
+		gotUser, gotPass, ok := r.BasicAuth()
+		if !ok {
+			// A missing/expired browser session is not a password attempt. The UI
+			// can issue several cookie-less API requests while switching to the
+			// login view; counting those requests locked the browser before submit.
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userOK := subtle.ConstantTimeCompare([]byte(gotUser), []byte(user)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(gotPass), []byte(pass)) == 1
+		if !userOK || !passOK {
+			authLimiter.Fail(remote)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		authLimiter.Reset(remote)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func configPathFromRequest(r *http.Request) string {
+	if value, ok := r.Context().Value(configPathContextKey{}).(string); ok {
+		return value
+	}
+	return adminConfigPath
+}
+
+type configPathContextKey struct{}
+
+func authMeHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		user, pass := adminCredentials(configPath)
+		if user == "" || pass == "" {
+			writeJSON(w, map[string]any{"authenticated": false, "setup_required": true})
+			return
+		}
+		if cookie, err := r.Cookie("olcrtc_session"); err == nil && adminSessions.Valid(cookie.Value) {
+			writeJSON(w, map[string]any{"authenticated": true, "user": user})
+			return
+		}
+		writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"authenticated": false})
+	}
+}
+
+func loginHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			User     string `json:"user"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		user, pass := adminCredentials(configPath)
+		if user == "" || pass == "" {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{"setup_required": true})
+			return
+		}
+		remote := remoteHost(r)
+		if authLimiter.Blocked(remote) {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, "too many auth failures; retry in 60 seconds", http.StatusTooManyRequests)
+			return
+		}
+		userOK := subtle.ConstantTimeCompare([]byte(req.User), []byte(user)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(req.Password), []byte(pass)) == 1
+		if user == "" || pass == "" || !userOK || !passOK {
+			authLimiter.Fail(remote)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		authLimiter.Reset(remote)
+		token, err := adminSessions.Create()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		setSessionCookie(w, token)
+		writeJSON(w, map[string]any{"authenticated": true, "user": user})
+	}
+}
+
+func setupHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if user, pass := adminCredentials(configPath); user != "" && pass != "" {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{"setup_required": false})
+			return
+		}
+		var req struct {
+			User     string `json:"user"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.User = strings.TrimSpace(req.User)
+		if req.User == "" {
+			req.User = "admin"
+		}
+		if len(req.Password) < 8 {
+			http.Error(w, "password must contain at least 8 characters", http.StatusBadRequest)
+			return
+		}
+		if err := updatePanelEnvPassword(configPath, req.User, req.Password); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		token, err := adminSessions.Create()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		setSessionCookie(w, token)
+		writeJSON(w, map[string]any{"authenticated": true, "user": req.User})
+	}
+}
+
+func setSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "olcrtc_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(adminSessionTTL.Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if cookie, err := r.Cookie("olcrtc_session"); err == nil {
+		adminSessions.Delete(cookie.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: "olcrtc_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func changePasswordHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			CurrentPassword string `json:"current_password"`
+			NewPassword     string `json:"new_password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		user, pass := adminCredentials(configPath)
+		if subtle.ConstantTimeCompare([]byte(req.CurrentPassword), []byte(pass)) != 1 {
+			http.Error(w, "current password is invalid", http.StatusUnauthorized)
+			return
+		}
+		if len(req.NewPassword) < 8 {
+			http.Error(w, "new password must contain at least 8 characters", http.StatusBadRequest)
+			return
+		}
+		if err := updatePanelEnvPassword(configPath, user, req.NewPassword); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		adminSessions.Clear()
+		writeJSON(w, map[string]any{"changed": true})
+	}
+}
+
+func adminCredentials(configPath string) (string, string) {
+	user := os.Getenv("OLCRTC_MANAGER_USER")
+	pass := os.Getenv("OLCRTC_MANAGER_PASS")
+	envPath := panelEnvPath(configPath)
+	if values, err := readEnvFile(envPath); err == nil {
+		user = defaultString(values["OLCRTC_MANAGER_USER"], user)
+		pass = defaultString(values["OLCRTC_MANAGER_PASS"], pass)
+	}
+	return user, pass
+}
+
+func currentAdminUser(configPath string) string {
+	user, _ := adminCredentials(configPath)
+	return user
+}
+
+func panelEnvPath(configPath string) string {
+	if path := os.Getenv("OLCRTC_MANAGER_ENV_FILE"); path != "" {
+		return path
+	}
+	if configPath != "" {
+		return filepath.Join(filepath.Dir(configPath), "panel.env")
+	}
+	return "/etc/olcrtc-manager/panel.env"
+}
+
+func readEnvFile(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		values[strings.TrimSpace(parts[0])] = strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+	}
+	return values, nil
+}
+
+func updatePanelEnvPassword(configPath, user, pass string) error {
+	path := panelEnvPath(configPath)
+	values, _ := readEnvFile(path)
+	if values == nil {
+		values = make(map[string]string)
+	}
+	values["OLCRTC_MANAGER_USER"] = defaultString(user, "admin")
+	values["OLCRTC_MANAGER_PASS"] = pass
+	data := fmt.Sprintf("OLCRTC_MANAGER_USER=%s\nOLCRTC_MANAGER_PASS=%s\n", shellQuote(values["OLCRTC_MANAGER_USER"]), shellQuote(values["OLCRTC_MANAGER_PASS"]))
+	return os.WriteFile(path, []byte(data), 0o600)
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+type authLimiterState struct {
+	count int
+	until time.Time
+}
+
+type authLimiterType struct {
+	mu    sync.Mutex
+	state map[string]authLimiterState
+}
+
+func newAuthLimiter() *authLimiterType {
+	return &authLimiterType{state: make(map[string]authLimiterState)}
+}
+
+func (l *authLimiterType) Blocked(remote string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	state, ok := l.state[remote]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	if now.Before(state.until) {
+		return true
+	}
+	// A completed lockout starts a clean attempt window. Keeping count >= 5
+	// made the very next typo immediately lock the address for another minute.
+	if !state.until.IsZero() {
+		delete(l.state, remote)
+	}
+	return false
+}
+
+func (l *authLimiterType) Fail(remote string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	state := l.state[remote]
+	state.count++
+	if state.count >= 5 {
+		state.until = time.Now().Add(time.Minute)
+	}
+	l.state[remote] = state
+}
+
+func (l *authLimiterType) Reset(remote string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.state, remote)
+}
+
+const adminSessionTTL = 30 * 24 * time.Hour
+
+func sessionFilePath(configPath string) string {
+	if v := strings.TrimSpace(os.Getenv("OLCRTC_MANAGER_SESSIONS")); v != "" {
+		return v
+	}
+	return filepath.Join("/var/lib/olcrtc", "manager-sessions.json")
+}
+
+func (s *sessionStore) loadFromDisk() {
+	path := s.persistPath
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var raw map[string]string
+	if json.Unmarshal(data, &raw) != nil {
+		return
+	}
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, exp := range raw {
+		if t, err := time.Parse(time.RFC3339, exp); err == nil && now.Before(t) {
+			s.sessions[token] = t
+		}
+	}
+}
+
+func (s *sessionStore) persistLocked() {
+	if s.persistPath == "" {
+		return
+	}
+	raw := make(map[string]string, len(s.sessions))
+	for token, exp := range s.sessions {
+		raw[token] = exp.UTC().Format(time.RFC3339)
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(s.persistPath), 0o700)
+	_ = os.WriteFile(s.persistPath, data, 0o600)
+}
+
+type sessionStore struct {
+	mu          sync.Mutex
+	sessions    map[string]time.Time
+	persistPath string
+}
+
+func newSessionStore() *sessionStore {
+	s := &sessionStore{sessions: make(map[string]time.Time), persistPath: sessionFilePath("")}
+	s.loadFromDisk()
+	return s
+}
+
+func newSessionStoreForConfig(configPath string) *sessionStore {
+	s := &sessionStore{sessions: make(map[string]time.Time), persistPath: sessionFilePath(configPath)}
+	s.loadFromDisk()
+	return s
+}
+
+func (s *sessionStore) Create() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(buf)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[token] = time.Now().Add(adminSessionTTL)
+	s.persistLocked()
+	return token, nil
+}
+
+func (s *sessionStore) Valid(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	expires, ok := s.sessions[token]
+	if !ok {
+		return false
+	}
+	if time.Now().After(expires) {
+		delete(s.sessions, token)
+		return false
+	}
+	return true
+}
+
+func (s *sessionStore) Delete(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, token)
+	s.persistLocked()
+}
+
+func (s *sessionStore) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions = make(map[string]time.Time)
+	s.persistLocked()
+}
+
+func remoteHost(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func adminFileServer() (http.Handler, error) {
+	dist, err := fs.Sub(adminAssets, "web/dist")
+	if err != nil {
+		return nil, fmt.Errorf("load admin assets: %w", err)
+	}
+	return http.FileServer(http.FS(dist)), nil
+}
+
+func adminPageHandler(files http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		r.URL.Path = "/"
+		files.ServeHTTP(w, r)
+	}
+}
+
+// ============================================================================
+// Olc-cost-l: Backup / Restore — экспорт-импорт ВСЕХ данных панели.
+//
+// Устойчивость к версиям: экспорт хранит СЫРОЙ config.json (generic JSON, поля
+// не теряются) + сопутствующие файлы; импорт делает ПОКЛЮЧЕВОЙ deep-merge
+// (значения бэкапа поверх текущих дефолтов). Стабильные идентификаторы = ключи
+// JSON. Все данные — только у пользователя, хранятся локально.
+//
+// !!! ПРИ ИЗМЕНЕНИИ UI/НАСТРОЕК: если добавляете настройку/состояние/файл,
+// который должен переживать переустановку — он ДОЛЖЕН попасть в config.json или
+// в backupExtraFiles() ниже; при переименовании ключа — миграция в migrateBackup().
+// ============================================================================
+
+const olcBackupSchemaVersion = 1
+
+// backupHostID binds an export to the VPS that created it.  It is deliberately
+// not used as an authentication secret; it only prevents an accidental import
+// of identical room+key bindings on another host.
+func backupHostID() string {
+	if raw, err := os.ReadFile("/etc/machine-id"); err == nil {
+		if id := strings.TrimSpace(string(raw)); id != "" {
+			return id
+		}
+	}
+	host, _ := os.Hostname()
+	return strings.TrimSpace(host)
+}
+
+func backupHasRoomKey(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		if endpoint, ok := x["endpoint"].(map[string]any); ok {
+			room, _ := endpoint["room_id"].(string)
+			key, _ := endpoint["key"].(string)
+			if strings.TrimSpace(room) != "" && strings.TrimSpace(key) != "" {
+				return true
+			}
+		}
+		for _, child := range x {
+			if backupHasRoomKey(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if backupHasRoomKey(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// backupExtraFiles: файлы настроек/состояния (кроме config.json), входящие в
+// бэкап. Ключ — стабильный ид в конверте бэкапа, значение — путь на диске.
+// ДОБАВЛЯЙТЕ СЮДА новые файлы настроек, которые должны переживать перенос.
+func backupExtraFiles(configPath string) map[string]string {
+	dir := filepath.Dir(configPath)
+	return map[string]string{
+		"panel_env":              filepath.Join(dir, "panel.env"),
+		"features_env":           filepath.Join(dir, "features.env"),
+		"deploy_profile":         filepath.Join(dir, "deploy-profile.json"),
+		"notification_settings":  notificationSettingsPath,
+		"instance_defaults":      instanceDefaultsPath,
+		"access_control":         "/var/lib/olcrtc/access-control.json",
+		"key_rotation":           "/var/lib/olcrtc/key-rotation.json",
+		"key_randomization":      "/var/lib/olcrtc/key-randomization.json",
+		"bridge_sources":         "/var/lib/olcrtc/bridge-sources.json",
+		"force_tor_domains":      "/var/lib/olcrtc/force-tor-domains.txt",
+		"ru_blocked_tor_domains": "/var/lib/olcrtc/ru-blocked-tor-domains.txt",
+		"custom_direct_domains":  "/var/lib/olcrtc/lists/custom-direct-domains.txt",
+		"ru_domains_extra":       "/var/lib/olcrtc/ru-domains-extra.txt",
+		"split_discovered":       "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
+		"split_panel_hosts":      "/var/lib/olcrtc/lists/panel-carrier-hosts.txt",
+		"split_panel_cidrs":      "/var/lib/olcrtc/lists/panel-carrier-cidrs.txt",
+		"zapret_exclude_domains": "/var/lib/olcrtc/zapret-custom/exclude-domains.txt",
+		"zapret_force_domains":   "/var/lib/olcrtc/zapret-custom/force-domains.txt",
+		"zapret_strategy":        filepath.Join(dir, "zapret.strategy"),
+		"zapret_sync_cron":       "/etc/cron.d/olcrtc-zapret-sync",
+		"tor_exit_env":           filepath.Join(dir, "tor-exit.env"),
+		"tor_exit_exclude_env":   filepath.Join(dir, "tor-exit-exclude.env"),
+		"torrc":                  "/etc/tor/torrc",
+		"tor_bridges":            "/etc/tor/bridges.conf",
+		"tor_user_bridges":       "/var/lib/olcrtc/tor-user-bridges.txt",
+		"bridge_profiles":        "/var/lib/olcrtc/bridge-profiles.json",
+		"bridge_pool_cron":       "/etc/cron.d/olcrtc-bridge-pool",
+		"install_profile":        "/var/lib/olcrtc/install-profile.json",
+		"github_env":             filepath.Join(dir, "github.env"),
+		"access_attempts":        "/var/lib/olcrtc/access-attempts.json",
+		"access_connections":     "/var/lib/olcrtc/access-connections.json",
+		"removed_zapret":         "/var/lib/olcrtc/component-removed/zapret",
+		"removed_tor":            "/var/lib/olcrtc/component-removed/tor",
+		"removed_split":          "/var/lib/olcrtc/component-removed/split",
+		"removed_bridges":        "/var/lib/olcrtc/component-removed/bridges",
+		"removed_warp":           "/var/lib/olcrtc/component-removed/warp",
+	}
+}
+
+// backupFileBeforeRestore keeps every import reversible, including auxiliary files.
+// config.json has its own backupConfig() path; this helper covers extras.
+func backupFileBeforeRestore(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	mode := os.FileMode(0o600)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	stamp := time.Now().UTC().Format("20060102-150405.000000000")
+	return os.WriteFile(path+".bak-import-"+stamp, data, mode)
+}
+
+func writeBackupFileAtomic(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := backupFileBeforeRestore(path); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func restoreBackupExtra(path string, ev map[string]any) bool {
+	switch kind, _ := ev["kind"].(string); kind {
+	case "json":
+		bv, ok := ev["value"]
+		if !ok {
+			return false
+		}
+		merged := bv
+		if backupMap, isMap := bv.(map[string]any); isMap {
+			cur := map[string]any{}
+			if raw, err := os.ReadFile(path); err == nil {
+				_ = json.Unmarshal(raw, &cur)
+			}
+			merged = deepMergeJSON(cur, backupMap)
+		}
+		out, err := json.MarshalIndent(merged, "", "  ")
+		return err == nil && writeBackupFileAtomic(path, append(out, '\n'), 0o600) == nil
+	case "env":
+		vals, ok := ev["values"].(map[string]any)
+		if !ok {
+			return false
+		}
+		kv := map[string]string{}
+		for k, v := range vals {
+			kv[k] = fmt.Sprintf("%v", v)
+		}
+		if backupFileBeforeRestore(path) != nil {
+			return false
+		}
+		return mergeEnvFile(path, kv) == nil
+	case "text":
+		value, ok := ev["value"].(string)
+		return ok && writeBackupFileAtomic(path, []byte(value), 0o600) == nil
+	default:
+		return false
+	}
+}
+
+// deepMergeJSON: значения src (бэкап) поверх dst (текущее). Вложенные объекты
+// сливаются по ключам; массивы и скаляры src ЗАМЕНЯЮТ dst целиком (список
+// клиентов/локаций/инстансов восстанавливается как есть). Схемо-независимо.
+func deepMergeJSON(dst, src map[string]any) map[string]any {
+	if dst == nil {
+		dst = map[string]any{}
+	}
+	for k, sv := range src {
+		if sm, ok := sv.(map[string]any); ok {
+			if dm, ok := dst[k].(map[string]any); ok {
+				dst[k] = deepMergeJSON(dm, sm)
+				continue
+			}
+		}
+		dst[k] = sv
+	}
+	return dst
+}
+
+// mergeEnvFile: обновляет KEY= строки значениями kv, сохраняя прочие строки и
+// комментарии; недостающие ключи дописывает. Возвращает nil при успехе.
+func mergeEnvFile(path string, kv map[string]string) error {
+	var lines []string
+	if data, err := os.ReadFile(path); err == nil {
+		lines = strings.Split(string(data), "\n")
+	}
+	seen := map[string]bool{}
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(trimmed, "=", 2)[0])
+		if val, ok := kv[key]; ok {
+			lines[i] = key + "=\"" + val + "\""
+			seen[key] = true
+		}
+	}
+	var missing []string
+	for k := range kv {
+		if !seen[k] {
+			missing = append(missing, k)
+		}
+	}
+	sort.Strings(missing)
+	for _, k := range missing {
+		lines = append(lines, k+"=\""+kv[k]+"\"")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
+}
+
+// migrateBackup: хук миграции старых бэкапов на текущую схему.
+// ПРИ ПЕРЕИМЕНОВАНИИ/ПЕРЕЕЗДЕ ключей настроек добавляйте преобразование здесь,
+// сверяясь с версией sv (например: if sv < 2 { ...перенос старого ключа... }).
+func migrateBackup(sv int, env map[string]any) map[string]any {
+	// schema_version 1 — базовая. Будущие версии добавляют шаги ниже.
+	return env
+}
+
+func backupExportHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		env := map[string]any{
+			"olc_backup":     true,
+			"schema_version": olcBackupSchemaVersion,
+			"app":            "olcrtc-manager",
+			"source_host_id": backupHostID(),
+			"created_at":     time.Now().UTC().Format(time.RFC3339),
+			"note":           "Эти данные принадлежат только вам и хранятся локально на устройстве с панелью. Сервер их никуда не отправляет.",
+		}
+		// config.json — сырой generic JSON (поля не теряются между версиями)
+		if raw, err := os.ReadFile(configPath); err == nil {
+			var cfg any
+			if json.Unmarshal(raw, &cfg) == nil {
+				env["config"] = cfg
+			}
+		}
+		extras := map[string]any{}
+		for key, path := range backupExtraFiles(configPath) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			if strings.HasSuffix(path, ".json") {
+				var v any
+				if json.Unmarshal(data, &v) == nil {
+					extras[key] = map[string]any{"kind": "json", "value": v}
+				}
+			} else if strings.HasSuffix(path, ".env") {
+				kv, _ := readEnvFile(path)
+				vals := map[string]any{}
+				for k, val := range kv {
+					vals[k] = val
+				}
+				extras[key] = map[string]any{"kind": "env", "values": vals}
+			} else {
+				extras[key] = map[string]any{"kind": "text", "value": string(data)}
+			}
+		}
+		env["extras"] = extras
+		manifest := []string{"config"}
+		for k := range extras {
+			manifest = append(manifest, k)
+		}
+		sort.Strings(manifest)
+		env["manifest"] = manifest
+
+		fname := "olc-backup-" + time.Now().UTC().Format("20060102-150405") + ".json"
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+fname+"\"")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(env)
+		appendAudit(configPath, "backup_export", strings.Join(manifest, ","))
+	}
+}
+
+// backupFirstRunImportHandler solves the clean-install bootstrap: a complete
+// backup contains panel.env credentials, but the normal import route requires
+// those credentials. This route exists only while no panel credentials exist.
+func backupFirstRunImportHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, pass := adminCredentials(configPath)
+		if user != "" || pass != "" {
+			writeJSONStatus(w, http.StatusConflict, map[string]string{"error": "first-run import is available only before panel setup"})
+			return
+		}
+		q := r.URL.Query()
+		q.Set("first_run", "1")
+		r.URL.RawQuery = q.Encode()
+		backupImportHandler(configPath).ServeHTTP(w, r)
+	}
+}
+
+func backupImportHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20)) // 64 MiB (много инстансов/значений)
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "read body: " + err.Error()})
+			return
+		}
+		var env map[string]any
+		if err := json.Unmarshal(body, &env); err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "неверный JSON бэкапа: " + err.Error()})
+			return
+		}
+		if v, _ := env["olc_backup"].(bool); !v {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "это не файл бэкапа Olc-cost-l (нет поля olc_backup)"})
+			return
+		}
+		sv := 0
+		if fv, ok := env["schema_version"].(float64); ok {
+			sv = int(fv)
+		}
+		if sv > olcBackupSchemaVersion {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("бэкап новее панели (schema_version=%d > %d) — обновите панель", sv, olcBackupSchemaVersion)})
+			return
+		}
+		env = migrateBackup(sv, env)
+
+		// Importing the same room+key bindings on a second VPS creates an
+		// indistinguishable live server clone.  Refuse before writing anything;
+		// the UI may retry only after an explicit, prominent confirmation.
+		sourceHost, _ := env["source_host_id"].(string)
+		currentHost := backupHostID()
+		foreignHost := sourceHost == "" || currentHost == "" || sourceHost != currentHost
+		if backupHasRoomKey(env["config"]) && foreignHost && r.URL.Query().Get("confirm_foreign_host") != "1" {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error":                 "Бэкап создан на другом VPS или не содержит идентификатор хоста. Импорт тех же room+key может запустить сервер-двойник.",
+				"code":                  "foreign_host_confirmation_required",
+				"requires_confirmation": true,
+				"source_host_id":        sourceHost,
+				"current_host_id":       currentHost,
+			})
+			return
+		}
+
+		restored := []string{}
+		// config.json — deep-merge поверх текущего (данные бэкапа выигрывают, новые
+		// дефолты новой версии сохраняются). Снимок текущего — в backups/.
+		if bc, ok := env["config"].(map[string]any); ok {
+			cur := map[string]any{}
+			if raw, err := os.ReadFile(configPath); err == nil {
+				_ = json.Unmarshal(raw, &cur)
+			}
+			merged := deepMergeJSON(cur, bc)
+			if out, err := json.MarshalIndent(merged, "", "  "); err == nil {
+				backupConfig(configPath)
+				tmp := configPath + ".tmp"
+				if os.WriteFile(tmp, append(out, '\n'), 0o600) == nil && os.Rename(tmp, configPath) == nil {
+					restored = append(restored, "config")
+				}
+			}
+		}
+		if extras, ok := env["extras"].(map[string]any); ok {
+			for key, path := range backupExtraFiles(configPath) {
+				ev, ok := extras[key].(map[string]any)
+				if !ok {
+					continue
+				}
+				if restoreBackupExtra(path, ev) {
+					restored = append(restored, key)
+				}
+			}
+		}
+		sort.Strings(restored)
+		appendAudit(configPath, "backup_import", strings.Join(restored, ","))
+		if r.URL.Query().Get("first_run") == "1" {
+			token, err := adminSessions.Create()
+			if err != nil {
+				writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			setSessionCookie(w, token)
+		}
+		writeJSON(w, map[string]any{
+			"status":   "ok",
+			"restored": restored,
+			"note":     "Данные восстановлены. Нажмите «Перезапустить панель» ниже, чтобы применить их.",
+		})
+	}
+}
+
+func backupRestartHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		appendAudit(configPath, "backup_restart", "requested from panel")
+		writeJSON(w, map[string]any{"status": "ok", "restarting": true})
+		// Same proven deferred-restart pattern as feature toggles: let the HTTP
+		// response reach the browser before systemd stops this process.
+		go func() {
+			time.Sleep(250 * time.Millisecond)
+			cmd := exec.Command("bash", "-c", "nohup bash -c 'sleep 1; systemctl restart olcrtc-manager.service' >>/var/log/olcrtc-backup-restart.log 2>&1 &")
+			_ = cmd.Run()
+		}()
+	}
+}
+
+// ============================================================================
+// Olc-cost-l: контроль доступа к подписке по hwid устройства.
+// olcbox шлёт x-hwid (стабильный per-install id) + User-Agent при запросе подписки.
+// allowlist разрешённых hwid + журнал попыток (с группировкой/Count). Хранение —
+// отдельные JSON-файлы (в бэкапе). См. docs/ACCESS-CONTROL.md.
+// !!! ПРИ ИЗМЕНЕНИИ формата — учтите бэкап (backupExtraFiles), UI и API.
+// ============================================================================
+
+var olcAccessControlPath = "/var/lib/olcrtc/access-control.json"
+
+const olcAccessAttemptsPath = "/var/lib/olcrtc/access-attempts.json"
+const olcAccessAttemptsMax = 200
+
+var olcAccessMu sync.Mutex
+var olcAccessConfigMu sync.Mutex
+
+// olcAllowedDevice: запись allowlist. Enabled=false — доступ временно отключён, но
+// запись сохраняется (можно вернуть). Label — понятное имя («я», «друг»).
+type olcAllowedDevice struct {
+	HWID    string `json:"hwid"`
+	Label   string `json:"label,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
+// olcAllowedIP: разрешённый IP с флагом включения (галочка в UI, как у устройств).
+// СОВМЕСТИМОСТЬ: в JSON принимает и legacy-строку ("1.2.3.4" → enabled=true),
+// и объект {ip, enabled} — существующие конфиги читаются без миграции.
+type olcAllowedIP struct {
+	IP      string `json:"ip"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (a *olcAllowedIP) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		a.IP = strings.TrimSpace(s)
+		a.Enabled = true
+		return nil
+	}
+	type olcAllowedIPAlias olcAllowedIP
+	var v olcAllowedIPAlias
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	v.IP = strings.TrimSpace(v.IP)
+	*a = olcAllowedIP(v)
+	return nil
+}
+
+// olcClientAccess: индивидуальный контроль доступа для ОДНОЙ подписки (клиента).
+// Mode: "inherit" (как глобально) | "off" | "monitor" | "enforce". Allow — доп.
+// разрешённые для этой подписки; Ban — забаненные (блок независимо от allow).
+// ConnEnforce/ConnScope/ConnInstances — ВЫБОРОЧНЫЙ контроль ПОДКЛЮЧЕНИЯ этой
+// подписки (действует, только когда глобальный enforce_connections ВЫКЛЮЧЕН):
+// ConnScope "all" (все инстансы) | "selective" (только room_id из ConnInstances).
+type olcClientAccess struct {
+	Mode          string             `json:"mode"`
+	Allow         []olcAllowedDevice `json:"allow"`
+	Ban           []olcAllowedDevice `json:"ban"`
+	AllowIPs      []olcAllowedIP     `json:"allow_ips,omitempty"` // разрешённые IP ТОЛЬКО для этой подписки (галочка = вкл/выкл)
+	BanIPs        []olcAllowedIP     `json:"ban_ips,omitempty"`   // забаненные IP этой подписки — действуют ВСЕГДА (и в «Выключено»)
+	BanNoHwid     bool               `json:"ban_no_hwid"`         // блок запросов без hwid для этой подписки
+	ConnAllow     []olcAllowedDevice `json:"conn_allow"`          // разрешённые устройства ПОДКЛЮЧЕНИЯ этой подписки (ОТДЕЛЬНО)
+	ConnBan       []olcAllowedDevice `json:"conn_ban"`            // забаненные устройства ПОДКЛЮЧЕНИЯ этой подписки (ОТДЕЛЬНО)
+	ConnEnforce   bool               `json:"conn_enforce"`
+	ConnMode      string             `json:"conn_mode,omitempty"`      // Olc-cost-l 🔌 off|keyrand|enforce
+	ConnScope     string             `json:"conn_scope"`               // "all" | "selective"
+	ConnInstances []string           `json:"conn_instances,omitempty"` // room_id инстансов при selective
+}
+
+type olcDeviceLabelState struct {
+	Label     string `json:"label"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	LastSeen  string `json:"last_seen,omitempty"`
+}
+
+type olcAccessControl struct {
+	Enabled       bool                           `json:"enabled"`
+	Mode          string                         `json:"mode"` // "monitor" | "enforce"
+	Devices       []olcAllowedDevice             `json:"devices"`
+	Ban           []olcAllowedDevice             `json:"ban"`                      // глобальный бан (по hwid)
+	BanNoHwid     bool                           `json:"ban_no_hwid"`              // блокировать запросы без hwid (Compatibility)
+	EnforceConns  bool                           `json:"enforce_connections"`      // энфорсить на УРОВНЕ ПОДКЛЮЧЕНИЯ (AuthHook); default off
+	ConnDevices   []olcAllowedDevice             `json:"conn_devices"`             // разрешённые устройства ПОДКЛЮЧЕНИЯ (ОТДЕЛЬНО от devices)
+	ConnBan       []olcAllowedDevice             `json:"conn_ban"`                 // забаненные устройства ПОДКЛЮЧЕНИЯ (ОТДЕЛЬНО от ban)
+	ConnScope     string                         `json:"conn_scope,omitempty"`     // ГЛОБАЛЬНЫЙ scope контроля подключения: "all" (пусто=all) | "selective"
+	ConnMode      string                         `json:"conn_mode,omitempty"`      // Olc-cost-l 🔌 глоб: off|keyrand|enforce (при вкл рандомизации)
+	ConnInstances []string                       `json:"conn_instances,omitempty"` // room_id инстансов при selective (по ВСЕМ клиентам); вайтлист: невыбранный инстанс не пускает никого
+	Clients       map[string]*olcClientAccess    `json:"clients,omitempty"`        // per-подписка
+	DeviceLabels  map[string]olcDeviceLabelState `json:"device_labels,omitempty"`
+	AllowedHWIDs  []string                       `json:"allowed_hwids,omitempty"` // legacy, мигрируется
+	AllowedIPs    []olcAllowedIP                 `json:"allowed_ips,omitempty"`
+	BanIPs        []olcAllowedIP                 `json:"ban_ips,omitempty"` // забаненные IP (подписка) — действуют ВСЕГДА (и в «Выключено»)
+	UpdatedAt     string                         `json:"updated_at,omitempty"`
+}
+
+type olcAccessAttempt struct {
+	TS       string `json:"ts"`       // последняя попытка
+	FirstTS  string `json:"first_ts"` // первая попытка (для группировки)
+	HWID     string `json:"hwid"`
+	IP       string `json:"ip"`
+	UA       string `json:"ua"`
+	ClientID string `json:"client_id"`
+	Path     string `json:"path"`
+	Allowed  bool   `json:"allowed"`
+	Label    string `json:"label,omitempty"`
+	Count    int    `json:"count"` // сколько раз это устройство запрашивало (без спама)
+}
+
+func olcAccessLoad() olcAccessControl {
+	ac := olcAccessControl{Enabled: false, Mode: "monitor", Devices: []olcAllowedDevice{}, AllowedIPs: []olcAllowedIP{}}
+	if data, err := os.ReadFile(olcAccessControlPath); err == nil {
+		_ = json.Unmarshal(data, &ac)
+	}
+	if ac.Mode != "enforce" && ac.Mode != "keyrand" {
+		ac.Mode = "monitor"
+	}
+	if ac.Devices == nil {
+		ac.Devices = []olcAllowedDevice{}
+	}
+	if ac.Ban == nil {
+		ac.Ban = []olcAllowedDevice{}
+	}
+	if ac.ConnDevices == nil {
+		ac.ConnDevices = []olcAllowedDevice{}
+	}
+	if ac.ConnBan == nil {
+		ac.ConnBan = []olcAllowedDevice{}
+	}
+	// миграция legacy allowed_hwids -> devices (каждый включён)
+	if len(ac.Devices) == 0 && len(ac.AllowedHWIDs) > 0 {
+		for _, h := range ac.AllowedHWIDs {
+			if strings.TrimSpace(h) != "" {
+				ac.Devices = append(ac.Devices, olcAllowedDevice{HWID: strings.TrimSpace(h), Enabled: true})
+			}
+		}
+	}
+	ac.AllowedHWIDs = nil
+	if ac.AllowedIPs == nil {
+		ac.AllowedIPs = []olcAllowedIP{}
+	}
+	if ac.BanIPs == nil {
+		ac.BanIPs = []olcAllowedIP{}
+	}
+	if ac.Clients == nil {
+		ac.Clients = map[string]*olcClientAccess{}
+	}
+	olcAccessSyncDeviceLabels(&ac)
+	return ac
+}
+
+// olcConnMatch — есть ли dev во включённых записях списка.
+func olcConnMatch(list []olcAllowedDevice, dev string) bool {
+	for _, d := range list {
+		if d.Enabled && strings.TrimSpace(d.HWID) != "" && strings.EqualFold(strings.TrimSpace(d.HWID), dev) {
+			return true
+		}
+	}
+	return false
+}
+
+func olcConnCount(lists ...[]olcAllowedDevice) int {
+	n := 0
+	for _, l := range lists {
+		for _, d := range l {
+			if d.Enabled && strings.TrimSpace(d.HWID) != "" {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// olcConnAllowed — зеркало AuthHook olcrtc-core: разрешено ли устройству dev
+// подключение к инстансу (clientID/roomID) при ТЕКУЩЕМ access-control. Учитывает
+// глобальный enforce_connections и выборочный per-client conn_enforce.
+// БАН-ЛИСТ подключения действует ВСЕГДА (даже при выключенном энфорсе —
+// «Выключено (пускать всех, кроме бан-листа)», сессия №17) → бан рвёт сессию сразу.
+func olcConnAllowed(ac olcAccessControl, clientID, roomID, hwid string) bool {
+	dev := strings.TrimSpace(hwid)
+	decide := func(banNoHwid bool, allow, ban []olcAllowedDevice) bool {
+		if olcConnMatch(ban, dev) {
+			return false
+		}
+		if dev == "" {
+			return !banNoHwid
+		}
+		if olcConnMatch(allow, dev) {
+			return true
+		}
+		return false // не в списке (в т.ч. пустой) — блок
+	}
+	decideBanOnly := func(banNoHwid bool, ban []olcAllowedDevice) bool {
+		if olcConnMatch(ban, dev) {
+			return false
+		}
+		if dev == "" && banNoHwid {
+			return false
+		}
+		return true
+	}
+	// Глобальный вкл → глобальный энфорс; выборочный per-client НЕ действует.
+	if ac.Enabled {
+		if ac.EnforceConns {
+			if ac.ConnScope == "selective" {
+				inList := false
+				for _, r := range ac.ConnInstances {
+					if strings.TrimSpace(r) == strings.TrimSpace(roomID) && roomID != "" {
+						inList = true
+						break
+					}
+				}
+				if !inList {
+					return false // глоб. selective = вайтлист инстансов: не выбран → запрет
+				}
+			}
+			return decide(ac.BanNoHwid, ac.ConnDevices, ac.ConnBan)
+		}
+		return decideBanOnly(ac.BanNoHwid, ac.ConnBan)
+	}
+	// Глобальный ВЫКЛ → работает выборочный per-client.
+	if ac.Clients != nil {
+		if cc, ok := ac.Clients[clientID]; ok && cc != nil {
+			if cc.ConnEnforce {
+				enforced := true
+				if cc.ConnScope == "selective" {
+					enforced = false
+					inList := false
+					for _, r := range cc.ConnInstances {
+						if strings.TrimSpace(r) == strings.TrimSpace(roomID) && roomID != "" {
+							enforced = true
+							inList = true
+							break
+						}
+					}
+					if !inList {
+						return false // инстанс НЕ выбран → подключение запрещено
+					}
+				}
+				if enforced {
+					return decide(cc.BanNoHwid, cc.ConnAllow, cc.ConnBan)
+				}
+			} else {
+				return decideBanOnly(cc.BanNoHwid, cc.ConnBan)
+			}
+		}
+	}
+	return true
+}
+
+// olcDropForbiddenSessions — с сессии №18 НЕ рестартует инстансы: точечный кик
+// нарушителя делает ЯДРО (ban-watcher, ≤2с, только его сессия). Здесь лишь
+// логируем в journalctl, каким ЖИВЫМ девайсам доступ отозван этим сохранением
+// (по peer-summary «Current peers count» — живые пиры, источник истины).
+func olcDropForbiddenSessions(ac olcAccessControl) {
+	if panelSupervisor == nil {
+		return
+	}
+	go func() {
+		panelSupervisor.mu.RLock()
+		procs := make([]*process, 0, len(panelSupervisor.processes))
+		for _, p := range panelSupervisor.processes {
+			procs = append(procs, p)
+		}
+		panelSupervisor.mu.RUnlock()
+		for _, p := range procs {
+			if p == nil || p.logs == nil {
+				continue
+			}
+			cid := p.location.ClientID
+			room := p.location.Endpoint.RoomID
+			seen := map[string]bool{}
+			if pc, devs, _, ok := p.currentPeerSummary(); ok && pc > 0 {
+				for _, dev := range devs {
+					dev = strings.TrimSpace(dev)
+					if dev == "" || seen[dev] {
+						continue
+					}
+					seen[dev] = true
+					if !olcConnAllowed(ac, cid, room, dev) {
+						log.Printf("olc-access: revoked live dev=%s inst=%s/%s — kick ядром (ban-watcher, ~2с)", dev, cid, room)
+					}
+				}
+			}
+		}
+	}()
+}
+
+var olcDeviceLineRe = regexp.MustCompile(`device=([^\s)]+)`)
+
+func olcAccessSyncDeviceLabels(ac *olcAccessControl) {
+	if ac == nil {
+		return
+	}
+	if ac.DeviceLabels == nil {
+		ac.DeviceLabels = map[string]olcDeviceLabelState{}
+	}
+	now := time.Now().UTC()
+	member := map[string]bool{}
+	lists := [][]olcAllowedDevice{ac.Devices, ac.Ban, ac.ConnDevices, ac.ConnBan}
+	for _, cc := range ac.Clients {
+		if cc != nil {
+			lists = append(lists, cc.Allow, cc.Ban, cc.ConnAllow, cc.ConnBan)
+		}
+	}
+	for _, list := range lists {
+		for _, d := range list {
+			h := strings.ToLower(strings.TrimSpace(d.HWID))
+			if h == "" {
+				continue
+			}
+			member[h] = true
+			if label := strings.TrimSpace(d.Label); label != "" {
+				cur := ac.DeviceLabels[h]
+				if cur.Label != label {
+					cur.Label, cur.UpdatedAt = label, now.Format(time.RFC3339)
+				}
+				if cur.UpdatedAt == "" {
+					cur.UpdatedAt = now.Format(time.RFC3339)
+				}
+				ac.DeviceLabels[h] = cur
+			}
+		}
+	}
+	hydrate := func(list []olcAllowedDevice) {
+		for i := range list {
+			if list[i].Label == "" {
+				list[i].Label = ac.DeviceLabels[strings.ToLower(strings.TrimSpace(list[i].HWID))].Label
+			}
+		}
+	}
+	hydrate(ac.Devices)
+	hydrate(ac.Ban)
+	hydrate(ac.ConnDevices)
+	hydrate(ac.ConnBan)
+	for _, cc := range ac.Clients {
+		if cc != nil {
+			hydrate(cc.Allow)
+			hydrate(cc.Ban)
+			hydrate(cc.ConnAllow)
+			hydrate(cc.ConnBan)
+		}
+	}
+	lastSeen := map[string]string{}
+	for _, a := range olcAccessLoadAttempts() {
+		h := strings.ToLower(strings.TrimSpace(a.HWID))
+		if h != "" && a.TS > lastSeen[h] {
+			lastSeen[h] = a.TS
+		}
+	}
+	var cj struct {
+		Records []*olcConnRecord `json:"records"`
+	}
+	if data, err := os.ReadFile(olcConnJournalPath); err == nil {
+		_ = json.Unmarshal(data, &cj)
+	}
+	for _, rec := range cj.Records {
+		if rec != nil {
+			h := strings.ToLower(strings.TrimSpace(rec.Device))
+			if h != "" && rec.Last > lastSeen[h] {
+				lastSeen[h] = rec.Last
+			}
+		}
+	}
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	for h, entry := range ac.DeviceLabels {
+		if seen := lastSeen[h]; seen > entry.LastSeen {
+			entry.LastSeen = seen
+			ac.DeviceLabels[h] = entry
+		}
+		if member[h] {
+			continue
+		}
+		ref := entry.LastSeen
+		if entry.UpdatedAt > ref {
+			ref = entry.UpdatedAt
+		}
+		when, err := time.Parse(time.RFC3339, ref)
+		if ref == "" || (err == nil && when.Before(cutoff)) {
+			delete(ac.DeviceLabels, h)
+		}
+	}
+}
+
+func olcAccessLabel(ac olcAccessControl, hwid string) string {
+	return ac.DeviceLabels[strings.ToLower(strings.TrimSpace(hwid))].Label
+}
+
+func olcAccessSave(ac olcAccessControl) error {
+	olcAccessSyncDeviceLabels(&ac)
+	ac.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := os.MkdirAll(filepath.Dir(olcAccessControlPath), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(ac, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := olcAccessControlPath + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, olcAccessControlPath); err != nil {
+		return err
+	}
+	olcDropForbiddenSessions(ac) // лог отозванных живых девайсов (кик — ядром)
+	return nil
+}
+
+func olcAccessLoadAttempts() []olcAccessAttempt {
+	var out struct {
+		Attempts []olcAccessAttempt `json:"attempts"`
+	}
+	if data, err := os.ReadFile(olcAccessAttemptsPath); err == nil {
+		_ = json.Unmarshal(data, &out)
+	}
+	if out.Attempts == nil {
+		out.Attempts = []olcAccessAttempt{}
+	}
+	return out.Attempts
+}
+
+// olcAccessRecordAttempt: группирует по (hwid, client_id) — не спамит журнал
+// повторами, а увеличивает Count и обновляет время последней попытки.
+func olcAccessRecordAttempt(a olcAccessAttempt) {
+	olcAccessMu.Lock()
+	defer olcAccessMu.Unlock()
+	list := olcAccessLoadAttempts()
+	key := strings.ToLower(a.HWID) + "|" + a.ClientID
+	for i := range list {
+		if strings.ToLower(list[i].HWID)+"|"+list[i].ClientID == key {
+			list[i].Count++
+			list[i].TS = a.TS
+			list[i].IP = a.IP
+			list[i].UA = a.UA
+			list[i].Allowed = a.Allowed
+			list[i].Path = a.Path
+			// переместить в конец (самое свежее — внизу)
+			item := list[i]
+			list = append(list[:i], list[i+1:]...)
+			list = append(list, item)
+			_olcAccessWriteAttempts(list)
+			return
+		}
+	}
+	a.Count = 1
+	a.FirstTS = a.TS
+	list = append(list, a)
+	if len(list) > olcAccessAttemptsMax {
+		list = list[len(list)-olcAccessAttemptsMax:]
+	}
+	_olcAccessWriteAttempts(list)
+}
+
+func _olcAccessWriteAttempts(list []olcAccessAttempt) {
+	_ = os.MkdirAll(filepath.Dir(olcAccessAttemptsPath), 0o755)
+	data, err := json.MarshalIndent(map[string]any{"attempts": list}, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := olcAccessAttemptsPath + ".tmp"
+	if os.WriteFile(tmp, append(data, '\n'), 0o600) == nil {
+		_ = os.Rename(tmp, olcAccessAttemptsPath)
+	}
+}
+
+// olcAccessDecision: сводит глобальный + per-client контроль в решение для запроса
+// подписки клиента clientID устройством hwid/ip.
+//
+//	active — всегда true (журнал попыток ведётся ВСЕГДА — редизайн UX сессии №17);
+//	allowed — устройство разрешено (глоб. devices / per-client allow / allow-IP);
+//	deny — жёсткий бан (ban / ban_ips / ban_no_hwid) — блокирует В ЛЮБОМ режиме,
+//	       в т.ч. «Выключено» (бан-лист действует всегда);
+//	mode — эффективный режим: "monitor" (= «Выключено»: пускать всех, кроме
+//	       бан-листа, лог) | "enforce" («Блокировать неизвестных»).
+//
+// ГЛОБАЛЬНЫЙ контроль (enabled) использует ТОЛЬКО глобальные списки; когда он
+// выключен — работает ВЫБОРОЧНЫЙ per-client (clients[clientID]) со своими
+// списками. Взаимоисключающе (как в UI: при вкл. глобальном шестерёнка недоступна).
+// СЕМАНТИКА (сессия №17): режимы off/monitor per-client СЛИТЫ в «Выключено»
+// (= monitor-поведение); отсутствующая per-client запись = «Выключено» с пустыми
+// списками (лог всё равно пишется).
+// olcAccessIPMatches supports a single address, CIDR, or an inclusive range
+// "first-last". Rules are deliberately shared by global and per-client access.
+func olcAccessIPMatches(rule, observed string) bool {
+	rule = strings.TrimSpace(rule)
+	observedAddr, err := netip.ParseAddr(strings.TrimSpace(observed))
+	if rule == "" || err != nil {
+		return false
+	}
+	observedAddr = observedAddr.Unmap()
+	if dash := strings.Index(rule, "-"); dash > 0 && dash < len(rule)-1 {
+		lo, loErr := netip.ParseAddr(strings.TrimSpace(rule[:dash]))
+		hi, hiErr := netip.ParseAddr(strings.TrimSpace(rule[dash+1:]))
+		if loErr != nil || hiErr != nil {
+			return false
+		}
+		lo, hi = lo.Unmap(), hi.Unmap()
+		return observedAddr.Is4() == lo.Is4() && lo.Is4() == hi.Is4() && lo.Compare(hi) <= 0 && observedAddr.Compare(lo) >= 0 && observedAddr.Compare(hi) <= 0
+	}
+	if prefix, prefixErr := netip.ParsePrefix(rule); prefixErr == nil {
+		return prefix.Masked().Contains(observedAddr)
+	}
+	exact, exactErr := netip.ParseAddr(rule)
+	return exactErr == nil && exact.Unmap() == observedAddr
+}
+
+func olcCanonicalClientID(requestedID string, cfg Config) string {
+	for _, client := range cfg.Clients {
+		if client.ClientID == requestedID {
+			return client.ClientID
+		}
+	}
+	if resolved, err := resolveClientID(requestedID, cfg); err == nil {
+		return resolved
+	}
+	return requestedID
+}
+
+func olcAccessDecision(ac olcAccessControl, clientID, hwid, ip string) (active bool, allowed bool, deny bool, mode string) {
+	var banNoHwid bool
+	var bans, allows []olcAllowedDevice
+	var allowIPs, banIPs []olcAllowedIP
+	if ac.Enabled {
+		mode = "monitor"
+		if ac.Mode == "enforce" || ac.Mode == "keyrand" {
+			mode = ac.Mode
+		}
+		banNoHwid = ac.BanNoHwid
+		bans, allows = ac.Ban, ac.Devices
+		allowIPs, banIPs = ac.AllowedIPs, ac.BanIPs
+	} else {
+		var cc *olcClientAccess
+		if ac.Clients != nil {
+			cc = ac.Clients[clientID]
+		}
+		mode = "monitor" // «Выключено»: пускать всех (кроме бан-листа), лог
+		if cc != nil {
+			if cc.Mode == "enforce" || cc.Mode == "keyrand" {
+				mode = cc.Mode
+			}
+			banNoHwid = cc.BanNoHwid
+			bans, allows = cc.Ban, cc.Allow
+			allowIPs, banIPs = cc.AllowIPs, cc.BanIPs
+		}
+	}
+	active = true
+	hw := strings.TrimSpace(hwid)
+	ipt := strings.TrimSpace(ip)
+	if hw == "" && banNoHwid {
+		return true, false, true, mode
+	}
+	for _, b := range bans {
+		if b.Enabled && strings.TrimSpace(b.HWID) != "" && strings.EqualFold(strings.TrimSpace(b.HWID), hw) {
+			return true, false, true, mode
+		}
+	}
+	for _, bip := range banIPs {
+		if bip.Enabled && bip.IP != "" && olcAccessIPMatches(bip.IP, ipt) {
+			return true, false, true, mode
+		}
+	}
+	for _, a := range allows {
+		if a.Enabled && strings.TrimSpace(a.HWID) != "" && strings.EqualFold(strings.TrimSpace(a.HWID), hw) {
+			return true, true, false, mode
+		}
+	}
+	for _, aip := range allowIPs {
+		if aip.Enabled && aip.IP != "" && olcAccessIPMatches(aip.IP, ipt) {
+			return true, true, false, mode
+		}
+	}
+	return true, false, false, mode
+}
+
+func olcAccessAllowed(ac olcAccessControl, hwid, ip string) bool {
+	for _, d := range ac.Devices {
+		if d.Enabled && d.HWID != "" && strings.EqualFold(strings.TrimSpace(d.HWID), strings.TrimSpace(hwid)) {
+			return true
+		}
+	}
+	for _, a := range ac.AllowedIPs {
+		if a.Enabled && a.IP != "" && strings.TrimSpace(a.IP) == strings.TrimSpace(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// olcResolveClientIDWithAccess: разрешённому устройству (bypass) позволяет брать
+// подписку по ОРИГИНАЛЬНОМУ client-id даже при включённой рандомизации; иначе —
+// обычный resolveClientID (рандомизированный id / 404 для оригинала под рандомом).
+func olcAccessOriginalIDBypass(mode string, active, allowed, deny bool) bool {
+	return active && allowed && !deny && (mode == "keyrand" || mode == "enforce")
+}
+
+func olcResolveClientIDWithAccess(requestedID string, cfg Config, bypass bool) (string, error) {
+	if bypass {
+		for _, client := range cfg.Clients {
+			if client.ClientID == requestedID {
+				return requestedID, nil
+			}
+		}
+	}
+	return resolveClientID(requestedID, cfg)
+}
+
+func accessSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, olcAccessLoad())
+	case http.MethodPut, http.MethodPost:
+		// ЧАСТИЧНОЕ обновление: применяются ТОЛЬКО присланные поля (nil = не трогать).
+		// Раньше PUT заменял булевы/списки телом целиком → сохранение со stale
+		// state молча затирало параллельные изменения.
+		var in struct {
+			Enabled       *bool              `json:"enabled"`
+			Mode          *string            `json:"mode"`
+			Devices       []olcAllowedDevice `json:"devices"`
+			Ban           []olcAllowedDevice `json:"ban"`
+			BanNoHwid     *bool              `json:"ban_no_hwid"`
+			EnforceConns  *bool              `json:"enforce_connections"`
+			ConnDevices   []olcAllowedDevice `json:"conn_devices"`
+			ConnBan       []olcAllowedDevice `json:"conn_ban"`
+			ConnScope     *string            `json:"conn_scope"`
+			ConnMode      *string            `json:"conn_mode"`
+			ConnInstances []string           `json:"conn_instances"`
+			AllowedIPs    []olcAllowedIP     `json:"allowed_ips"`
+			BanIPs        []olcAllowedIP     `json:"ban_ips"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		olcAccessConfigMu.Lock()
+		defer olcAccessConfigMu.Unlock()
+		cur := olcAccessLoad()
+		if in.Enabled != nil {
+			cur.Enabled = *in.Enabled
+		}
+		if in.Mode != nil && (*in.Mode == "enforce" || *in.Mode == "monitor" || *in.Mode == "keyrand") {
+			cur.Mode = *in.Mode
+		}
+		if in.Devices != nil {
+			cur.Devices = olcAccessNormalizeDevices(in.Devices)
+		}
+		if in.Ban != nil {
+			cur.Ban = olcAccessNormalizeDevices(in.Ban)
+		}
+		if in.BanNoHwid != nil {
+			cur.BanNoHwid = *in.BanNoHwid
+		}
+		if in.EnforceConns != nil {
+			cur.EnforceConns = *in.EnforceConns
+		}
+		if in.ConnDevices != nil {
+			cur.ConnDevices = olcAccessNormalizeDevices(in.ConnDevices)
+		}
+		if in.ConnBan != nil {
+			cur.ConnBan = olcAccessNormalizeDevices(in.ConnBan)
+		}
+		if in.ConnScope != nil {
+			s := *in.ConnScope
+			if s != "selective" {
+				s = "all"
+			}
+			cur.ConnScope = s
+		}
+		if in.ConnMode != nil {
+			m := *in.ConnMode
+			if m != "keyrand" && m != "enforce" {
+				m = "off"
+			}
+			cur.ConnMode = m
+		}
+		if in.ConnInstances != nil {
+			cur.ConnInstances = olcAccessDedup(in.ConnInstances)
+		}
+		if in.AllowedIPs != nil {
+			cur.AllowedIPs = olcAccessDedupIPs(in.AllowedIPs)
+		}
+		if in.BanIPs != nil {
+			cur.BanIPs = olcAccessDedupIPs(in.BanIPs)
+		}
+		log.Printf("olc-access: global saved: enabled=%t mode=%s devices=%d ban=%d ips=%d ban_ips=%d enforce_conns=%t conn_devices=%d conn_ban=%d scope=%s insts=%d", cur.Enabled, cur.Mode, len(cur.Devices), len(cur.Ban), len(cur.AllowedIPs), len(cur.BanIPs), cur.EnforceConns, len(cur.ConnDevices), len(cur.ConnBan), cur.ConnScope, len(cur.ConnInstances))
+		if err := olcAccessSave(cur); err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, cur)
+	default:
+		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+func accessAttemptsHandler(w http.ResponseWriter, r *http.Request) {
+	list := olcAccessLoadAttempts()
+	ac := olcAccessLoad()
+	for i := range list {
+		list[i].Label = olcAccessLabel(ac, list[i].HWID)
+	}
+	writeJSON(w, map[string]any{"attempts": list})
+}
+
+func accessAttemptsClearHandler(w http.ResponseWriter, r *http.Request) {
+	olcAccessMu.Lock()
+	cid := strings.TrimSpace(r.URL.Query().Get("client_id"))
+	hwid := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("hwid")))
+	if hwid != "" {
+		kept := []olcAccessAttempt{}
+		for _, a := range olcAccessLoadAttempts() {
+			if strings.ToLower(strings.TrimSpace(a.HWID)) != hwid {
+				kept = append(kept, a)
+			}
+		}
+		_olcAccessWriteAttempts(kept)
+	} else if cid != "" {
+		// очистить только записи конкретной подписки
+		kept := []olcAccessAttempt{}
+		for _, a := range olcAccessLoadAttempts() {
+			if a.ClientID != cid {
+				kept = append(kept, a)
+			}
+		}
+		_olcAccessWriteAttempts(kept)
+	} else {
+		_olcAccessWriteAttempts([]olcAccessAttempt{})
+	}
+	olcAccessMu.Unlock()
+	writeJSON(w, map[string]any{"status": "ok"})
+}
+
+func accessAllowHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		HWID  string `json:"hwid"`
+		Label string `json:"label"`
+		IP    string `json:"ip"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	ac := olcAccessLoad()
+	if h := strings.TrimSpace(body.HWID); h != "" {
+		ac.Devices = olcAccessUpsertDevice(ac.Devices, olcAllowedDevice{HWID: h, Label: strings.TrimSpace(body.Label), Enabled: true})
+	}
+	if ip := strings.TrimSpace(body.IP); ip != "" {
+		ac.AllowedIPs = olcAccessDedupIPs(append(ac.AllowedIPs, olcAllowedIP{IP: ip, Enabled: true}))
+	}
+	if err := olcAccessSave(ac); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, ac)
+}
+
+// accessDeviceHandler: обновить запись устройства — переименовать (label) и/или
+// включить/выключить (enabled), НЕ теряя из allowlist. POST {hwid, label?, enabled}.
+func accessDeviceHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		HWID    string  `json:"hwid"`
+		Label   *string `json:"label"`
+		Enabled *bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	h := strings.TrimSpace(body.HWID)
+	if h == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "hwid required"})
+		return
+	}
+	ac := olcAccessLoad()
+	found := false
+	for i := range ac.Devices {
+		if strings.EqualFold(strings.TrimSpace(ac.Devices[i].HWID), h) {
+			if body.Label != nil {
+				ac.Devices[i].Label = strings.TrimSpace(*body.Label)
+			}
+			if body.Enabled != nil {
+				ac.Devices[i].Enabled = *body.Enabled
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		d := olcAllowedDevice{HWID: h, Enabled: true}
+		if body.Label != nil {
+			d.Label = strings.TrimSpace(*body.Label)
+		}
+		if body.Enabled != nil {
+			d.Enabled = *body.Enabled
+		}
+		ac.Devices = append(ac.Devices, d)
+	}
+	if err := olcAccessSave(ac); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, ac)
+}
+
+// accessClientHandler: индивидуальный контроль доступа для подписки.
+//
+//	GET  /api/access/client?client_id=ID → текущая per-client конфигурация;
+//	POST /api/access/client {client_id, mode?, allow?[], ban?[]} → сохранить;
+//	  mode="inherit" (или пустой allow+ban) удаляет per-client override.
+func accessClientHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		id := strings.TrimSpace(r.URL.Query().Get("client_id"))
+		ac := olcAccessLoad()
+		if cc, ok := ac.Clients[id]; ok && cc != nil {
+			writeJSON(w, cc)
+			return
+		}
+		writeJSON(w, olcClientAccess{Mode: "inherit", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []olcAllowedIP{}, BanIPs: []olcAllowedIP{}, ConnAllow: []olcAllowedDevice{}, ConnBan: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}})
+		return
+	}
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	// ЧАСТИЧНОЕ обновление (как в settings): применяются ТОЛЬКО присланные поля.
+	// Раньше POST заменял ВСЮ запись телом запроса — любое сохранение со stale
+	// state UI молча стирало параллельные изменения (у юзера так слетел conn_ban
+	// через 6с после бана). nil-слайс = поле не прислано = не трогать; [] = очистить.
+	var body struct {
+		ClientID      string             `json:"client_id"`
+		Mode          *string            `json:"mode"`
+		Allow         []olcAllowedDevice `json:"allow"`
+		Ban           []olcAllowedDevice `json:"ban"`
+		AllowIPs      []olcAllowedIP     `json:"allow_ips"`
+		BanIPs        []olcAllowedIP     `json:"ban_ips"`
+		BanNoHwid     *bool              `json:"ban_no_hwid"`
+		ConnAllow     []olcAllowedDevice `json:"conn_allow"`
+		ConnBan       []olcAllowedDevice `json:"conn_ban"`
+		ConnEnforce   *bool              `json:"conn_enforce"`
+		ConnScope     *string            `json:"conn_scope"`
+		ConnMode      *string            `json:"conn_mode"`
+		ConnInstances []string           `json:"conn_instances"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	id := strings.TrimSpace(body.ClientID)
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "client_id required"})
+		return
+	}
+	olcAccessConfigMu.Lock()
+	defer olcAccessConfigMu.Unlock()
+	ac := olcAccessLoad()
+	cc := ac.Clients[id]
+	if cc == nil {
+		cc = &olcClientAccess{Mode: "off", Allow: []olcAllowedDevice{}, Ban: []olcAllowedDevice{}, AllowIPs: []olcAllowedIP{}, BanIPs: []olcAllowedIP{}, ConnAllow: []olcAllowedDevice{}, ConnBan: []olcAllowedDevice{}, ConnScope: "all", ConnInstances: []string{}}
+	}
+	if body.Mode != nil && (*body.Mode == "off" || *body.Mode == "monitor" || *body.Mode == "enforce" || *body.Mode == "keyrand") {
+		cc.Mode = *body.Mode
+	}
+	if body.Allow != nil {
+		cc.Allow = olcAccessNormalizeDevices(body.Allow)
+	}
+	if body.Ban != nil {
+		cc.Ban = olcAccessNormalizeDevices(body.Ban)
+	}
+	if body.AllowIPs != nil {
+		cc.AllowIPs = olcAccessDedupIPs(body.AllowIPs)
+	}
+	if body.BanIPs != nil {
+		cc.BanIPs = olcAccessDedupIPs(body.BanIPs)
+	}
+	if body.BanNoHwid != nil {
+		cc.BanNoHwid = *body.BanNoHwid
+	}
+	if body.ConnAllow != nil {
+		cc.ConnAllow = olcAccessNormalizeDevices(body.ConnAllow)
+	}
+	if body.ConnBan != nil {
+		cc.ConnBan = olcAccessNormalizeDevices(body.ConnBan)
+	}
+	if body.ConnEnforce != nil {
+		cc.ConnEnforce = *body.ConnEnforce
+	}
+	if body.ConnScope != nil {
+		s := *body.ConnScope
+		if s != "selective" {
+			s = "all"
+		}
+		cc.ConnScope = s
+	}
+	if body.ConnMode != nil {
+		m := *body.ConnMode
+		if m != "keyrand" && m != "enforce" {
+			m = "off"
+		}
+		cc.ConnMode = m
+	}
+	if body.ConnInstances != nil {
+		cc.ConnInstances = olcAccessDedup(body.ConnInstances)
+	}
+	if cc.Allow == nil {
+		cc.Allow = []olcAllowedDevice{}
+	}
+	if cc.Ban == nil {
+		cc.Ban = []olcAllowedDevice{}
+	}
+	if cc.AllowIPs == nil {
+		cc.AllowIPs = []olcAllowedIP{}
+	}
+	if cc.BanIPs == nil {
+		cc.BanIPs = []olcAllowedIP{}
+	}
+	if cc.ConnAllow == nil {
+		cc.ConnAllow = []olcAllowedDevice{}
+	}
+	if cc.ConnBan == nil {
+		cc.ConnBan = []olcAllowedDevice{}
+	}
+	if cc.ConnInstances == nil {
+		cc.ConnInstances = []string{}
+	}
+	if cc.ConnScope == "" {
+		cc.ConnScope = "all"
+	}
+	ac.Clients[id] = cc
+	log.Printf("olc-access: client %s saved: mode=%s allow=%d ban=%d allow_ips=%d ban_ips=%d conn_allow=%d conn_ban=%d conn_enforce=%t scope=%s insts=%d", id, cc.Mode, len(cc.Allow), len(cc.Ban), len(cc.AllowIPs), len(cc.BanIPs), len(cc.ConnAllow), len(cc.ConnBan), cc.ConnEnforce, cc.ConnScope, len(cc.ConnInstances))
+	if err := olcAccessSave(ac); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, ac)
+}
+
+func accessRemoveHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		HWID string `json:"hwid"`
+		IP   string `json:"ip"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	ac := olcAccessLoad()
+	if h := strings.TrimSpace(body.HWID); h != "" {
+		next := ac.Devices[:0]
+		for _, d := range ac.Devices {
+			if !strings.EqualFold(strings.TrimSpace(d.HWID), h) {
+				next = append(next, d)
+			}
+		}
+		ac.Devices = next
+	}
+	if ip := strings.TrimSpace(body.IP); ip != "" {
+		next := ac.AllowedIPs[:0]
+		for _, x := range ac.AllowedIPs {
+			if strings.TrimSpace(x.IP) != ip {
+				next = append(next, x)
+			}
+		}
+		ac.AllowedIPs = next
+	}
+	if err := olcAccessSave(ac); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, ac)
+}
+
+// olcAccessUpsertDevice: добавить/обновить устройство по hwid (не дублируя).
+func olcAccessUpsertDevice(list []olcAllowedDevice, d olcAllowedDevice) []olcAllowedDevice {
+	for i := range list {
+		if strings.EqualFold(strings.TrimSpace(list[i].HWID), strings.TrimSpace(d.HWID)) {
+			list[i].Enabled = true
+			if d.Label != "" {
+				list[i].Label = d.Label
+			}
+			return list
+		}
+	}
+	return append(list, d)
+}
+
+// olcAccessNormalizeDevices: тримминг + дедуп по hwid.
+func olcAccessNormalizeDevices(in []olcAllowedDevice) []olcAllowedDevice {
+	seen := map[string]bool{}
+	out := []olcAllowedDevice{}
+	for _, d := range in {
+		h := strings.TrimSpace(d.HWID)
+		if h == "" || seen[strings.ToLower(h)] {
+			continue
+		}
+		seen[strings.ToLower(h)] = true
+		out = append(out, olcAllowedDevice{HWID: h, Label: strings.TrimSpace(d.Label), Enabled: d.Enabled})
+	}
+	return out
+}
+
+func olcAccessDedupIPs(in []olcAllowedIP) []olcAllowedIP {
+	seen := map[string]bool{}
+	out := []olcAllowedIP{}
+	for _, x := range in {
+		v := strings.TrimSpace(x.IP)
+		if v == "" || seen[strings.ToLower(v)] {
+			continue
+		}
+		seen[strings.ToLower(v)] = true
+		out = append(out, olcAllowedIP{IP: v, Enabled: x.Enabled})
+	}
+	return out
+}
+
+func olcAccessDedup(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[strings.ToLower(s)] {
+			continue
+		}
+		seen[strings.ToLower(s)] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// olcConnRecord — запись журнала подключений (персистентная, с накоплением ×N).
+// Count — РЕАЛЬНЫЕ подключения: считаем ТОЛЬКО "peer connected: device=…"
+// (ровно 1 строка на сессию, оба handshake-пути ядра). Раньше считалась ЛЮБАЯ
+// device=-строка (session opened / session … opened (device=…) / disconnected)
+// → одно подключение давало ×3-4 (жалоба юзера, сессия №18).
+// Denied — отклонённые попытки (AuthHook: "conn attempt … allowed=false").
+// Kicked — кики ban-watcher'а ядра ("olc-access: kick dev=…" — живая сессия
+// сброшена по бану). Прочие строки журнал НЕ считает.
+type olcConnRecord struct {
+	Device       string `json:"device"`
+	Label        string `json:"label,omitempty"`
+	ClientID     string `json:"client_id"`
+	LocationName string `json:"location_name"`
+	RoomID       string `json:"room_id"`
+	Transport    string `json:"transport"`
+	Count        int    `json:"count"`
+	Denied       int    `json:"denied,omitempty"`
+	Kicked       int    `json:"kicked,omitempty"`
+	First        string `json:"first"`
+	Last         string `json:"last"`
+	LastDenied   string `json:"last_denied,omitempty"`
+	LastKicked   string `json:"last_kicked,omitempty"`
+}
+
+var (
+	olcConnJournalMu      sync.Mutex
+	olcConnJournal        []*olcConnRecord
+	olcConnJournalLoaded  bool
+	olcConnClearedAt      string                // водяной знак глобальной очистки: строки буфера <= этого времени игнорируются
+	olcConnClearedClients = map[string]string{} // per-client водяные знаки очистки
+)
+
+const olcConnJournalPath = "/var/lib/olcrtc/access-connections.json"
+
+func olcConnKey(dev, cid, room, tr string) string { return dev + "|" + cid + "|" + room + "|" + tr }
+
+func olcConnJournalLoad() {
+	if olcConnJournalLoaded {
+		return
+	}
+	olcConnJournalLoaded = true
+	data, err := os.ReadFile(olcConnJournalPath)
+	if err != nil {
+		return
+	}
+	// v2: объект с водяными знаками очистки (без них clear=1 «не работал»:
+	// журнал мгновенно пересобирался из тех же строк лог-буферов — Урок 60).
+	var v2 struct {
+		ClearedAt      string            `json:"cleared_at"`
+		ClearedClients map[string]string `json:"cleared_clients"`
+		Records        []*olcConnRecord  `json:"records"`
+	}
+	if json.Unmarshal(data, &v2) == nil && (v2.Records != nil || v2.ClearedAt != "" || len(v2.ClearedClients) > 0) {
+		olcConnJournal = v2.Records
+		olcConnClearedAt = v2.ClearedAt
+		if v2.ClearedClients != nil {
+			olcConnClearedClients = v2.ClearedClients
+		}
+		return
+	}
+	var recs []*olcConnRecord // legacy-формат: плоский массив
+	if json.Unmarshal(data, &recs) == nil {
+		olcConnJournal = recs
+	}
+}
+
+func olcConnJournalSave() {
+	_ = os.MkdirAll("/var/lib/olcrtc", 0o755)
+	obj := map[string]any{"cleared_at": olcConnClearedAt, "cleared_clients": olcConnClearedClients, "records": olcConnJournal}
+	if data, err := json.MarshalIndent(obj, "", "  "); err == nil {
+		tmp := olcConnJournalPath + ".tmp"
+		if os.WriteFile(tmp, append(data, '\n'), 0o600) == nil {
+			_ = os.Rename(tmp, olcConnJournalPath)
+		}
+	}
+}
+
+// accessConnectionsHandler: НАКОПИТЕЛЬНЫЙ журнал подключений к инстансам (device=…
+// из per-instance лог-буферов) с привязкой клиент/инстанс и счётчиком ×N. Записи
+// ПЕРСИСТЯТСЯ в access-connections.json — не пропадают при ротации кольцевого
+// буфера и переживают рестарт; повторные подключения увеличивают Count по НОВЫМ
+// строкам (без двойного счёта). ?clear=1 очищает журнал. Read-only.
+func accessConnectionsHandler(w http.ResponseWriter, r *http.Request) {
+	reDevice := regexp.MustCompile(`device=([^\s)]+)`)
+	reKick := regexp.MustCompile(`dev=([^\s)]+)`)
+	olcConnJournalMu.Lock()
+	defer olcConnJournalMu.Unlock()
+	olcConnJournalLoad()
+
+	if strings.TrimSpace(r.URL.Query().Get("clear")) == "1" {
+		now := time.Now().UTC().Format(time.RFC3339)
+		cid := strings.TrimSpace(r.URL.Query().Get("client_id"))
+		hwid := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("hwid")))
+		if hwid != "" {
+			kept := olcConnJournal[:0]
+			for _, rec := range olcConnJournal {
+				if strings.ToLower(strings.TrimSpace(rec.Device)) != hwid {
+					kept = append(kept, rec)
+				}
+			}
+			olcConnJournal = kept
+		} else if cid != "" {
+			// очистить только записи этой подписки + водяной знак (строки буфера
+			// до этого момента не будут пересчитаны заново)
+			kept := olcConnJournal[:0]
+			for _, rec := range olcConnJournal {
+				if rec.ClientID != cid {
+					kept = append(kept, rec)
+				}
+			}
+			olcConnJournal = kept
+			olcConnClearedClients[cid] = now
+		} else {
+			olcConnJournal = nil
+			olcConnClearedAt = now
+		}
+		olcConnJournalSave()
+		writeJSON(w, map[string]any{"connections": []any{}})
+		return
+	}
+
+	index := map[string]*olcConnRecord{}
+	for _, rec := range olcConnJournal {
+		index[olcConnKey(rec.Device, rec.ClientID, rec.RoomID, rec.Transport)] = rec
+	}
+
+	var procs []*process
+	if panelSupervisor != nil {
+		panelSupervisor.mu.RLock()
+		for _, pr := range panelSupervisor.processes {
+			procs = append(procs, pr)
+		}
+		panelSupervisor.mu.RUnlock()
+	}
+	for _, p := range procs {
+		if p == nil || p.logs == nil {
+			continue
+		}
+		cid := p.location.ClientID
+		lname := p.location.Name
+		room := p.location.Endpoint.RoomID
+		tr := p.location.Transport.Type
+		for _, ln := range p.logs.Snapshot() {
+			// водяные знаки очистки: старые строки буфера не пересчитываем
+			if olcConnClearedAt != "" && ln.Time <= olcConnClearedAt {
+				continue
+			}
+			if wm := olcConnClearedClients[cid]; wm != "" && ln.Time <= wm {
+				continue
+			}
+			// классификация: считаем ТОЛЬКО значимые события (см. olcConnRecord)
+			kind := ""
+			dev := ""
+			switch {
+			case strings.Contains(ln.Line, "olc-access: conn attempt") && strings.Contains(ln.Line, "allowed=false"):
+				kind = "denied"
+				if mm := reDevice.FindStringSubmatch(ln.Line); mm != nil {
+					dev = mm[1]
+				}
+			case strings.Contains(ln.Line, "peer connected: device="):
+				kind = "accepted"
+				if mm := reDevice.FindStringSubmatch(ln.Line); mm != nil {
+					dev = mm[1]
+				}
+			case strings.Contains(ln.Line, "olc-access: kick dev="):
+				kind = "kicked"
+				if mm := reKick.FindStringSubmatch(ln.Line); mm != nil {
+					dev = mm[1]
+				}
+			}
+			if kind == "" || dev == "" {
+				continue
+			}
+			key := olcConnKey(dev, cid, room, tr)
+			rec := index[key]
+			if rec == nil {
+				rec = &olcConnRecord{Device: dev, ClientID: cid, LocationName: lname, RoomID: room, Transport: tr}
+				index[key] = rec
+				olcConnJournal = append(olcConnJournal, rec)
+			}
+			if rec.Last == "" || ln.Time > rec.Last {
+				switch kind {
+				case "denied":
+					rec.Denied++
+					rec.LastDenied = ln.Time
+				case "kicked":
+					rec.Kicked++
+					rec.LastKicked = ln.Time
+				default:
+					rec.Count++
+				}
+				rec.Last = ln.Time
+				if rec.First == "" {
+					rec.First = ln.Time
+				}
+				if rec.LocationName == "" {
+					rec.LocationName = lname
+				}
+			}
+		}
+	}
+	if len(olcConnJournal) > 300 {
+		sort.SliceStable(olcConnJournal, func(i, j int) bool { return olcConnJournal[i].Last < olcConnJournal[j].Last })
+		olcConnJournal = olcConnJournal[len(olcConnJournal)-300:]
+	}
+	olcConnJournalSave()
+
+	sorted := append([]*olcConnRecord(nil), olcConnJournal...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Last < sorted[j].Last })
+	list := make([]olcConnRecord, 0, len(sorted))
+	ac := olcAccessLoad()
+	for _, rec := range sorted {
+		copy := *rec
+		copy.Label = olcAccessLabel(ac, copy.Device)
+		list = append(list, copy)
+	}
+	writeJSON(w, map[string]any{"connections": list})
+}
+
+// ============================================================================
+// Olc-cost-l: «♻️ Автосмена ключей» (Z5-B). Перегенерация ОРИГИНАЛЬНОГО ключа
+// шифрования инстансов НА МОМЕНТ ФЕТЧА подписки клиентом (синхронно с
+// автообновлением olcbox — фетч==применение → нет зазора недоступности).
+// Состояние — отдельный файл /var/lib/olcrtc/key-rotation.json (Config не
+// трогаем). Ротация ждёт peers=0 на инстансе (занятые — до следующего круга).
+// См. хендофф Задача №5.
+// ============================================================================
+
+const olcKeyRotationPath = "/var/lib/olcrtc/key-rotation.json"
+
+var olcKeyRotationMu sync.Mutex
+
+// olcConfigPath — путь к config.json (устанавливается при регистрации роутов),
+// нужен ротации, вызываемой из subscriptionHandler (у него нет configPath).
+var olcConfigPath string
+
+// olcKeyRotationCfg — состояние автосмены ключей.
+//
+//	GlobalEnabled — включено ГЛОБАЛЬНО (для всех клиентов+инстансов).
+//	Clients[clientID]=true — включено ВЫБОРОЧНО для этой подписки.
+//	Rounds[clientID] — RFC3339 время последнего КРУГА ротации клиента (для
+//	  отсчёта интервала N часов; занятые инстансы ждут следующего круга).
+type olcKeyRotationCfg struct {
+	GlobalEnabled bool              `json:"global_enabled"`
+	Clients       map[string]bool   `json:"clients,omitempty"`
+	Rounds        map[string]string `json:"rounds,omitempty"`
+}
+
+func olcKeyRotationLoad() olcKeyRotationCfg {
+	rc := olcKeyRotationCfg{Clients: map[string]bool{}, Rounds: map[string]string{}}
+	data, err := os.ReadFile(olcKeyRotationPath)
+	if err != nil {
+		return rc
+	}
+	_ = json.Unmarshal(data, &rc)
+	if rc.Clients == nil {
+		rc.Clients = map[string]bool{}
+	}
+	if rc.Rounds == nil {
+		rc.Rounds = map[string]string{}
+	}
+	return rc
+}
+
+func olcKeyRotationSave(rc olcKeyRotationCfg) error {
+	if err := os.MkdirAll(filepath.Dir(olcKeyRotationPath), 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(rc, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := olcKeyRotationPath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, olcKeyRotationPath)
+}
+
+func olcKeyRotationEnabledFor(rc olcKeyRotationCfg, clientID string) bool {
+	return rc.GlobalEnabled || rc.Clients[clientID]
+}
+
+// olcInstancePeerCount — снимок числа живых пиров по инстансам (ключ =
+// locationKey). Источник — panelSupervisor (то же, что /api/state). Инстанс без
+// peer-summary трактуем как 0 (не подключён) — как в State().
+func olcInstancePeerCount() map[string]int {
+	out := map[string]int{}
+	if panelSupervisor == nil {
+		return out
+	}
+	panelSupervisor.mu.RLock()
+	procs := make(map[string]*process, len(panelSupervisor.processes))
+	for k, p := range panelSupervisor.processes {
+		procs[k] = p
+	}
+	panelSupervisor.mu.RUnlock()
+	for k, p := range procs {
+		if p == nil || p.logs == nil {
+			continue
+		}
+		if pc, _, _, ok := p.currentPeerSummary(); ok {
+			out[k] = pc
+		}
+	}
+	return out
+}
+
+func olcRecentConnectionAttempts(window time.Duration) map[string]int {
+	out := map[string]int{}
+	if panelSupervisor == nil {
+		return out
+	}
+	cutoff := time.Now().UTC().Add(-window)
+	panelSupervisor.mu.RLock()
+	procs := make(map[string]*process, len(panelSupervisor.processes))
+	for key, p := range panelSupervisor.processes {
+		procs[key] = p
+	}
+	panelSupervisor.mu.RUnlock()
+	for key, p := range procs {
+		if p == nil || p.logs == nil {
+			continue
+		}
+		for _, ln := range p.logs.Snapshot() {
+			if !strings.Contains(ln.Line, "olc-access: conn attempt") {
+				continue
+			}
+			ts, err := time.Parse(time.RFC3339Nano, ln.Time)
+			if err == nil && !ts.Before(cutoff) {
+				out[key]++
+			}
+		}
+	}
+	return out
+}
+
+// olcKeyRotationOnFetch — ротация НА МОМЕНТ ФЕТЧА подписки клиентом. Вызывается
+// из subscriptionHandler ПОСЛЕ резолва client_id и ДО построения тела подписки.
+// olcbox фетчит подписку РОВНО когда её применяет (refreshDueSubscriptions: fetch
+// только для DUE-URL по интервалу N) → ротируем СВОБОДНЫЕ инстансы этого клиента
+// и отдаём НОВЫЕ ключи в ЭТОМ ЖЕ ответе → нет зазора недоступности. Гейт по N
+// (rounds[clientID]) защищает от лишних ротаций при частых фетчах (curl/ручной
+// refresh). ЗАНЯТЫЕ инстансы (peers>0 — клиент как раз ими пользуется)
+// пропускаются: их ключ не меняется, живой туннель не рвётся.
+func olcKeyRotationOnFetch(supervisor *Supervisor, clientID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("olc-keyrot: panic recovered: %v", r)
+		}
+	}()
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" || supervisor == nil || olcConfigPath == "" {
+		return
+	}
+	olcKeyRotationMu.Lock()
+	defer olcKeyRotationMu.Unlock()
+
+	rc := olcKeyRotationLoad()
+	if !olcKeyRotationEnabledFor(rc, clientID) {
+		return // ротация для этого клиента не включена — инертно (только чтение мелкого файла)
+	}
+	cfg, err := loadConfig(olcConfigPath)
+	if err != nil {
+		log.Printf("olc-keyrot: load config failed: %v", err)
+		return
+	}
+	cfg.ensureClientsFormat()
+	n := subscriptionRefreshHours(cfg, clientID)
+	if n <= 0 {
+		n = 24 // дефолт olcbox
+	}
+	now := time.Now().UTC()
+	lastStr := rc.Rounds[clientID]
+	if lastStr == "" {
+		// Первый фетч под ротацией: фиксируем точку отсчёта, НЕ ротируя сразу
+		// (первый круг — на СЛЕДУЮЩЕМ фетче через N часов, синхронно с olcbox).
+		rc.Rounds[clientID] = now.Format(time.RFC3339)
+		_ = olcKeyRotationSave(rc)
+		return
+	}
+	if last, perr := time.Parse(time.RFC3339, lastStr); perr == nil {
+		// Небольшой допуск (5 мин) под расхождение часов сервер↔olcbox.
+		if now.Sub(last) < time.Duration(n)*time.Hour-5*time.Minute {
+			return // круг ещё не наступил
+		}
+	}
+	// Круг наступил: ротируем СВОБОДНЫЕ инстансы клиента (peers==0). Занятые
+	// пропускаем — они дождутся СЛЕДУЮЩЕГО круга (вместе со всеми).
+	peers := olcInstancePeerCount()
+	recentAttempts := olcRecentConnectionAttempts(2 * time.Minute)
+	changed := false
+	skipped := 0
+	for i := range cfg.Clients {
+		if cfg.Clients[i].ClientID != clientID {
+			continue
+		}
+		for j := range cfg.Clients[i].Locations {
+			key := locationKey(cfg.Clients[i].Locations[j])
+			if peers[key] > 0 || recentAttempts[key] > 0 {
+				skipped++
+				log.Printf("olc-keyrot: skip busy inst=%s peers=%d recent_attempts=%d (defer to next round)", key, peers[key], recentAttempts[key])
+				continue
+			}
+			nk, kerr := randomHex(32)
+			if kerr != nil {
+				log.Printf("olc-keyrot: genkey failed inst=%s: %v", key, kerr)
+				continue
+			}
+			cfg.Clients[i].Locations[j].Endpoint.Key = nk
+			changed = true
+			log.Printf("olc-keyrot: rotated key inst=%s client=%s", key, clientID)
+		}
+		break
+	}
+	// Продвигаем время круга ВСЕГДА (даже если что-то пропущено): занятые ждут
+	// следующего круга через N, не ротируются вне очереди.
+	rc.Rounds[clientID] = now.Format(time.RFC3339)
+	if changed {
+		cfg.Normalize()
+		if verr := cfg.Validate(); verr != nil {
+			log.Printf("olc-keyrot: validate failed, NOT saving: %v", verr)
+			return
+		}
+		if serr := saveConfig(olcConfigPath, cfg); serr != nil {
+			log.Printf("olc-keyrot: save config failed: %v", serr)
+			return
+		}
+		// Reload рестартует ТОЛЬКО инстансы с изменившимся ключом (DeepEqual) и
+		// обновляет supervisor.cfg → тело подписки ниже отдаст НОВЫЕ ключи.
+		if rerr := supervisor.Reload(context.Background(), cfg); rerr != nil {
+			log.Printf("olc-keyrot: reload failed: %v", rerr)
+		} else {
+			log.Printf("olc-keyrot: client=%s rotated (free instances restarted); %d busy deferred", clientID, skipped)
+		}
+	}
+	if serr := olcKeyRotationSave(rc); serr != nil {
+		log.Printf("olc-keyrot: save state failed: %v", serr)
+	}
+}
+
+// keyRotationHandler — GET (текущее состояние) / PATCH {global_enabled} (глоб.).
+func keyRotationHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, olcKeyRotationLoad())
+		case http.MethodPatch, http.MethodPut, http.MethodPost:
+			var in struct {
+				GlobalEnabled *bool `json:"global_enabled"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			olcKeyRotationMu.Lock()
+			rc := olcKeyRotationLoad()
+			if in.GlobalEnabled != nil {
+				rc.GlobalEnabled = *in.GlobalEnabled
+				// При включении глобально — точку отсчёта кругов инициализирует
+				// сам планировщик (Rounds пусты → первый круг через N часов).
+			}
+			err := olcKeyRotationSave(rc)
+			olcKeyRotationMu.Unlock()
+			if err != nil {
+				writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			log.Printf("olc-keyrot: global saved: global_enabled=%t clients=%d", rc.GlobalEnabled, len(rc.Clients))
+			writeJSON(w, rc)
+		default:
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+	}
+}
+
+// clientKeyRotationHandler — POST /api/clients/:id/key-rotation {enabled}
+// (выборочная автосмена ключей этой подписки).
+func clientKeyRotationHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		id = strings.TrimSuffix(id, "/key-rotation")
+		id = strings.TrimSpace(id)
+		if id == "" {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "client_id required"})
+			return
+		}
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var in struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		olcKeyRotationMu.Lock()
+		rc := olcKeyRotationLoad()
+		if rc.Clients == nil {
+			rc.Clients = map[string]bool{}
+		}
+		if in.Enabled != nil {
+			if *in.Enabled {
+				rc.Clients[id] = true
+			} else {
+				delete(rc.Clients, id)
+				delete(rc.Rounds, id) // сброс отсчёта при выключении
+			}
+		}
+		err := olcKeyRotationSave(rc)
+		olcKeyRotationMu.Unlock()
+		if err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("olc-keyrot: client %s saved: enabled=%v", id, in.Enabled != nil && *in.Enabled)
+		writeJSON(w, rc)
+	}
+}
+
+// ============================================================================
+// Olc-cost-l: РАНДОМИЗАЦИЯ КЛЮЧЕЙ (эпик A, часть 5a). Состояние в отдельном файле
+// /var/lib/olcrtc/key-randomization.json. Меняется РАНДОМИЗИРОВАННЫЙ ключ (вывод
+// HMAC(secret, origKeyBytes)), оригинальный ключ инстанса НЕ трогается.
+// ============================================================================
+
+const olcKeyRandPath = "/var/lib/olcrtc/key-randomization.json"
+
+var olcKeyRandMu sync.Mutex
+
+type olcKeyRandScope struct {
+	Enabled  bool `json:"enabled"`
+	RandType int  `json:"rand_type"` // 1 статичный / 2 посекундный (часть 6)
+}
+
+// olcKeyRandCfg — состояние рандомизации ключей. Secret копируется из config.json
+// (RandomizationSecret) при каждом сохранении, чтобы startInstance (без доступа к
+// configPath) мог вывести рандомизированный ключ.
+type olcKeyRandCfg struct {
+	Global  olcKeyRandScope            `json:"global"`
+	Clients map[string]olcKeyRandScope `json:"clients,omitempty"`
+	Secret  string                     `json:"secret,omitempty"`
+}
+
+func olcKeyRandLoad() olcKeyRandCfg {
+	rc := olcKeyRandCfg{Clients: map[string]olcKeyRandScope{}}
+	data, err := os.ReadFile(olcKeyRandPath)
+	if err != nil {
+		return rc
+	}
+	_ = json.Unmarshal(data, &rc)
+	if rc.Clients == nil {
+		rc.Clients = map[string]olcKeyRandScope{}
+	}
+	return rc
+}
+
+func olcKeyRandSave(rc olcKeyRandCfg) error {
+	if err := os.MkdirAll(filepath.Dir(olcKeyRandPath), 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(rc, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := olcKeyRandPath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, olcKeyRandPath)
+}
+
+// olcKeyRandForClient — включена ли рандомизация ключей для клиента + тип + секрет.
+func olcKeyRandForClient(clientID string) (bool, int, string) {
+	rc := olcKeyRandLoad()
+	if rc.Global.Enabled {
+		rt := rc.Global.RandType
+		if rt != 2 {
+			rt = 1
+		}
+		return true, rt, rc.Secret
+	}
+	if c, ok := rc.Clients[clientID]; ok && c.Enabled {
+		rt := c.RandType
+		if rt != 2 {
+			rt = 1
+		}
+		return true, rt, rc.Secret
+	}
+	return false, 0, rc.Secret
+}
+
+// olcKeyRandSeed is stable across original-key rotations.  The randomized key
+// belongs to an instance identity, not to the current primary key.
+func olcKeyRandSeed(loc Location) string {
+	return strings.TrimSpace(loc.ClientID) + "\x00" + strings.TrimSpace(loc.Endpoint.RoomID)
+}
+
+// olcAltKeysForLocation — рандомизированные ключи для инстанса (env OLCRTC_ALT_KEYS).
+// Тип1: один статичный ключ HMAC(secret, clientID\x00roomID)[:32] → hex(64). Тип2:
+// посекундный — деривит САМ core (часть 6), тут пусто. Оригинальный ключ инстанса
+// (loc.Endpoint.Key) НЕ меняется — это второй, производный ключ расшифровки.
+func olcAltKeysForLocation(loc Location) []string {
+	en, rt, secret := olcKeyRandForClient(loc.ClientID)
+	if !en || secret == "" || rt == 2 {
+		return nil
+	}
+	seed := olcKeyRandSeed(loc)
+	if seed == "\x00" {
+		return nil
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(seed))
+	sum := mac.Sum(nil) // 32 байта
+	return []string{hex.EncodeToString(sum[:32])}
+}
+
+type olcCryptoEffective struct {
+	Enabled  bool
+	RandType int
+	Secret   string
+}
+
+func olcCryptoEffectiveFor(state olcKeyRandCfg, clientID string) olcCryptoEffective {
+	if state.Global.Enabled {
+		rt := state.Global.RandType
+		if rt != 2 {
+			rt = 1
+		}
+		return olcCryptoEffective{Enabled: true, RandType: rt, Secret: state.Secret}
+	}
+	if client, ok := state.Clients[clientID]; ok && client.Enabled {
+		rt := client.RandType
+		if rt != 2 {
+			rt = 1
+		}
+		return olcCryptoEffective{Enabled: true, RandType: rt, Secret: state.Secret}
+	}
+	return olcCryptoEffective{}
+}
+
+func olcDesiredCryptoState(cfg Config) olcKeyRandCfg {
+	cfg.ensureClientsFormat()
+	desired := olcKeyRandCfg{
+		Clients: map[string]olcKeyRandScope{},
+		Secret:  olcCryptoRandomizationSecret(cfg),
+	}
+	cryptoEnabled := olcRandScope(cfg) != "client_id"
+	if cryptoEnabled && globalRandomizationEnabled(cfg) {
+		rt := cfg.GlobalSettings.Subscription.RandType
+		if rt != 2 {
+			rt = 1
+		}
+		desired.Global = olcKeyRandScope{Enabled: true, RandType: rt}
+	}
+	if cryptoEnabled {
+		for _, client := range cfg.Clients {
+			if client.Randomization == nil || !client.Randomization.Enabled {
+				continue
+			}
+			rt := client.Randomization.RandType
+			if rt != 2 {
+				rt = 1
+			}
+			desired.Clients[client.ClientID] = olcKeyRandScope{Enabled: true, RandType: rt}
+		}
+	}
+	return desired
+}
+
+// olcSyncCryptoRandomization mirrors the visible randomization settings into
+// key-randomization.json. Scope client_id disables crypto; crypto/both enables
+// it with the same type. The subscription and original instance keys are not changed.
+func olcSyncCryptoRandomization(cfg Config) (bool, map[string]bool, error) {
+	cfg.ensureClientsFormat()
+	olcKeyRandMu.Lock()
+	defer olcKeyRandMu.Unlock()
+
+	previous := olcKeyRandLoad()
+	desired := olcDesiredCryptoState(cfg)
+
+	affected := map[string]bool{}
+	for _, client := range cfg.Clients {
+		before := olcCryptoEffectiveFor(previous, client.ClientID)
+		after := olcCryptoEffectiveFor(desired, client.ClientID)
+		if before != after {
+			affected[client.ClientID] = true
+		}
+	}
+	if reflect.DeepEqual(previous, desired) {
+		return false, affected, nil
+	}
+	if err := olcKeyRandSave(desired); err != nil {
+		return false, nil, err
+	}
+	return true, affected, nil
+}
+
+// olcRestartCryptoClients makes changed crypto env effective. Failures are
+// logged per location; saved settings remain authoritative and later manual
+// restart/reload will converge them.
+func olcRestartCryptoClients(cfg Config, affected map[string]bool) {
+	if globalSupervisor == nil || len(affected) == 0 {
+		return
+	}
+	cfg.ensureClientsFormat()
+	for _, client := range cfg.Clients {
+		if !affected[client.ClientID] {
+			continue
+		}
+		for _, location := range client.Locations {
+			if err := globalSupervisor.Restart(context.Background(), client.ClientID, location.Endpoint.RoomID, location.Transport.Type); err != nil {
+				log.Printf("olc-keyrand: restart %s/%s after crypto change: %v", client.ClientID, location.Endpoint.RoomID, err)
+			}
+		}
+	}
+}
+
+func keyRandomizationHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, olcKeyRandLoad())
+		case http.MethodPatch, http.MethodPut, http.MethodPost:
+			var in struct {
+				GlobalEnabled *bool `json:"global_enabled"`
+				RandType      *int  `json:"rand_type"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			olcKeyRandMu.Lock()
+			rc := olcKeyRandLoad()
+			if in.GlobalEnabled != nil {
+				rc.Global.Enabled = *in.GlobalEnabled
+			}
+			if in.RandType != nil {
+				if *in.RandType == 2 {
+					rc.Global.RandType = 2
+				} else {
+					rc.Global.RandType = 1
+				}
+			}
+			// Копируем актуальный секрет из config.json.
+			if cfg, cerr := loadConfig(configPath); cerr == nil {
+				rc.Secret = olcCryptoRandomizationSecret(cfg)
+			}
+			err := olcKeyRandSave(rc)
+			olcKeyRandMu.Unlock()
+			if err != nil {
+				writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			log.Printf("olc-keyrand: global saved: enabled=%t rand_type=%d clients=%d", rc.Global.Enabled, rc.Global.RandType, len(rc.Clients))
+			writeJSON(w, rc)
+		default:
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+	}
+}
+
+func clientKeyRandomizationHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/clients/")
+		id = strings.TrimSuffix(id, "/key-randomization")
+		id = strings.TrimSpace(id)
+		if id == "" {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "client_id required"})
+			return
+		}
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var in struct {
+			Enabled  *bool `json:"enabled"`
+			RandType *int  `json:"rand_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		olcKeyRandMu.Lock()
+		rc := olcKeyRandLoad()
+		if rc.Clients == nil {
+			rc.Clients = map[string]olcKeyRandScope{}
+		}
+		cur := rc.Clients[id]
+		if in.Enabled != nil {
+			cur.Enabled = *in.Enabled
+		}
+		if in.RandType != nil {
+			if *in.RandType == 2 {
+				cur.RandType = 2
+			} else {
+				cur.RandType = 1
+			}
+		}
+		if cur.RandType == 0 {
+			cur.RandType = 1
+		}
+		if cur.Enabled {
+			rc.Clients[id] = cur
+		} else {
+			delete(rc.Clients, id)
+		}
+		if cfg, cerr := loadConfig(configPath); cerr == nil {
+			rc.Secret = olcCryptoRandomizationSecret(cfg)
+		}
+		err := olcKeyRandSave(rc)
+		olcKeyRandMu.Unlock()
+		if err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("olc-keyrand: client %s saved: enabled=%v rand_type=%d", id, in.Enabled != nil && *in.Enabled, cur.RandType)
+		writeJSON(w, rc)
+	}
+}
+
+// instanceInfoHandler — сводка по инстансу: ключи (ориг + рандомизированный) и
+// best-effort трафик. Для тип2 возвращает ТЕКУЩИЙ посекундный рандомизированный
+// ключ (dynamic=true) — панель опрашивает раз в секунду.
+func instanceInfoHandler(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
+		roomID := strings.TrimSpace(r.URL.Query().Get("room_id"))
+		if clientID == "" || roomID == "" {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "client_id and room_id required"})
+			return
+		}
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		cfg.ensureClientsFormat()
+		var found *Location
+		var foundClient Client
+		for ci := range cfg.Clients {
+			if cfg.Clients[ci].ClientID != clientID {
+				continue
+			}
+			for li := range cfg.Clients[ci].Locations {
+				if strings.TrimSpace(cfg.Clients[ci].Locations[li].Endpoint.RoomID) == roomID {
+					found = &cfg.Clients[ci].Locations[li]
+					foundClient = cfg.Clients[ci]
+					break
+				}
+			}
+			break
+		}
+		if found == nil {
+			writeJSONStatus(w, http.StatusNotFound, map[string]any{"error": "instance not found"})
+			return
+		}
+
+		// Рандомизированная версия ключа отражает РЕАЛЬНУЮ рандомизацию клиента
+		// (client_id-рандомизация: глоб. или per-client — randTypeFor), а НЕ
+		// отдельную инертную крипто-рандомизацию ключей (эпик A). Тип2 → живой
+		// посекундный ключ (панель опрашивает раз в секунду). Значение —
+		// производная HMAC(secret, origKeyBytes[||unixSec]) для отображения.
+		keyRand := map[string]any{"enabled": false, "rand_type": 0, "randomized_key": "", "dynamic": false}
+		rt := olcCryptoRandTypeFor(foundClient, cfg)
+		secret := olcCryptoRandomizationSecret(cfg)
+		if rt > 0 && secret != "" {
+			keyRand["enabled"] = true
+			keyRand["rand_type"] = rt
+			if rt == 2 {
+				keyRand["dynamic"] = true
+				if rk := olcInstanceRandKeyAt(secret, olcKeyRandSeed(*found), time.Now().Unix()); rk != "" {
+					keyRand["randomized_key"] = rk
+				}
+			} else {
+				if rk := olcInstanceRandKeyStatic(secret, olcKeyRandSeed(*found)); rk != "" {
+					keyRand["randomized_key"] = rk
+				}
+			}
+		}
+
+		traffic := map[string]any{"available": false, "used_bytes": 0}
+		if panelQuota != nil {
+			if b, ok := panelQuota.LocationBytesForKey(locationKey(*found)); ok {
+				traffic["available"] = true
+				traffic["used_bytes"] = b
+			}
+		}
+
+		writeJSON(w, map[string]any{
+			"client_id": clientID,
+			"room_id":   roomID,
+			"name":      found.Name,
+			"orig_key":  found.Endpoint.Key,
+			"key_rand":  keyRand,
+			"traffic":   traffic,
+		})
+	}
+}
+
+// olcInstanceRandKeyAt — посекундный рандомизированный ключ (тип2):
+// HMAC(secret, origKeyBytes || unixSec)[:32] -> hex(64). Пусто при плохих входных.
+func olcInstanceRandKeyAt(secret, seed string, unixSec int64) string {
+	if secret == "" || seed == "\x00" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(seed))
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], uint64(unixSec))
+	mac.Write(b[:])
+	sum := mac.Sum(nil)
+	return hex.EncodeToString(sum[:32])
+}
+
+// olcInstanceRandKeyStatic — статичный рандомизированный ключ (тип1):
+// HMAC(secret, origKeyBytes)[:32] -> hex(64). Пусто при плохих входных.
+func olcInstanceRandKeyStatic(secret, seed string) string {
+	if secret == "" || seed == "\x00" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(seed))
+	sum := mac.Sum(nil)
+	return hex.EncodeToString(sum[:32])
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://api.qrserver.com; style-src 'self' 'unsafe-inline'; script-src 'self'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func clientIDFromPath(path string) (string, bool) {
+	clientID := strings.Trim(path, "/")
+	if clientID == "" || strings.Contains(clientID, "/") {
+		return "", false
+	}
+	return clientID, true
+}
+
+func clientIDFromSubscriptionPath(path, subscriptionPath string) (string, bool) {
+	subscriptionPath, err := normalizeSubscriptionPath(subscriptionPath)
+	if err != nil {
+		return "", false
+	}
+	if subscriptionPath == "" {
+		return clientIDFromPath(path)
+	}
+	prefix := "/" + subscriptionPath + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	return clientIDFromPath(strings.TrimPrefix(path, "/"+subscriptionPath))
+}
+
+func subscription(cfg Config, now time.Time) string {
+	return subscriptionForLocations(cfg.Name, cfg.Refresh, cfg.Locations, Quota{}, now)
+}
+
+func subscriptionForClient(cfg Config, clientID string, now time.Time) (string, bool) {
+	for _, client := range cfg.Clients {
+		if client.ClientID == clientID {
+			refresh := effectiveRefresh(cfg.Refresh, client.Refresh)
+			if len(client.Locations) == 0 {
+				return "", false
+			}
+			if quotaStatus(client.Quota, now) != "active" {
+				return subscriptionForLocations(cfg.Name, refresh, nil, client.Quota, now), true
+			}
+			return subscriptionForLocations(cfg.Name, refresh, client.Locations, client.Quota, now), true
+		}
+	}
+	locations := make([]Location, 0)
+	for _, loc := range cfg.Locations {
+		if loc.ClientID == clientID {
+			locations = append(locations, loc)
+		}
+	}
+	if len(locations) == 0 {
+		return "", false
+	}
+	return subscriptionForLocations(cfg.Name, cfg.Refresh, locations, Quota{}, now), true
+}
+
+// refreshToHours переводит строку refresh (форматы s/m/h/d, см. validateRefresh)
+// в целые ЧАСЫ для заголовка olcbox profile-update-interval. olcbox коэрсит в
+// 1..720, поэтому <1ч округляем ВВЕРХ до 1ч. Пустой/битый refresh → 0 (не слать
+// заголовок → olcbox использует свой дефолт 24ч).
+func refreshToHours(refresh string) int {
+	refresh = strings.TrimSpace(refresh)
+	if len(refresh) < 2 {
+		return 0
+	}
+	unit := refresh[len(refresh)-1]
+	n, err := strconv.Atoi(refresh[:len(refresh)-1])
+	if err != nil || n <= 0 {
+		return 0
+	}
+	var hours int
+	switch unit {
+	case 's':
+		hours = (n + 3599) / 3600
+	case 'm':
+		hours = (n + 59) / 60
+	case 'h':
+		hours = n
+	case 'd':
+		hours = n * 24
+	default:
+		return 0
+	}
+	if hours < 1 {
+		hours = 1
+	}
+	if hours > 720 {
+		hours = 720
+	}
+	return hours
+}
+
+// subscriptionRefreshHours — эффективный интервал автообновления (в часах) для
+// клиента: per-client refresh переопределяет глобальный (effectiveRefresh).
+// clientID, которого нет в cfg.Clients (дефолтная подписка), берёт глобальный.
+func subscriptionRefreshHours(cfg Config, clientID string) int {
+	refresh := cfg.Refresh
+	for _, c := range cfg.Clients {
+		if c.ClientID == clientID {
+			refresh = effectiveRefresh(cfg.Refresh, c.Refresh)
+			break
+		}
+	}
+	return refreshToHours(refresh)
+}
+
+func effectiveRefresh(globalRefresh, clientRefresh string) string {
+	if strings.TrimSpace(clientRefresh) != "" {
+		return strings.TrimSpace(clientRefresh)
+	}
+	return strings.TrimSpace(globalRefresh)
+}
+
+func subscriptionForLocations(name, refresh string, locations []Location, quota Quota, now time.Time) string {
+	var b bytes.Buffer
+	if name != "" {
+		fmt.Fprintf(&b, "#name: %s\n", name)
+	}
+	fmt.Fprintf(&b, "#update: %d\n", now.Unix())
+	if refresh != "" {
+		fmt.Fprintf(&b, "#refresh: %s\n", refresh)
+	}
+	fmt.Fprintln(&b)
+	if quota.SpeedMbps > 0 {
+		fmt.Fprintf(&b, "#quota-speed-mbps: %d\n", quota.SpeedMbps)
+	}
+	if quota.TrafficGB > 0 {
+		fmt.Fprintf(&b, "#quota-traffic-gb: %d\n", quota.TrafficGB)
+		fmt.Fprintf(&b, "#quota-used-gb: %d\n", quota.UsedGB)
+		fmt.Fprintf(&b, "#quota-used-bytes: %d\n", quotaUsedBytes(quota))
+	}
+	if quota.ExpiresAt != "" {
+		fmt.Fprintf(&b, "#quota-expires-at: %s\n", quota.ExpiresAt)
+	}
+	if quota.SpeedMbps > 0 || quota.TrafficGB > 0 || quota.ExpiresAt != "" {
+		fmt.Fprintf(&b, "#quota-status: %s\n\n", quotaStatus(quota, now))
+	}
+
+	for _, loc := range locations {
+		fmt.Fprintln(&b, locationURI(loc))
+		if loc.Name != "" {
+			fmt.Fprintf(&b, "##name: %s\n", loc.Name)
+		}
+		fmt.Fprintln(&b)
+	}
+	return b.String()
+}
+
+func locationURI(loc Location) string {
+	payload := payloadString(loc.Transport.Payload)
+	return fmt.Sprintf("olcrtc://%s?%s%s@%s#%s$%s",
+		loc.Carrier,
+		loc.Transport.Type,
+		payload,
+		loc.Endpoint.RoomID,
+		loc.Endpoint.Key,
+		loc.Name,
+	)
+}
+
+func payloadString(payload map[string]string) string {
+	if len(payload) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(payload))
+	for _, key := range sortedKeys(payload) {
+		parts = append(parts, key+"="+payload[key])
+	}
+	return "<" + strings.Join(parts, "&") + ">"
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// featureNames is the whitelist of allowed toggles. Any other value is rejected
+// before invoking the helper script — prevents argument injection into bash.
+var featureNames = []string{"zapret", "tor", "split", "bridges", "webtunnel", "warp", "olcrtc"}
+
+func parseFeatureFlags(data []byte) map[string]bool {
+	flags := map[string]bool{
+		"zapret": false, "tor": false, "split": false,
+		"bridges": false, "webtunnel": false, "warp": false, "olcrtc": true,
+	}
+	bridgesExplicit := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		enabled := val == "1" || strings.EqualFold(val, "true")
+		switch key {
+		case "OLCRTC_ENABLE_ZAPRET":
+			flags["zapret"] = enabled
+		case "OLCRTC_ENABLE_TOR":
+			flags["tor"] = enabled
+		case "OLCRTC_ENABLE_SPLIT":
+			flags["split"] = enabled
+		case "OLCRTC_ENABLE_BRIDGES":
+			flags["bridges"] = enabled
+			bridgesExplicit = true
+		case "OLCRTC_ENABLE_WEBTUNNEL":
+			flags["webtunnel"] = enabled
+		case "OLCRTC_ENABLE_WARP":
+			flags["warp"] = enabled
+		}
+	}
+	if !bridgesExplicit {
+		// Compatibility with installations created before BRIDGES was separate.
+		flags["bridges"] = flags["webtunnel"]
+	}
+	return flags
+}
+
+func featureScriptPath() string {
+	if p := os.Getenv("OLC_FEATURE_SCRIPT"); p != "" {
+		return p
+	}
+	candidates := []string{
+		"/opt/Olc-cost-l/scripts/olc-feature.sh",
+		"/usr/local/bin/olc-feature",
+	}
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+func readFeatureFlags() map[string]bool {
+	data, err := os.ReadFile("/etc/olcrtc-manager/features.env")
+	if err != nil {
+		return parseFeatureFlags(nil)
+	}
+	return parseFeatureFlags(data)
+}
+
+func featureLiveStatus() map[string]string {
+	out := map[string]string{}
+	units := map[string]string{
+		"tor":     "tor@default",
+		"zapret":  "zapret",
+		"manager": "olcrtc-manager",
+	}
+	for name, unit := range units {
+		cmd := exec.Command("systemctl", "is-active", unit)
+		b, _ := cmd.Output()
+		out[name] = strings.TrimSpace(string(b))
+	}
+	out["nfqws"] = "unknown"
+	if b, err := exec.Command("pidof", "nfqws").Output(); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+		out["nfqws"] = "running"
+	} else {
+		out["nfqws"] = "stopped"
+	}
+	// zapret.service — oneshot: живость определяем по nfqws, а не по is-active.
+	// Сервис применяет правила фаервола и запускает nfqws (KillMode=none), затем
+	// завершается — is-active даёт inactive, хотя DPI-bypass реально активен.
+	if out["nfqws"] == "running" && out["zapret"] != "active" {
+		out["zapret"] = "active"
+	}
+	out["warp"] = "missing"
+	if _, err := exec.LookPath("warp-cli"); err == nil {
+		cmd := exec.Command("warp-cli", "status")
+		b, _ := cmd.CombinedOutput()
+		out["warp"] = strings.TrimSpace(string(b))
+		if len(out["warp"]) > 80 {
+			out["warp"] = out["warp"][:80] + "..."
+		}
+	}
+	out["webtunnel"] = "missing"
+	for _, c := range []string{"/usr/bin/webtunnel-client", "/usr/local/bin/webtunnel-client"} {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			out["webtunnel"] = filepath.Base(c) + " present"
+			break
+		}
+	}
+	return out
+}
+
+func githubTokenFromEnv() string {
+	for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN", "OLCRTC_GITHUB_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	for _, path := range []string{"/etc/olcrtc-manager/github.env", "/etc/olcrtc-manager/panel.env"} {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.HasPrefix(line, "export ") {
+				line = strings.TrimPrefix(line, "export ")
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			k := strings.TrimSpace(parts[0])
+			v := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+			if k == "GITHUB_TOKEN" || k == "GH_TOKEN" || k == "OLCRTC_GITHUB_TOKEN" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+func releaseInfoFromVersion(ver map[string]any) (tag, name string) {
+	rel, _ := ver["release"].(map[string]any)
+	if rel == nil {
+		return "", ""
+	}
+	tag, _ = rel["tag"].(string)
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return "", ""
+	}
+	return tag, normalizeVerTag(tag)
+}
+
+func reconcileStaleUpdateJob() {
+	if panelUpdateLocked() {
+		return
+	}
+	var st map[string]any
+	if !readJSONFile(panelUpdateStatus, &st) {
+		return
+	}
+	if st["status"] != "running" {
+		return
+	}
+	st["status"] = "failed"
+	st["error"] = "зависло (процесс обновления прерван) — повторите «Обновить с GitHub»"
+	st["exit_code"] = 1
+	b, _ := json.Marshal(st)
+	_ = os.WriteFile(panelUpdateStatus, b, 0644)
+}
+
+func normalizeVerTag(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(strings.ToLower(s), "v")
+	return s
+}
+
+func versionNewer(current, latest string) bool {
+	c := normalizeVerTag(current)
+	l := normalizeVerTag(latest)
+	if c == "" || l == "" || c == l {
+		return false
+	}
+	if strings.Contains(c, "-alpha.") && strings.Contains(l, "-alpha.") {
+		cp := strings.SplitN(c, "-alpha.", 2)
+		lp := strings.SplitN(l, "-alpha.", 2)
+		if len(cp) == 2 && len(lp) == 2 && cp[0] == lp[0] {
+			return cp[1] < lp[1]
+		}
+	}
+	return strings.Compare(l, c) > 0
+}
+
+func githubRepoFromVersion(ver map[string]any) string {
+	raw, _ := ver["repo"].(string)
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "https://github.com/")
+	raw = strings.TrimPrefix(raw, "http://github.com/")
+	return strings.TrimSuffix(raw, "/")
+}
+
+func gitIsAncestor(repo, older, newer string) bool {
+	if repo == "" || older == "" || newer == "" || older == newer {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-c", "safe.directory="+repo, "-C", repo, "merge-base", "--is-ancestor", older, newer)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	return cmd.Run() == nil
+}
+
+func gitLocalBehindRemote(repo, local, remote string) bool {
+	return gitIsAncestor(repo, local, remote) && local != remote
+}
+
+func gitLocalAheadOfRemote(repo, local, remote string) bool {
+	return gitIsAncestor(repo, remote, local) && local != remote
+}
+
+func githubReleaseRequest(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "olcrtc-manager-panel")
+	if tok := githubTokenFromEnv(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	return http.DefaultClient.Do(req)
+}
+
+func fetchLatestGitHubReleaseList(ownerRepo string) (tag, name string) {
+	if ownerRepo == "" {
+		return "", ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	// /releases/latest is empty when all releases are prerelease — use list
+	url := "https://api.github.com/repos/" + ownerRepo + "/releases?per_page=5"
+	resp, err := githubReleaseRequest(ctx, url)
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", ""
+	}
+	var list []struct {
+		TagName string `json:"tag_name"`
+		Name    string `json:"name"`
+		Draft   bool   `json:"draft"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&list) != nil || len(list) == 0 {
+		return "", ""
+	}
+	for _, rel := range list {
+		if rel.Draft {
+			continue
+		}
+		tag := strings.TrimSpace(rel.TagName)
+		if tag != "" {
+			name := strings.TrimSpace(rel.Name)
+			if name == "" {
+				name = normalizeVerTag(tag)
+			}
+			return tag, name
+		}
+	}
+	return "", ""
+}
+
+func fetchLatestGitHubRelease(ownerRepo string) (tag, name string) {
+	return fetchLatestGitHubReleaseList(ownerRepo)
+}
+
+func computeUpdateStatus(repo string) map[string]any {
+	ver := readVersionJSON()
+	panelVer, _ := ver["panel"].(string)
+	ownerRepo := githubRepoFromVersion(ver)
+	_ = runGitShort(repo, "fetch", "origin", "main")
+	local := runGitShort(repo, "rev-parse", "HEAD")
+	remote := runGitShort(repo, "rev-parse", "origin/main")
+	installedTag, installedName := releaseInfoFromVersion(ver)
+	relTag, relName := fetchLatestGitHubRelease(ownerRepo)
+	if relTag == "" && installedTag != "" {
+		relTag, relName = installedTag, installedName
+	}
+	gitBehind := gitLocalBehindRemote(repo, local, remote)
+	gitAhead := gitLocalAheadOfRemote(repo, local, remote)
+	releaseNewer := relTag != "" && panelVer != "" && versionNewer(panelVer, relTag)
+	updateAvailable := releaseNewer || gitBehind
+	updateSource := "none"
+	if releaseNewer {
+		updateSource = "release"
+	} else if gitBehind {
+		updateSource = "git"
+	}
+	return map[string]any{
+		"local_sha":              local,
+		"remote_sha":             remote,
+		"panel_version":          panelVer,
+		"installed_release_tag":  installedTag,
+		"latest_release_tag":     relTag,
+		"latest_release_name":    relName,
+		"latest_release_version": normalizeVerTag(relTag),
+		"update_available":       updateAvailable,
+		"update_source":          updateSource,
+		"git_behind":             gitBehind,
+		"git_ahead":              gitAhead,
+	}
+}
+
+func readVersionJSON() map[string]any {
+	out := map[string]any{"panel": "0.0.0", "channel": "alpha"}
+	for _, p := range []string{
+		"/opt/Olc-cost-l/version.json",
+		"/opt/olcrtc/version.json",
+	} {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var v map[string]any
+		if json.Unmarshal(b, &v) == nil {
+			return v
+		}
+	}
+	return out
+}
+
+func readDeployProfileID() string {
+	for _, p := range []string{"/etc/olcrtc-manager/deploy-profile.json"} {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var v struct {
+			ProfileID string `json:"profile_id"`
+		}
+		if json.Unmarshal(b, &v) == nil && v.ProfileID != "" {
+			return v.ProfileID
+		}
+	}
+	return ""
+}
+
+func componentRemovedMarker(name string) bool {
+	_, err := os.Stat(filepath.Join("/var/lib/olcrtc/component-removed", name))
+	return err == nil
+}
+
+func fileHasActivePrefix(path, prefix string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") && strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func componentInstalled(name string) bool {
+	if componentRemovedMarker(name) {
+		return false
+	}
+	switch name {
+	case "zapret":
+		if _, err := os.Stat("/opt/zapret/nfq/nfqws"); err == nil {
+			return true
+		}
+		return false
+	case "warp":
+		_, err := exec.LookPath("warp-cli")
+		return err == nil
+	case "tor":
+		_, err := exec.LookPath("tor")
+		return err == nil
+	case "split":
+		files, _ := filepath.Glob("/var/lib/olcrtc/lists/*.txt")
+		disabled, _ := filepath.Glob("/var/lib/olcrtc/lists/disabled/*.txt")
+		files = append(files, disabled...)
+		for _, path := range files {
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				return true
+			}
+		}
+		return false
+	case "bridges":
+		for _, binary := range []string{"obfs4proxy", "snowflake-client", "webtunnel-client"} {
+			if _, err := exec.LookPath(binary); err == nil {
+				return true
+			}
+		}
+		return fileHasActivePrefix("/etc/tor/bridges.conf", "Bridge ")
+	case "webtunnel":
+		_, err := exec.LookPath("webtunnel-client")
+		return err == nil
+	default:
+		return false
+	}
+}
+
+func loadFeatureFlagsMap() map[string]bool {
+	b, err := os.ReadFile("/etc/olcrtc-manager/features.env")
+	if err != nil {
+		return parseFeatureFlags(nil)
+	}
+	return parseFeatureFlags(b)
+}
+
+func readTextFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func writeTextFile(path, body string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(body), 0644)
+}
+
+func torSocksPort() string {
+	b := readTextFile("/etc/tor/torrc")
+	for _, line := range strings.Split(b, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "SocksPort ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "SocksPort"))
+		}
+	}
+	return "9050"
+}
+
+func deployProfileComponent(key string) bool {
+	b, err := os.ReadFile("/etc/olcrtc-manager/deploy-profile.json")
+	if err != nil {
+		return false
+	}
+	var v struct {
+		Components map[string]bool `json:"components"`
+	}
+	if json.Unmarshal(b, &v) != nil {
+		return false
+	}
+	return v.Components[key]
+}
+
+func warpConnected() bool {
+	cmd := exec.Command("warp-cli", "status")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), "connected")
+}
+
+func warpSettingsGet() map[string]any {
+	env := readPanelEnvMap()
+	proxy := env["OLCRTC_WARP_PROXY"]
+	if strings.TrimSpace(proxy) == "" {
+		proxy = "127.0.0.1:40000"
+	}
+	mode := env["OLCRTC_WARP_MODE"]
+	if strings.TrimSpace(mode) == "" {
+		mode = "proxy"
+	}
+	license := env["OLCRTC_WARP_LICENSE"]
+	autoconnect := env["OLCRTC_WARP_AUTOCONNECT"] != "0"
+	plus := env["OLCRTC_WARP_PLUS"] == "1"
+	return map[string]any{
+		"proxy":              proxy,
+		"mode":               mode,
+		"license_key":        license,
+		"autoconnect":        autoconnect,
+		"warp_plus":          plus,
+		"installed":          componentInstalled("warp"),
+		"connected":          warpConnected(),
+		"conflicts_with_tor": true,
+		"profile_enabled":    deployProfileComponent("warp"),
+	}
+}
+
+func warpSettingsPut(body map[string]any) error {
+	if v, ok := body["proxy"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_WARP_PROXY", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["mode"].(string); ok {
+		m := strings.TrimSpace(v)
+		if m == "" {
+			m = "proxy"
+		}
+		if m != "proxy" {
+			return fmt.Errorf("unsafe warp mode %q blocked; only proxy mode is allowed", m)
+		}
+		if err := setPanelEnvKey("OLCRTC_WARP_MODE", m); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["license_key"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_WARP_LICENSE", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["autoconnect"].(bool); ok {
+		val := "0"
+		if v {
+			val = "1"
+		}
+		if err := setPanelEnvKey("OLCRTC_WARP_AUTOCONNECT", val); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["warp_plus"].(bool); ok {
+		val := "0"
+		if v {
+			val = "1"
+		}
+		if err := setPanelEnvKey("OLCRTC_WARP_PLUS", val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readPanelEnvMap() map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile("/etc/olcrtc-manager/panel.env")
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			out[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		}
+	}
+	return out
+}
+
+func setPanelEnvKey(key, val string) error {
+	allowed := map[string]bool{
+		"OLCRTC_JITSI_INSECURE_TLS":   true,
+		"OLCRTC_PUBLIC_URL":           true,
+		"OLCRTC_DIRECT_DOMAINS":       true,
+		"OLCRTC_DIRECT_CIDRS":         true,
+		"OLCRTC_BLOCKED_TOR_DOMAINS":  true,
+		"OLCRTC_FORCE_TOR_DOMAINS":    true,
+		"OLCRTC_WEBRTC_PROXY":         true,
+		"OLCRTC_TOR_PROXY":            true,
+		"OLCRTC_DEFAULT_TRANSPORT":    true,
+		"OLCRTC_DEFAULT_CARRIER":      true,
+		"OLCRTC_SOCKS_PROXY":          true,
+		"OLCRTC_GLOBAL_SOCKS_ENABLED": true,
+		"OLCRTC_GLOBAL_SOCKS_ADDR":    true,
+		"OLCRTC_GLOBAL_SOCKS_PORT":    true,
+		"OLCRTC_GLOBAL_SOCKS_USER":    true,
+		"OLCRTC_GLOBAL_SOCKS_PASS":    true,
+		"OLCRTC_GLOBAL_SOCKS_ROUTING": true,
+		"OLCRTC_WARP_PROXY":           true,
+		"OLC_PANEL_LANG":              true,
+	}
+	if !allowed[key] {
+		return fmt.Errorf("key %q not allowed", key)
+	}
+	path := "/etc/olcrtc-manager/panel.env"
+	var lines []string
+	if b, err := os.ReadFile(path); err == nil {
+		lines = strings.Split(string(b), "\n")
+	}
+	found := false
+	prefix := key + "="
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			lines[i] = key + "=" + val
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, key+"="+val)
+	}
+	body := strings.Join(lines, "\n")
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return os.WriteFile(path, []byte(body), 0644)
+}
+
+func olcrtcSettingsGet() map[string]any {
+	env := readPanelEnvMap()
+	pins := readPins(olcRepoRoot())
+	sha := ""
+	if o, ok := pins["olcrtc"].(map[string]any); ok {
+		if s, ok := o["pinned_sha"].(string); ok {
+			sha = s
+		}
+	}
+	return map[string]any{
+		"jitsi_insecure_tls":   env["OLCRTC_JITSI_INSECURE_TLS"] == "1",
+		"public_url":           env["OLCRTC_PUBLIC_URL"],
+		"direct_domains_file":  env["OLCRTC_DIRECT_DOMAINS"],
+		"direct_cidrs_file":    env["OLCRTC_DIRECT_CIDRS"],
+		"blocked_tor_file":     env["OLCRTC_BLOCKED_TOR_DOMAINS"],
+		"force_tor_file":       env["OLCRTC_FORCE_TOR_DOMAINS"],
+		"warp_proxy":           env["OLCRTC_WARP_PROXY"],
+		"socks_proxy":          env["OLCRTC_SOCKS_PROXY"], // legacy display-only field
+		"global_socks_enabled": env["OLCRTC_GLOBAL_SOCKS_ENABLED"] == "1",
+		"global_socks_addr":    env["OLCRTC_GLOBAL_SOCKS_ADDR"],
+		"global_socks_port":    env["OLCRTC_GLOBAL_SOCKS_PORT"],
+		"global_socks_user":    env["OLCRTC_GLOBAL_SOCKS_USER"],
+		"global_socks_pass":    env["OLCRTC_GLOBAL_SOCKS_PASS"],
+		"global_socks_routing": defaultString(env["OLCRTC_GLOBAL_SOCKS_ROUTING"], "split"),
+		"default_carrier":      env["OLCRTC_DEFAULT_CARRIER"],
+		"default_transport":    env["OLCRTC_DEFAULT_TRANSPORT"],
+		"default_link":         env["OLCRTC_DEFAULT_LINK"],
+		"tor_proxy":            env["OLCRTC_TOR_PROXY"],
+		"webrtc_proxy":         env["OLCRTC_WEBRTC_PROXY"],
+		"olcrtc_branch":        "master",
+		"olcrtc_pinned_sha":    sha,
+		"upstream_notes":       "",
+	}
+}
+
+func defaultBridgeProfiles() map[string]any {
+	return map[string]any{
+		"active_profile": "system",
+		"system": map[string]any{
+			"id":          "system",
+			"label":       "Оригинальный",
+			"types":       "obfs4,webtunnel",
+			"auto_update": true,
+			"readonly":    true,
+		},
+		"profiles": []any{},
+	}
+}
+
+func readBridgeProfiles() map[string]any {
+	out := defaultBridgeProfiles()
+	var stored map[string]any
+	if readJSONFile(bridgeProfilesPath, &stored) {
+		for k, v := range stored {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func writeBridgeProfiles(data map[string]any) error {
+	if err := os.MkdirAll(filepath.Dir(bridgeProfilesPath), 0755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(bridgeProfilesPath, b, 0644)
+}
+
+func readBridgePoolStatus() map[string]any {
+	var st map[string]any
+	if readJSONFile(bridgePoolStatusFile, &st) {
+		st["webtunnel_client"] = fileExists("/usr/bin/webtunnel-client") || fileExists("/usr/local/bin/webtunnel-client")
+		status, _ := st["status"].(string)
+		logPath, _ := st["log_path"].(string)
+		if logPath == "" {
+			logPath = "/var/log/olcrtc-bridge-pool.log"
+		}
+		if status == "running" || status == "done" || status == "error" {
+			if tail := tailLogFile(logPath, 120); len(tail) > 0 {
+				st["log_tail"] = tail
+			}
+		}
+		return st
+	}
+	return map[string]any{"status": "idle", "webtunnel_client": fileExists("/usr/bin/webtunnel-client")}
+}
+
+func appendBridgePoolLog(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	f, err := os.OpenFile("/var/log/olcrtc-bridge-pool.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if !strings.HasSuffix(line, "\n") {
+		line += "\n"
+	}
+	_, _ = f.WriteString(line)
+}
+
+func writeBridgePoolStatus(st map[string]any) {
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(bridgePoolStatusFile), 0755)
+	_ = os.WriteFile(bridgePoolStatusFile, b, 0644)
+}
+
+func tailLogFile(path string, n int) []string {
+	lines, err := tailFileLines(path, n)
+	if err != nil {
+		return nil
+	}
+	return lines
+}
+
+// bridgeHealthList joins the ACTIVE bridges.conf lines with the per-bridge
+// health TSV (fingerprint\tok\tfail\tstreak\tlast_ok\tlast_fail\tlast_status).
+// Returns one entry per active bridge with a resolved alive/checked verdict.
+const bridgeSourcesPath = "/var/lib/olcrtc/bridge-sources.json"
+
+func defaultBridgeSources() []map[string]any {
+	return []map[string]any{
+		{"id": "primary", "url": "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/TOR-BRIDGES/TOR_BRIDGES_ALL.txt", "label": "vpn-configs-for-russia (primary)", "enabled": true, "editable": false},
+		{"id": "dt-obfs4", "url": "https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/obfs4_tested.txt", "label": "Tor-Bridges-Collector (obfs4)", "enabled": true, "editable": false},
+		{"id": "dt-wt", "url": "https://raw.githubusercontent.com/Delta-Kronecker/Tor-Bridges-Collector/main/bridge/webtunnel_tested.txt", "label": "Tor-Bridges-Collector (webtunnel)", "enabled": true, "editable": false},
+	}
+}
+
+func readBridgeSources() []map[string]any {
+	var sources []map[string]any
+	if readJSONFile(bridgeSourcesPath, &sources) {
+		return sources
+	}
+	sources = defaultBridgeSources()
+	writeBridgeSources(sources)
+	return sources
+}
+
+func writeBridgeSources(sources []map[string]any) error {
+	b, err := json.MarshalIndent(sources, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(bridgeSourcesPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(bridgeSourcesPath, b, 0644)
+}
+
+func writeExtraURLSFile(sources []map[string]any) {
+	var lines []string
+	for _, s := range sources {
+		en, _ := s["enabled"].(bool)
+		if en {
+			if u, _ := s["url"].(string); u != "" {
+				lines = append(lines, u)
+			}
+		}
+	}
+	if len(lines) == 0 {
+		_ = os.WriteFile("/var/lib/olcrtc/bridge-extra-urls.txt", []byte{}, 0644)
+		return
+	}
+	_ = os.WriteFile("/var/lib/olcrtc/bridge-extra-urls.txt", []byte(strings.Join(lines, "\n")+"\n"), 0644)
+}
+
+func initBridgeSources() {
+	if _, err := os.Stat(bridgeSourcesPath); os.IsNotExist(err) {
+		writeBridgeSources(defaultBridgeSources())
+	} else {
+		extraFile := "/var/lib/olcrtc/bridge-extra-urls.txt"
+		if eb, eerr := os.ReadFile(extraFile); eerr == nil {
+			existing := readBridgeSources()
+			urls := strings.Split(strings.TrimSpace(string(eb)), "\n")
+			for _, u := range urls {
+				u = strings.TrimSpace(u)
+				if u == "" || strings.HasPrefix(u, "#") {
+					continue
+				}
+				found := false
+				for _, s := range existing {
+					if s["url"] == u {
+						found = true
+						break
+					}
+				}
+				if !found {
+					label := strings.TrimSpace(u)
+					if idx := strings.LastIndex(u, "/"); idx >= 0 {
+						label = u[idx+1:]
+						if dot := strings.Index(label, "."); dot > 0 {
+							label = label[:dot]
+						}
+					}
+					if len(label) > 60 {
+						label = label[:60]
+					}
+					existing = append(existing, map[string]any{
+						"id":  "legacy-" + strconv.Itoa(len(existing)),
+						"url": u, "label": label, "enabled": true, "editable": true,
+					})
+				}
+			}
+			if len(existing) > len(defaultBridgeSources()) {
+				writeBridgeSources(existing)
+			}
+		}
+	}
+}
+
+func bridgeHealthList() []map[string]any {
+	out := []map[string]any{}
+	confB, err := os.ReadFile("/etc/tor/bridges.conf")
+	if err != nil {
+		return out
+	}
+	// index health TSV by fingerprint
+	type hrow struct {
+		ok, fail, streak int
+		lastOK, lastFail int64
+		lastStatus       string
+	}
+	health := map[string]hrow{}
+	if hb, herr := os.ReadFile("/var/lib/olcrtc/tor-bridge-health.tsv"); herr == nil {
+		for _, ln := range strings.Split(string(hb), "\n") {
+			cols := strings.Split(ln, "\t")
+			if len(cols) < 7 || cols[0] == "fingerprint" {
+				continue
+			}
+			atoi := func(s string) int { n, _ := strconv.Atoi(strings.TrimSpace(s)); return n }
+			atoi64 := func(s string) int64 { n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64); return n }
+			health[strings.ToUpper(strings.TrimSpace(cols[0]))] = hrow{
+				ok: atoi(cols[1]), fail: atoi(cols[2]), streak: atoi(cols[3]),
+				lastOK: atoi64(cols[4]), lastFail: atoi64(cols[5]),
+				lastStatus: strings.TrimSpace(cols[6]),
+			}
+		}
+	}
+	for _, line := range strings.Split(string(confB), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Bridge ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		btype := fields[1]
+		var addr, fp string
+		switch btype {
+		case "obfs4", "webtunnel", "snowflake":
+			if len(fields) >= 3 {
+				addr = fields[2]
+			}
+			if len(fields) >= 4 {
+				fp = strings.ToUpper(fields[3])
+			}
+		default:
+			// vanilla: Bridge <ip:port> <fp>
+			addr = fields[1]
+			if len(fields) >= 3 {
+				fp = strings.ToUpper(fields[2])
+			}
+			btype = "vanilla"
+		}
+		entry := map[string]any{
+			"type":        btype,
+			"addr":        addr,
+			"fingerprint": fp,
+		}
+		if h, ok := health[fp]; ok {
+			entry["ok_total"] = h.ok
+			entry["fail_total"] = h.fail
+			entry["fail_streak"] = h.streak
+			entry["last_ok"] = h.lastOK
+			entry["last_fail"] = h.lastFail
+			entry["last_status"] = h.lastStatus
+			// alive verdict: last status ok-ish and no recent fail streak
+			alive := (h.lastStatus == "url_ok" || h.lastStatus == "ok" || h.lastStatus == "bootstrap_ok") && h.streak == 0
+			entry["alive"] = alive
+			if h.lastOK > h.lastFail {
+				entry["checked_at"] = h.lastOK
+			} else {
+				entry["checked_at"] = h.lastFail
+			}
+			entry["checked"] = true
+		} else {
+			entry["alive"] = false
+			entry["checked"] = false
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// runBridgeProbe re-probes the active bridges and updates the health DB without
+// re-fetching the pool or rewriting bridges.conf (tor-bridge-pool.sh --monitor).
+func runBridgeProbe() {
+	writeBridgePoolStatus(map[string]any{
+		"status":     "running",
+		"stage":      "probe",
+		"started_at": time.Now().Format(time.RFC3339),
+		"types":      "monitor",
+		"log_path":   "/var/log/olcrtc-bridge-pool.log",
+	})
+	go func() {
+		repo := olcRepoRoot()
+		script := filepath.Join(repo, "scripts/tor-bridge-pool.sh")
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "bash", script, "--monitor")
+		cmd.Env = append(os.Environ(),
+			"PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin",
+			"LOG_FILE=/var/log/olcrtc-bridge-pool.log",
+		)
+		out, err := cmd.CombinedOutput()
+		st := map[string]any{
+			"status":      "done",
+			"stage":       "done",
+			"finished_at": time.Now().Format(time.RFC3339),
+			"types":       "monitor",
+			"pool_stats":  bridgePoolStats(),
+			"log_tail":    tailLogFile("/var/log/olcrtc-bridge-pool.log", 40),
+		}
+		if err != nil {
+			st["status"] = "error"
+			st["error"] = strings.TrimSpace(err.Error())
+			if len(out) > 0 {
+				st["output"] = string(out)
+			}
+		}
+		writeBridgePoolStatus(st)
+	}()
+}
+
+func bridgePoolStats() map[string]any {
+	stats := map[string]any{"obfs4": 0, "webtunnel": 0, "other": 0, "total": 0}
+	pool := "/var/lib/olcrtc/tor-bridges-pool.txt"
+	b, err := os.ReadFile(pool)
+	if err != nil {
+		return stats
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Bridge ") {
+			continue
+		}
+		stats["total"] = stats["total"].(int) + 1
+		low := strings.ToLower(line)
+		switch {
+		case strings.Contains(low, " webtunnel "):
+			stats["webtunnel"] = stats["webtunnel"].(int) + 1
+		case strings.Contains(low, " obfs4 "):
+			stats["obfs4"] = stats["obfs4"].(int) + 1
+		default:
+			stats["other"] = stats["other"].(int) + 1
+		}
+	}
+	return stats
+}
+
+func setBridgeAutoCron(enabled bool) {
+	if enabled {
+		cron := "15 3 * * * root " + filepath.Join(olcRepoRoot(), "scripts/tor-bridge-pool.sh") + " --types obfs4,webtunnel >>/var/log/olcrtc-bridge-pool.log 2>&1\n"
+		_ = writeTextFile(bridgeCronPath, cron)
+	} else {
+		_ = os.Remove(bridgeCronPath)
+	}
+}
+
+func runBridgePoolRefresh(types string) {
+	types = strings.TrimSpace(types)
+	if types == "" {
+		types = "obfs4,webtunnel"
+	}
+	writeBridgePoolStatus(map[string]any{
+		"status":     "running",
+		"started_at": time.Now().Format(time.RFC3339),
+		"types":      types,
+		"log_path":   "/var/log/olcrtc-bridge-pool.log",
+	})
+	go func() {
+		repo := olcRepoRoot()
+		script := filepath.Join(repo, "scripts/tor-bridge-pool.sh")
+		if strings.Contains(strings.ToLower(types), "webtunnel") {
+			if !fileExists("/usr/bin/webtunnel-client") && !fileExists("/usr/local/bin/webtunnel-client") {
+				wt := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
+				if _, err := os.Stat(wt); err == nil {
+					appendBridgePoolLog("[bridge-pool] installing webtunnel-client (mirror-cry first)...")
+					wtCmd := exec.Command("bash", wt)
+					wtCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+					out, wtErr := wtCmd.CombinedOutput()
+					if len(out) > 0 {
+						appendBridgePoolLog(string(out))
+					}
+					if wtErr != nil {
+						appendBridgePoolLog("[bridge-pool] webtunnel install error: " + wtErr.Error())
+					}
+				}
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		defer cancel()
+		// Full pipeline: fetch + probe + apply → /etc/tor/bridges.conf (not --fetch-only).
+		cmd := exec.CommandContext(ctx, "bash", script, "--types", types)
+		cmd.Env = append(os.Environ(),
+			"PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin",
+			"BRIDGE_TYPES="+types,
+			"FETCH_MAX_AGE_SEC=0",
+			"LOG_FILE=/var/log/olcrtc-bridge-pool.log",
+		)
+		out, err := cmd.CombinedOutput()
+		st := map[string]any{
+			"status":           "done",
+			"finished_at":      time.Now().Format(time.RFC3339),
+			"types":            types,
+			"pool_stats":       bridgePoolStats(),
+			"webtunnel_client": fileExists("/usr/bin/webtunnel-client"),
+			"log_tail":         tailLogFile("/var/log/olcrtc-bridge-pool.log", 40),
+		}
+		if err != nil {
+			st["status"] = "error"
+			st["error"] = strings.TrimSpace(err.Error())
+			if len(out) > 0 {
+				st["output"] = string(out)
+			}
+		}
+		writeBridgePoolStatus(st)
+	}()
+}
+
+func profileBridgeLinesFromBody(profile map[string]any) []string {
+	out := []string{}
+	if b, ok := profile["bridges"].(string); ok {
+		for _, line := range strings.Split(b, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if !strings.HasPrefix(line, "Bridge ") {
+				line = "Bridge " + line
+			}
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func fetchProfileBridgeLines(profile map[string]any) []string {
+	out := profileBridgeLinesFromBody(profile)
+	urls, ok := profile["urls"].([]any)
+	if !ok {
+		return out
+	}
+	client := http.Client{Timeout: 20 * time.Second}
+	for _, u := range urls {
+		url, _ := u.(string)
+		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+		resp, err := client.Get(url)
+		if err != nil || resp.StatusCode >= 300 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+		resp.Body.Close()
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if !strings.HasPrefix(line, "Bridge ") {
+				line = "Bridge " + line
+			}
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func applyActiveBridgeProfile(profiles map[string]any) error {
+	active, _ := profiles["active_profile"].(string)
+	if active == "" || active == "system" {
+		sys, _ := profiles["system"].(map[string]any)
+		types, _ := sys["types"].(string)
+		if strings.TrimSpace(types) == "" {
+			types = "obfs4,webtunnel"
+		}
+		runBridgePoolRefresh(types)
+		return nil
+	}
+	profs, _ := profiles["profiles"].([]any)
+	var selected map[string]any
+	for _, p := range profs {
+		m, _ := p.(map[string]any)
+		if m != nil && fmt.Sprint(m["id"]) == active {
+			selected = m
+			break
+		}
+	}
+	if selected == nil {
+		return nil
+	}
+	lines := fetchProfileBridgeLines(selected)
+	if len(lines) == 0 {
+		return nil
+	}
+	userPath := "/var/lib/olcrtc/tor-user-bridges.txt"
+	body := strings.Join(lines, "\n") + "\n"
+	if err := writeTextFile(userPath, body); err != nil {
+		return err
+	}
+	types, _ := selected["types"].(string)
+	if strings.TrimSpace(types) == "" {
+		types = "obfs4,webtunnel"
+	}
+	runBridgePoolRefresh(types)
+	return nil
+}
+
+func firstNonEmpty(v, fallback string) string {
+	v = strings.TrimSpace(v)
+	if v != "" {
+		return v
+	}
+	return fallback
+}
+
+func componentSettingsGet(name string) (map[string]any, error) {
+	switch name {
+	case "zapret":
+		strategy := ""
+		if b := readTextFile(filepath.Join(olcRepoRoot(), "data/zapret4rocket/config.default")); b != "" {
+			strategy = "z4r-config.default"
+		}
+		zapretCfg := readTextFile(filepath.Join(olcRepoRoot(), "data/zapret-olcrtc.config"))
+		if zapretCfg == "" {
+			zapretCfg = readTextFile(filepath.Join(olcRepoRoot(), "data/zapret4rocket/config.default"))
+		}
+		if len(zapretCfg) > 1200 {
+			zapretCfg = zapretCfg[:1200] + "\n..."
+		}
+		return map[string]any{
+			"auto_sync":        fileExists("/etc/cron.d/olcrtc-zapret-sync") || fileExists("/etc/cron.d/zapret-sync"),
+			"exclude_domains":  readTextFile("/var/lib/olcrtc/zapret-custom/exclude-domains.txt"),
+			"force_domains":    readTextFile("/var/lib/olcrtc/zapret-custom/force-domains.txt"),
+			"community_sync":   fileExists("/var/lib/olcrtc/lists"),
+			"zapret_full":      fileExists("/opt/zapret/nfq/nfqws"),
+			"strategy":         strategy,
+			"strategy_presets": func() []map[string]string { _, p := zapretStrategyState(); return p }(),
+			"strategy_current": func() string { c, _ := zapretStrategyState(); return c }(),
+			"nfqws_running":    fileExists("/run/zapret/nfqws.pid") || fileExists("/opt/zapret/nfq/nfqws"),
+			"nfqws_config":     zapretCfg,
+			"hostlist_user":    "/opt/zapret/ipset/zapret-hosts-user.txt",
+			"desync_mark":      "0x40000000",
+		}, nil
+	case "tor":
+		return map[string]any{
+			"socks_port":           torSocksPort(),
+			"exit_nodes":           grepTorrcLine("ExitNodes"),
+			"exclude_exit_nodes":   grepTorrcLine("ExcludeExitNodes"),
+			"strict_nodes":         grepTorrcLine("StrictNodes"),
+			"bridges_enabled":      fileExists("/etc/tor/bridges.conf"),
+			"socks_listen":         grepTorrcLine("SocksPort"),
+			"socks_listen_address": grepTorrcLine("SocksListenAddress"),
+			"dns_port":             grepTorrcLine("DNSPort"),
+			"test_socks":           grepTorrcLine("TestSocks"),
+			"safe_socks":           grepTorrcLine("SafeSocks"),
+			"client_transport":     readTextFile("/etc/tor/bridges.conf"),
+			"webtunnel_client":     fileExists("/usr/bin/webtunnel-client"),
+		}, nil
+	case "split":
+		env := readPanelEnvMap()
+		return map[string]any{
+			"custom_direct_domains": readTextFile("/var/lib/olcrtc/lists/custom-direct-domains.txt"),
+			"panel_hosts":           readTextFile("/var/lib/olcrtc/lists/panel-carrier-hosts.txt"),
+			"panel_cidrs":           readTextFile("/var/lib/olcrtc/lists/panel-carrier-cidrs.txt"),
+			"generated_domains":     readTextFile("/var/lib/olcrtc/lists/panel-carrier-generated-domains.txt"),
+			"generated_cidrs":       readTextFile("/var/lib/olcrtc/lists/panel-carrier-generated-cidrs.txt"),
+			"discovery":             splitDiscoveryManifest(),
+			"force_tor_domains":     readSplitRulesWithSeed("/var/lib/olcrtc/force-tor-domains.txt", "data/global-force-tor-domains.txt"),
+			"blocked_tor_domains":   readSplitRulesWithSeed("/var/lib/olcrtc/ru-blocked-tor-domains.txt", "data/ru-blocked-tor-seed.txt"),
+			"ru_direct_count":       countLines("/var/lib/olcrtc/ru-direct-domains.txt"),
+			"direct_cidrs_file":     env["OLCRTC_DIRECT_CIDRS"],
+			"cidr_only":             splitCidrOnlyEnabled(),
+		}, nil
+	case "olcrtc":
+		return olcrtcSettingsGet(), nil
+
+	case "warp":
+		env := readPanelEnvMap()
+		installed := fileExists("/usr/bin/warp-cli") || fileExists("/usr/local/bin/warp-cli")
+		connected := false
+		if installed {
+			out, _ := exec.Command("warp-cli", "status").CombinedOutput()
+			s := strings.ToLower(string(out))
+			connected = strings.Contains(s, "connected")
+		}
+		mode := strings.TrimSpace(env["OLCRTC_WARP_MODE"])
+		if mode == "" {
+			mode = "proxy"
+		}
+		return map[string]any{
+			"proxy":           firstNonEmpty(strings.TrimSpace(env["OLCRTC_WARP_PROXY"]), "127.0.0.1:40000"),
+			"mode":            mode,
+			"autoconnect":     env["OLCRTC_WARP_AUTOCONNECT"] != "0",
+			"warp_plus":       env["OLCRTC_WARP_PLUS"] == "1" || strings.EqualFold(env["OLCRTC_WARP_PLUS"], "true"),
+			"license_key":     strings.TrimSpace(env["OLCRTC_WARP_LICENSE"]),
+			"installed":       installed,
+			"connected":       connected,
+			"profile_enabled": readFeatureFlags()["warp"],
+		}, nil
+	case "bridges":
+		bp := readBridgeProfiles()
+		active := map[string]any{}
+		if id, ok := bp["active_profile"].(string); ok {
+			if id == "system" {
+				active = bp["system"].(map[string]any)
+			} else if profs, ok := bp["profiles"].([]any); ok {
+				for _, pr := range profs {
+					m, _ := pr.(map[string]any)
+					if m != nil && m["id"] == id {
+						active = m
+						break
+					}
+				}
+			}
+		}
+		return map[string]any{
+			"bridges_conf":   readTextFile("/etc/tor/bridges.conf"),
+			"webtunnel":      fileExists("/usr/bin/webtunnel-client"),
+			"pool_job":       readBridgePoolStatus(),
+			"pool_stats":     bridgePoolStats(),
+			"profiles":       bp,
+			"active_profile": active,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown component %q", name)
+	}
+}
+
+func patchTorrcKey(key, val string) error {
+	path := "/etc/tor/torrc"
+	lines := strings.Split(readTextFile(path), "\n")
+	found := false
+	prefix := key
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, prefix) {
+			if val == "" {
+				lines[i] = "# " + trim + " # cleared by panel"
+			} else {
+				lines[i] = prefix + " " + val
+			}
+			found = true
+			break
+		}
+	}
+	if !found && val != "" {
+		lines = append(lines, prefix+" "+val)
+	}
+	return writeTextFile(path, strings.Join(lines, "\n"))
+}
+
+func grepTorrcLine(key string) string {
+	for _, line := range strings.Split(readTextFile("/etc/tor/torrc"), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, key) {
+			return strings.TrimSpace(strings.TrimPrefix(line, key))
+		}
+	}
+	return ""
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func countLines(path string) int {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			n++
+		}
+	}
+	return n
+}
+
+func readSplitRulesWithSeed(path, seedPath string) string {
+	value := strings.TrimSpace(readTextFile(path))
+	if value != "" {
+		return value
+	}
+	return readTextFile(filepath.Join(olcRepoRoot(), seedPath))
+}
+
+func olcrtcSettingsPut(body map[string]any) error {
+	if v, ok := body["jitsi_insecure_tls"].(bool); ok {
+		val := "0"
+		if v {
+			val = "1"
+		}
+		if err := setPanelEnvKey("OLCRTC_JITSI_INSECURE_TLS", val); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["public_url"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_PUBLIC_URL", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["warp_proxy"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_WARP_PROXY", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["socks_proxy"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_SOCKS_PROXY", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	globalProxyKeys := map[string]string{
+		"global_socks_addr": "OLCRTC_GLOBAL_SOCKS_ADDR", "global_socks_port": "OLCRTC_GLOBAL_SOCKS_PORT",
+		"global_socks_user": "OLCRTC_GLOBAL_SOCKS_USER", "global_socks_pass": "OLCRTC_GLOBAL_SOCKS_PASS",
+		"global_socks_routing": "OLCRTC_GLOBAL_SOCKS_ROUTING",
+	}
+	for bodyKey, envKey := range globalProxyKeys {
+		if v, ok := body[bodyKey].(string); ok {
+			if err := setPanelEnvKey(envKey, strings.TrimSpace(v)); err != nil {
+				return err
+			}
+		}
+	}
+	if v, ok := body["global_socks_enabled"].(bool); ok {
+		value := "0"
+		if v {
+			value = "1"
+		}
+		if err := setPanelEnvKey("OLCRTC_GLOBAL_SOCKS_ENABLED", value); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["default_carrier"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_DEFAULT_CARRIER", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["default_transport"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_DEFAULT_TRANSPORT", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["default_link"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_DEFAULT_LINK", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["tor_proxy"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_TOR_PROXY", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	if v, ok := body["webrtc_proxy"].(string); ok {
+		if err := setPanelEnvKey("OLCRTC_WEBRTC_PROXY", strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func componentSettingsPut(name string, body map[string]any) error {
+	if name == "warp" {
+		return warpSettingsPut(body)
+	}
+	if name == "olcrtc" {
+		return olcrtcSettingsPut(body)
+	}
+	switch name {
+	case "zapret":
+		if v, ok := body["exclude_domains"].(string); ok {
+			if err := writeTextFile("/var/lib/olcrtc/zapret-custom/exclude-domains.txt", v); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["force_domains"].(string); ok {
+			if err := writeTextFile("/var/lib/olcrtc/zapret-custom/force-domains.txt", v); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["nfqws_config"].(string); ok {
+			cfgPath := filepath.Join(olcRepoRoot(), "data/zapret-olcrtc.config")
+			if err := writeTextFile(cfgPath, strings.TrimSpace(v)+"\n"); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["strategy_id"].(string); ok && strings.TrimSpace(v) != "" {
+			script := filepath.Join(olcRepoRoot(), "scripts/olc-zapret-apply-strategy.sh")
+			if _, err := os.Stat(script); err == nil {
+				go func(id string) {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+					defer cancel()
+					cmd := exec.CommandContext(ctx, "bash", script, strings.TrimSpace(id))
+					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+					_, _ = cmd.CombinedOutput()
+				}(v)
+			}
+		}
+		if v, ok := body["reinstall"].(bool); ok && v {
+			script := filepath.Join(olcRepoRoot(), "scripts/olc-component-job.sh")
+			if _, err := os.Stat(script); err == nil {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+					defer cancel()
+					cmd := exec.CommandContext(ctx, "bash", script, "zapret", "install")
+					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin", "OLCRTC_ZAPRET_REINSTALL=1")
+					_, _ = cmd.CombinedOutput()
+				}()
+			}
+		}
+		if v, ok := body["auto_sync"].(bool); ok {
+			const cronPath = "/etc/cron.d/olcrtc-zapret-sync"
+			if v {
+				cron := "10 4 * * 0 root /opt/Olc-cost-l/scripts/zapret-sync-excludes.sh --reload-zapret >>/var/log/olcrtc-zapret-sync.log 2>&1\n"
+				if err := writeTextFile(cronPath, cron); err != nil {
+					return err
+				}
+			} else {
+				_ = os.Remove(cronPath)
+			}
+		}
+		return nil
+
+	case "warp":
+		if v, ok := body["proxy"].(string); ok {
+			if err := setPanelEnvKey("OLCRTC_WARP_PROXY", strings.TrimSpace(v)); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["mode"].(string); ok {
+			mv := strings.TrimSpace(v)
+			if mv == "" {
+				mv = "proxy"
+			}
+			if err := setPanelEnvKey("OLCRTC_WARP_MODE", mv); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["autoconnect"].(bool); ok {
+			val := "0"
+			if v {
+				val = "1"
+			}
+			if err := setPanelEnvKey("OLCRTC_WARP_AUTOCONNECT", val); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["warp_plus"].(bool); ok {
+			val := "0"
+			if v {
+				val = "1"
+			}
+			if err := setPanelEnvKey("OLCRTC_WARP_PLUS", val); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["license_key"].(string); ok {
+			if err := setPanelEnvKey("OLCRTC_WARP_LICENSE", strings.TrimSpace(v)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "tor":
+		if v, ok := body["strict_nodes"].(string); ok {
+			_ = patchTorrcKey("StrictNodes", strings.TrimSpace(v))
+		}
+		if v, ok := body["socks_listen"].(string); ok {
+			_ = patchTorrcKey("SocksPort", strings.TrimSpace(v))
+		}
+		if v, ok := body["exit_nodes"].(string); ok {
+			if err := writeTextFile("/etc/olcrtc-manager/tor-exit.env", "OLCRTC_TOR_EXIT_NODES="+strings.TrimSpace(v)+"\n"); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["exclude_exit_nodes"].(string); ok {
+			if err := writeTextFile("/etc/olcrtc-manager/tor-exit-exclude.env", "OLCRTC_TOR_EXCLUDE_EXIT="+strings.TrimSpace(v)+"\n"); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "split":
+		if v, ok := body["force_tor_domains"].(string); ok {
+			_ = writeTextFile("/var/lib/olcrtc/force-tor-domains.txt", v)
+		}
+		if v, ok := body["blocked_tor_domains"].(string); ok {
+			_ = writeTextFile("/var/lib/olcrtc/ru-blocked-tor-domains.txt", v)
+		}
+		if v, ok := body["custom_direct_domains"].(string); ok {
+			if err := writeTextFile("/var/lib/olcrtc/lists/custom-direct-domains.txt", v); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["panel_hosts"].(string); ok {
+			if err := writeTextFile("/var/lib/olcrtc/lists/panel-carrier-hosts.txt", v); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["panel_cidrs"].(string); ok {
+			if err := writeTextFile("/var/lib/olcrtc/lists/panel-carrier-cidrs.txt", v); err != nil {
+				return err
+			}
+		}
+		if v, ok := body["cidr_only"].(bool); ok {
+			val := "0"
+			if v {
+				val = "1"
+			}
+			_ = patchPanelEnvKey("OLCRTC_SPLIT_CIDR_ONLY", val)
+		}
+		if _, err := runSplitTool(context.Background(), []string{"rebuild"}, nil, time.Minute); err != nil {
+			log.Printf("split rebuild after settings save: %v", err)
+		}
+		return nil
+	case "bridges":
+
+		if raw, ok := body["bridge_profiles"].(map[string]any); ok {
+			cur := readBridgeProfiles()
+			for k, v := range raw {
+				if k == "system" {
+					if sm, ok := v.(map[string]any); ok {
+						if sys, ok := cur["system"].(map[string]any); ok {
+							if t, ok := sm["types"].(string); ok {
+								sys["types"] = t
+							}
+							if au, ok := sm["auto_update"].(bool); ok {
+								sys["auto_update"] = au
+								setBridgeAutoCron(au)
+							}
+							cur["system"] = sys
+						}
+					}
+					continue
+				}
+				cur[k] = v
+			}
+			if ap, ok := body["active_profile"].(string); ok {
+				cur["active_profile"] = ap
+			}
+			if err := writeBridgeProfiles(cur); err != nil {
+				return err
+			}
+			return applyActiveBridgeProfile(cur)
+		}
+		if v, ok := body["custom_bridge"].(string); ok && strings.TrimSpace(v) != "" {
+			line := strings.TrimSpace(v)
+			if !strings.HasPrefix(line, "Bridge ") {
+				line = "Bridge " + line
+			}
+			f, err := os.OpenFile("/etc/tor/bridges.conf", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			_, err = fmt.Fprintf(f, "\n%s\n", line)
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown component %q", name)
+	}
+}
+
+// component-settings-v3
+// component-settings-v4
+// component-settings-v5
+
+func patchPanelEnvKey(key, val string) error {
+	path := "/etc/olcrtc-manager/panel.env"
+	lines := strings.Split(readTextFile(path), "\n")
+	prefix := key + "="
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			lines[i] = prefix + val
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, prefix+val)
+	}
+	return writeTextFile(path, strings.Join(lines, "\n")+"\n")
+}
+
+func zapretStrategyState() (current string, presets []map[string]string) {
+	current = strings.TrimSpace(readTextFile("/etc/olcrtc-manager/zapret.strategy"))
+	if current == "" {
+		if fileExists(filepath.Join(olcRepoRoot(), "data/zapret4rocket/config.default")) {
+			current = "z4r-default"
+		} else {
+			current = "olcrtc-minimal"
+		}
+	}
+	presets = []map[string]string{
+		{"id": "olcrtc-minimal", "label": "Olc minimal (лёгкий)"},
+		{"id": "z4r-default", "label": "zapret4rocket config.default"},
+	}
+	dir := filepath.Join(olcRepoRoot(), "data/zapret-strategies")
+	if ents, err := os.ReadDir(dir); err == nil {
+		for _, e := range ents {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".config") {
+				continue
+			}
+			id := strings.TrimSuffix(e.Name(), ".config")
+			presets = append(presets, map[string]string{"id": id, "label": "custom: " + id})
+		}
+	}
+	return current, presets
+}
+
+func splitCidrOnlyEnabled() bool {
+	env := readPanelEnvMap()
+	if v := strings.TrimSpace(env["OLCRTC_SPLIT_CIDR_ONLY"]); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	cidr := env["OLCRTC_DIRECT_CIDRS"]
+	return strings.Contains(cidr, "ru-cidrs") && !strings.Contains(cidr, "direct-all")
+}
+
+func splitSettingsActionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	action := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/settings/split/"), "/")
+	var body map[string]any
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	switch action {
+	case "analyze":
+		target, _ := body["target"].(string)
+		target = strings.TrimSpace(target)
+		if target == "" {
+			http.Error(w, "target is required", http.StatusBadRequest)
+			return
+		}
+		out, err := runSplitTool(r.Context(), []string{"analyze", target}, nil, 25*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "result": out})
+	case "apply-analysis":
+		out, err := runSplitTool(r.Context(), []string{"apply-analysis"}, body, 90*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	case "sync-config":
+		out, err := runSplitTool(context.Background(), []string{"sync-config", "/etc/olcrtc-manager/config.json"}, nil, 2*time.Minute)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	case "sync-logs":
+		out, err := runSplitTool(r.Context(), []string{"sync-logs"}, nil, 90*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	case "apply-routing":
+		applySplitRoutingToInstances("split apply-routing")
+		writeJSON(w, map[string]any{"status": "ok", "routing_reloaded": splitRoutingReloadSupported(), "instances_restarted": !splitRoutingReloadSupported()})
+	case "expand":
+		// Phase 2E: deep-расширение субдоменов существующих групп discovery
+		// (resolve+CNAME+cert SAN+crt.sh+brand-siblings+CDN). Кэш-TTL внутри
+		// инструмента (olc-split-analyze expand-all). force=true — игнорировать TTL;
+		// target — расширить одну группу.
+		expandArgs := []string{"expand-all"}
+		if v, _ := body["force"].(bool); v {
+			expandArgs = append(expandArgs, "--force")
+		}
+		if tgt, _ := body["target"].(string); strings.TrimSpace(tgt) != "" {
+			expandArgs = append(expandArgs, strings.TrimSpace(tgt))
+		}
+		out, err := runSplitTool(context.Background(), expandArgs, nil, 5*time.Minute)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		componentSettingsAfterSave("zapret", map[string]any{})
+		writeJSON(w, map[string]any{"status": "ok", "result": out, "settings": mustComponentSettings("split")})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func mustComponentSettings(name string) map[string]any {
+	out, err := componentSettingsGet(name)
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	return out
+}
+
+func splitRoutingReloadSupported() bool {
+	_, err := os.Stat("/var/lib/olcrtc/.split-routing-reload")
+	return err == nil
+}
+
+func applySplitRoutingToInstances(reason string) {
+	if panelSupervisor == nil {
+		return
+	}
+	splitReloadMu.Lock()
+	if time.Since(splitReloadLast) < 10*time.Second {
+		splitReloadMu.Unlock()
+		log.Printf("split: routing reload debounced (%s)", reason)
+		return
+	}
+	splitReloadLast = time.Now()
+	splitReloadMu.Unlock()
+	useReload := splitRoutingReloadSupported()
+	go func() {
+		panelSupervisor.mu.RLock()
+		procs := make([]*process, 0, len(panelSupervisor.processes))
+		for _, p := range panelSupervisor.processes {
+			procs = append(procs, p)
+		}
+		panelSupervisor.mu.RUnlock()
+		if len(procs) == 0 {
+			return
+		}
+		if useReload {
+			n := 0
+			for _, p := range procs {
+				if p == nil || p.cmd == nil || p.cmd.Process == nil {
+					continue
+				}
+				if err := p.cmd.Process.Signal(syscall.SIGUSR1); err == nil {
+					n++
+				} else {
+					log.Printf("split reload signal %s/%s: %v", p.location.ClientID, p.location.Endpoint.RoomID, err)
+				}
+			}
+			log.Printf("split: routing reload (SIGUSR1) sent to %d instance(s) (%s)", n, reason)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		for _, p := range procs {
+			if p == nil {
+				continue
+			}
+			if err := panelSupervisor.Restart(ctx, p.location.ClientID, p.location.Endpoint.RoomID, p.location.Transport.Type); err != nil {
+				log.Printf("split restart %s/%s: %v", p.location.ClientID, p.location.Endpoint.RoomID, err)
+			}
+		}
+		log.Printf("split: restarted %d running instance(s) (%s)", len(procs), reason)
+	}()
+}
+
+func bridgeSourcesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			sources := readBridgeSources()
+			writeExtraURLSFile(sources)
+			writeJSON(w, map[string]any{"status": "ok", "sources": sources})
+		case http.MethodPut:
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if sourcesArr, ok := body["sources"].([]any); ok {
+				var parsed []map[string]any
+				for _, raw := range sourcesArr {
+					if m, ok := raw.(map[string]any); ok {
+						parsed = append(parsed, m)
+					}
+				}
+				if len(parsed) > 0 {
+					writeBridgeSources(parsed)
+				}
+			}
+			sources := readBridgeSources()
+			writeExtraURLSFile(sources)
+			writeJSON(w, map[string]any{"status": "ok", "sources": sources})
+		default:
+			w.Header().Set("Allow", "GET, PUT")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func componentSettingsAfterSave(name string, body map[string]any) {
+	repo := olcRepoRoot()
+	switch name {
+	case "zapret":
+		script := filepath.Join(repo, "scripts/zapret-sync-excludes.sh")
+		if _, err := os.Stat(script); err == nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, "bash", script, "--reload-zapret")
+				cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+				_, _ = cmd.CombinedOutput()
+			}()
+		}
+	case "split":
+		if v, ok := body["refresh_lists"].(bool); ok && v {
+			script := filepath.Join(repo, "scripts/setup-split-ru.sh")
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, "bash", script)
+				cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+				_, _ = cmd.CombinedOutput()
+			}()
+		}
+	case "tor":
+		if v, ok := body["exit_nodes"].(string); ok {
+			_ = writeTextFile("/etc/olcrtc-manager/tor-exit.env", "OLCRTC_TOR_EXIT_NODES="+strings.TrimSpace(v)+"\n")
+			script := filepath.Join(repo, "scripts/configure-tor-exit.sh")
+			if _, err := os.Stat(script); err == nil {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					defer cancel()
+					cmd := exec.CommandContext(ctx, "bash", "-c", "set -a; source /etc/olcrtc-manager/tor-exit.env 2>/dev/null; source /etc/olcrtc-manager/tor-exit-exclude.env 2>/dev/null; set +a; bash "+script)
+					cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+					_, _ = cmd.CombinedOutput()
+				}()
+			}
+		}
+	}
+}
+
+func componentSettingsHandler() http.HandlerFunc {
+	allowed := map[string]bool{"zapret": true, "tor": true, "split": true, "bridges": true, "olcrtc": true, "warp": true}
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/api/settings/")
+		name = strings.TrimSpace(strings.Trim(name, "/"))
+		if !allowed[name] {
+			http.Error(w, "unknown component", http.StatusBadRequest)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			out, err := componentSettingsGet(name)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, map[string]any{"component": name, "settings": out})
+		case http.MethodPut:
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if name == "bridges" {
+				if action, ok := body["action"].(string); ok && action == "probe_now" {
+					runBridgeProbe()
+					writeJSON(w, map[string]any{"status": "ok", "pool_job": readBridgePoolStatus()})
+					return
+				}
+				if action, ok := body["action"].(string); ok && action == "refresh_pool" {
+					types := "obfs4,webtunnel"
+					if v, ok := body["types"].(string); ok && strings.TrimSpace(v) != "" {
+						types = strings.TrimSpace(v)
+					}
+					runBridgePoolRefresh(types)
+					writeJSON(w, map[string]any{"status": "ok", "pool_job": readBridgePoolStatus()})
+					return
+				}
+			}
+			if err := componentSettingsPut(name, body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			componentSettingsAfterSave(name, body)
+			writeJSON(w, map[string]string{"status": "ok"})
+		default:
+			w.Header().Set("Allow", "GET, PUT")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func capabilitiesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		flags := loadFeatureFlagsMap()
+		ver := readVersionJSON()
+		profile := readDeployProfileID()
+		type comp struct {
+			Installed    bool     `json:"installed"`
+			Enabled      bool     `json:"enabled"`
+			Configurable bool     `json:"configurable"`
+			Label        string   `json:"label,omitempty"`
+			Requires     []string `json:"requires,omitempty"`
+		}
+		components := map[string]comp{
+			"zapret": {
+				Installed: componentInstalled("zapret"), Enabled: flags["zapret"],
+				Configurable: componentInstalled("zapret"), Label: "Zapret",
+			},
+			"tor": {
+				Installed: componentInstalled("tor"), Enabled: flags["tor"],
+				Configurable: componentInstalled("tor"), Label: "Tor",
+			},
+			"split": {
+				Installed: componentInstalled("split"), Enabled: flags["split"],
+				Configurable: componentInstalled("split"), Label: "Split",
+				Requires: []string{"tor"},
+			},
+			"bridges": {
+				Installed: componentInstalled("bridges"), Enabled: flags["bridges"],
+				Configurable: componentInstalled("tor"), Label: "Мосты", Requires: []string{"tor"},
+			},
+			"warp": {
+				Installed: componentInstalled("warp"), Enabled: flags["warp"],
+				Configurable: componentInstalled("warp"), Label: "WARP",
+			},
+		}
+		writeJSON(w, map[string]any{
+			"panel_version":  ver["panel"],
+			"channel":        ver["channel"],
+			"deploy_profile": profile,
+			"components":     components,
+		})
+	}
+}
+
+func featuresToggleSucceeded(name string, wantEnabled bool, scriptErr error, output string) bool {
+	if scriptErr == nil {
+		return true
+	}
+	flags := readFeatureFlags()
+	if flags[name] == wantEnabled {
+		return true
+	}
+	msg := scriptErr.Error() + " " + output
+	if strings.Contains(msg, "signal: terminated") && flags[name] == wantEnabled {
+		return true
+	}
+	if name == "split" && wantEnabled && flags["split"] {
+		return true
+	}
+	if name == "tor" && !wantEnabled && !flags["tor"] {
+		return true
+	}
+	if name == "warp" && wantEnabled && flags["warp"] {
+		return true
+	}
+	return false
+}
+
+// featureJournalUnit maps an addon to a systemd unit whose journal carries its
+// real logs, used as a fallback when no populated log file exists.
+func featureJournalUnit(name string) string {
+	switch name {
+	case "tor":
+		return "tor@default"
+	case "olcrtc":
+		return "olcrtc-manager"
+	case "bridges", "webtunnel":
+		return "olcrtc-tor-bridge-pool"
+	default:
+		return ""
+	}
+}
+
+func featureLogPaths(name string) []string {
+	switch name {
+	case "zapret":
+		return []string{
+			"/var/log/olcrtc-zapret-sync.log",
+			"/var/log/olcrtc-zapret-install.log",
+			"/var/log/olcrtc-component-zapret-install.log",
+			"/var/log/olcrtc-component-zapret-uninstall.log",
+		}
+	case "tor":
+		return []string{"/var/log/tor/log", "/var/log/olcrtc-healthcheck.log"}
+	case "split":
+		return []string{
+			"/var/log/olcrtc-split-update.log",
+			"/var/log/olcrtc-component-split-install.log",
+			"/var/log/olcrtc-component-split-uninstall.log",
+		}
+	case "bridges", "webtunnel":
+		return []string{
+			"/var/log/olcrtc-bridge-pool.log",
+			"/var/log/olcrtc-bridge-monitor.log",
+			"/var/log/olcrtc-component-bridges-install.log",
+			"/var/log/olcrtc-component-bridges-uninstall.log",
+		}
+	case "warp":
+		return []string{
+			"/var/log/olcrtc-warp-install.log",
+			"/var/log/olcrtc-component-warp-install.log",
+			"/var/log/olcrtc-component-warp-uninstall.log",
+		}
+	case "olcrtc":
+		return []string{
+			"/var/log/olcrtc-healthcheck.log",
+			"/var/log/olcrtc-panel-update.log",
+			"/var/log/olcrtc-feature-restart.log",
+		}
+	default:
+		return nil
+	}
+}
+
+func tailJournalUnit(unit string, maxLines int) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "journalctl", "-u", unit, "-n", fmt.Sprintf("%d", maxLines), "--no-pager", "-o", "cat")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return nil, fmt.Errorf("empty journal")
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return lines, nil
+}
+
+func tailFileLines(path string, maxLines int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) > maxLines*2 {
+			lines = lines[len(lines)-maxLines:]
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return lines, nil
+}
+
+func featuresLogsHandler() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := strings.TrimPrefix(r.URL.Path, "/api/features/logs/")
+		name = strings.TrimSpace(strings.Trim(name, "/"))
+		allowed := false
+		for _, n := range featureNames {
+			if n == name {
+				allowed = true
+				break
+			}
+		}
+		if !allowed && (name == "olcrtc" || name == "warp") {
+			allowed = true
+		}
+		if !allowed && name == "olcrtc" {
+			allowed = true
+		}
+		if !allowed {
+			http.Error(w, "unknown feature", http.StatusBadRequest)
+			return
+		}
+		var usedPath string
+		var lines []string
+		// journald-первым для аддонов с юнитом (tor→tor@default, olcrtc→olcrtc-manager,
+		// webtunnel→bridge-pool): их реальные логи в журнале, а olcrtc-healthcheck.log
+		// в списке файлов иначе заслонял их (баг: и tor, и olcrtc показывали healthcheck).
+		if unit := featureJournalUnit(name); unit != "" {
+			if got, err := tailJournalUnit(unit, 200); err == nil && len(got) > 0 {
+				usedPath = "journalctl -u " + unit
+				lines = got
+			}
+		}
+		if lines == nil {
+			for _, path := range featureLogPaths(name) {
+				if st, err := os.Stat(path); err != nil || st.Size() == 0 {
+					continue
+				}
+				got, err := tailFileLines(path, 200)
+				if err != nil || len(got) == 0 {
+					continue
+				}
+				usedPath = path
+				lines = got
+				break
+			}
+		}
+		if lines == nil {
+			if unit := featureJournalUnit(name); unit != "" {
+				if got, err := tailJournalUnit(unit, 200); err == nil && len(got) > 0 {
+					usedPath = "journalctl -u " + unit
+					lines = got
+				}
+			}
+		}
+		if lines == nil {
+			paths := featureLogPaths(name)
+			tried := append([]string{}, paths...)
+			if unit := featureJournalUnit(name); unit != "" {
+				tried = append(tried, "journalctl -u "+unit)
+			}
+			msg := fmt.Sprintf("(no logs yet for %s — tried: %s)", name, strings.Join(tried, ", "))
+			if len(tried) == 0 {
+				msg = fmt.Sprintf("(no log sources configured for %s)", name)
+			}
+			lines = []string{msg}
+		}
+		writeJSON(w, map[string]any{"feature": name, "path": usedPath, "lines": lines})
+	}
+}
+
+func featuresListHandler() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"flags":  readFeatureFlags(),
+			"live":   featureLiveStatus(),
+			"script": featureScriptPath(),
+		})
+	}
+}
+
+func featuresToggleHandler() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := strings.TrimPrefix(r.URL.Path, "/api/features/")
+		name = strings.TrimSpace(name)
+		allowed := false
+		for _, n := range featureNames {
+			if n == name {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			http.Error(w, "unknown feature", http.StatusBadRequest)
+			return
+		}
+		var body struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid json body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		script := featureScriptPath()
+		if script == "" {
+			http.Error(w, "olc-feature.sh not installed", http.StatusServiceUnavailable)
+			return
+		}
+		arg := "off"
+		if body.Enabled {
+			arg = "on"
+		}
+		if name == "webtunnel" && body.Enabled {
+			flagsNow := readFeatureFlags()
+			if !flagsNow["tor"] {
+				http.Error(w, "bridges require tor enabled", http.StatusBadRequest)
+				return
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "bash", script, name, arg)
+		cmd.Env = append(os.Environ(),
+			"PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin",
+			"OLC_FEATURE_NO_MANAGER_RESTART=0",
+		)
+		out, err := cmd.CombinedOutput()
+		result := map[string]any{
+			"feature": name,
+			"enabled": body.Enabled,
+			"output":  string(out),
+			"flags":   readFeatureFlags(),
+		}
+		if err != nil {
+			result["error"] = err.Error()
+			if !featuresToggleSucceeded(name, body.Enabled, err, string(out)) {
+				w.WriteHeader(http.StatusInternalServerError)
+			} else {
+				result["warning"] = "toggle applied; manager may restart in a few seconds"
+			}
+		}
+		writeJSON(w, result)
+	}
+}
+
+func countPatchScripts(repo string) int {
+	n := 0
+	dir := filepath.Join(repo, "scripts")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, "patch-olcrtc") && strings.HasSuffix(name, ".sh") {
+			n++
+		}
+	}
+	return n
+}
+
+func readPins(repo string) map[string]any {
+	out := map[string]any{}
+	path := filepath.Join(repo, "data/upstream-pins.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+func notificationStats() map[string]any {
+	st := map[string]any{"total": 0, "unread": 0, "errors": 0, "warnings": 0}
+	var list []map[string]any
+	if readJSONFile(panelNotifFile, &list) {
+		st["total"] = len(list)
+		for _, n := range list {
+			if read, ok := n["read"].(bool); ok && !read {
+				st["unread"] = st["unread"].(int) + 1
+			}
+			switch n["severity"] {
+			case "error":
+				st["errors"] = st["errors"].(int) + 1
+			case "warning":
+				st["warnings"] = st["warnings"].(int) + 1
+			}
+		}
+	}
+	return st
+}
+
+func displayFeatureFlags() map[string]bool {
+	raw := readFeatureFlags()
+	out := map[string]bool{
+		"zapret":  raw["zapret"],
+		"tor":     raw["tor"],
+		"split":   raw["split"],
+		"bridges": raw["bridges"],
+		"warp":    raw["warp"],
+		"olcrtc":  raw["olcrtc"],
+	}
+	return out
+}
+
+func componentStackStatus() map[string]any {
+	flags := readFeatureFlags()
+	installed := map[string]bool{
+		"zapret":  componentInstalled("zapret"),
+		"tor":     componentInstalled("tor"),
+		"split":   componentInstalled("split"),
+		"bridges": componentInstalled("bridges"),
+	}
+	labels := map[string]string{
+		"zapret": "Zapret", "tor": "Tor", "split": "Split", "bridges": "Мосты",
+	}
+	optional := []string{"warp"}
+	on := 0
+	total := 0
+	items := []map[string]any{}
+	for _, id := range []string{"zapret", "tor", "split", "bridges"} {
+		total++
+		enabled := flags[id]
+		if enabled {
+			on++
+		}
+		items = append(items, map[string]any{
+			"id": id, "label": labels[id], "enabled": enabled, "installed": installed[id],
+		})
+	}
+	for _, id := range optional {
+		items = append(items, map[string]any{
+			"id": id, "label": "WARP", "enabled": flags[id], "installed": componentInstalled("warp"), "optional": true,
+		})
+	}
+	return map[string]any{
+		"enabled": on, "total": total, "items": items,
+		"note": "Сервисы стека Olc-cost-l (Zapret, Tor, Split, Мосты). WARP — опционально.",
+	}
+}
+
+func projectStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	repo := olcRepoRoot()
+	upd := computeUpdateStatus(repo)
+	local, _ := upd["local_sha"].(string)
+	remote, _ := upd["remote_sha"].(string)
+	ver := readVersionJSON()
+	stackManifest, _ := ver["stack"].(map[string]any)
+	pins := readPins(repo)
+	notif := notificationStats()
+	locked := panelUpdateLocked()
+	var updateJob map[string]any
+	readJSONFile(panelUpdateStatus, &updateJob)
+
+	stack := componentStackStatus()
+	patchTotal := countPatchScripts(repo)
+	patchApplied := patchTotal
+	if _, err := os.Stat("/usr/local/bin/olcrtc-manager"); err != nil {
+		patchApplied = 0
+	}
+
+	writeJSON(w, map[string]any{
+		"panel_version":         ver["panel"],
+		"channel":               ver["channel"],
+		"stack_manifest":        stackManifest,
+		"repo_path":             repo,
+		"local_sha":             local,
+		"remote_sha":            remote,
+		"update_available":      upd["update_available"],
+		"update_source":         upd["update_source"],
+		"git_behind":            upd["git_behind"],
+		"git_ahead":             upd["git_ahead"],
+		"installed_release_tag": upd["installed_release_tag"],
+		"latest_release_tag":    upd["latest_release_tag"],
+		"latest_release_name":   upd["latest_release_name"],
+		"update_locked":         locked,
+		"update_job":            updateJob,
+		"deploy_profile":        readDeployProfileID(),
+		"stack":                 stack,
+		"patches": map[string]any{
+			"total_scripts":    patchTotal,
+			"applied_estimate": patchApplied,
+			"enabled":          stack["enabled"],
+			"total":            stack["total"],
+			"items":            stack["items"],
+		},
+		"upstream_pins": pins,
+		"capabilities": map[string]any{
+			"components": map[string]bool{
+				"zapret":  componentInstalled("zapret"),
+				"tor":     componentInstalled("tor"),
+				"split":   componentInstalled("split"),
+				"bridges": componentInstalled("bridges"),
+			},
+			"flags": displayFeatureFlags(),
+		},
+		"notifications": notif,
+		"manager": map[string]any{
+			"pid": os.Getpid(),
+		},
+	})
+}
+
+const notificationSettingsPath = "/etc/olcrtc-manager/notification-settings.json"
+
+func defaultNotificationSettings() map[string]any {
+	return map[string]any{
+		"enabled":           true,
+		"scan_interval_sec": 60,
+		"min_severity":      "warning",
+		"show_toast":        true,
+		"sources": map[string]bool{
+			"instance": true,
+			"olcrtc":   true,
+			"tor":      true,
+			"zapret":   true,
+			"panel":    true,
+			"split":    true,
+		},
+	}
+}
+
+func readNotificationSettings() map[string]any {
+	out := defaultNotificationSettings()
+	var stored map[string]any
+	if readJSONFile(notificationSettingsPath, &stored) {
+		for k, v := range stored {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func notificationSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"settings": readNotificationSettings()})
+	case http.MethodPut:
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		cur := readNotificationSettings()
+		for k, v := range body {
+			cur[k] = v
+		}
+		b, _ := json.MarshalIndent(cur, "", "  ")
+		if err := os.WriteFile(notificationSettingsPath, b, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "settings": cur})
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+const instanceDefaultsPath = "/var/lib/olcrtc/instance-defaults.json"
+
+func readInstanceDefaults() map[string]any {
+	out := map[string]any{
+		"schema":     1,
+		"globalPort": "",
+		"carriers":   map[string]any{},
+	}
+	var stored map[string]any
+	if readJSONFile(instanceDefaultsPath, &stored) {
+		for k, v := range stored {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func instanceDefaultsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"defaults": readInstanceDefaults()})
+	case http.MethodPut:
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		payload := body
+		if nested, ok := body["defaults"].(map[string]any); ok {
+			payload = nested
+		}
+		if err := os.MkdirAll(filepath.Dir(instanceDefaultsPath), 0755); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		b, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := os.WriteFile(instanceDefaultsPath, b, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "defaults": payload})
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// panelBackendV4 — updates, notifications, jobs, component install
+const (
+	panelUpdateLock      = "/var/lib/olcrtc/panel-update.lock"
+	panelUpdateStatus    = "/var/lib/olcrtc/panel-update-status.json"
+	panelJobsDir         = "/var/lib/olcrtc/panel-jobs"
+	panelNotifFile       = "/var/lib/olcrtc/notifications.json"
+	bridgeProfilesPath   = "/var/lib/olcrtc/bridge-profiles.json"
+	bridgeCronPath       = "/etc/cron.d/olcrtc-bridge-pool"
+	bridgePoolStatusFile = "/var/lib/olcrtc/bridge-pool-status.json"
+)
+
+func panelUpdateLocked() bool {
+	b, err := os.ReadFile(panelUpdateLock)
+	if err != nil {
+		return false
+	}
+	p, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || p <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(p)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func olcRepoRoot() string {
+	for _, p := range []string{"/opt/Olc-cost-l", "/opt/olcrtc"} {
+		if _, err := os.Stat(filepath.Join(p, "scripts/apply-olcrtc-patches.sh")); err == nil {
+			return p
+		}
+	}
+	return "/opt/Olc-cost-l"
+}
+
+func runGitShort(repo string, args ...string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	gitArgs := []string{"-c", "safe.directory=" + repo, "-C", repo}
+	gitArgs = append(gitArgs, args...)
+	cmd := exec.CommandContext(ctx, "git", gitArgs...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func readJSONFile(path string, dest any) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(b, dest) == nil
+}
+
+func updatesCheckHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	repo := olcRepoRoot()
+	st := computeUpdateStatus(repo)
+	st["available"] = st["update_available"]
+	st["locked"] = panelUpdateLocked()
+	writeJSON(w, st)
+}
+
+func updatesStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	out := map[string]any{"locked": panelUpdateLocked()}
+	var st map[string]any
+	if readJSONFile(panelUpdateStatus, &st) {
+		out["job"] = st
+	}
+	writeJSON(w, out)
+}
+
+func updateGuardMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+	})
+}
+
+func updatesRunHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if panelUpdateLocked() {
+		http.Error(w, "update already running", http.StatusConflict)
+		return
+	}
+	script := filepath.Join(olcRepoRoot(), "scripts/olc-panel-update-run.sh")
+	if _, err := os.Stat(script); err != nil {
+		http.Error(w, "update script missing", http.StatusServiceUnavailable)
+		return
+	}
+	jobID := fmt.Sprintf("update-%d", time.Now().Unix())
+	cmd := exec.Command("bash", script, jobID)
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+	if err := cmd.Start(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"job_id": jobID, "status": "running", "log_path": "/var/log/olcrtc-panel-update.log"})
+}
+
+func panelJobsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
+		rest = strings.Trim(rest, "/")
+		parts := strings.Split(rest, "/")
+		if len(parts) == 0 || parts[0] == "" {
+			http.NotFound(w, r)
+			return
+		}
+		jobID := parts[0]
+		path := filepath.Join(panelJobsDir, jobID+".json")
+		if r.Method == http.MethodGet && len(parts) == 1 {
+			var st map[string]any
+			if readJSONFile(path, &st) {
+				writeJSON(w, st)
+				return
+			}
+			if readJSONFile(panelUpdateStatus, &st) && st["job_id"] == jobID {
+				writeJSON(w, st)
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "log" {
+			logPath := "/var/log/olcrtc-panel-update.log"
+			var st map[string]any
+			if readJSONFile(path, &st) {
+				if lp, ok := st["log_path"].(string); ok && lp != "" {
+					logPath = lp
+				}
+			}
+			b, err := os.ReadFile(logPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			lines := strings.Split(string(b), "\n")
+			if len(lines) > 500 {
+				lines = lines[len(lines)-500:]
+			}
+			writeJSON(w, map[string]any{"lines": lines})
+			return
+		}
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func fileContainsDoneMarker(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(b), "=== done ===")
+}
+
+func componentJobStale(st map[string]any, mod time.Time) bool {
+	status, _ := st["status"].(string)
+	if status != "done" && status != "failed" {
+		return false
+	}
+	if raw, ok := st["finished_at"].(string); ok && raw != "" {
+		if ts, err := time.Parse(time.RFC3339, raw); err == nil {
+			return time.Since(ts) > 3*time.Minute
+		}
+	}
+	return time.Since(mod) > 3*time.Minute
+}
+
+func componentsJobsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	componentFilter := strings.TrimSpace(r.URL.Query().Get("component"))
+	type item struct {
+		mod time.Time
+		st  map[string]any
+	}
+	glob := filepath.Join(panelJobsDir, "*.json")
+	files, _ := filepath.Glob(glob)
+	out := []item{}
+	for _, p := range files {
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		var st map[string]any
+		if !readJSONFile(p, &st) {
+			continue
+		}
+		if typ, _ := st["type"].(string); typ != "component" {
+			continue
+		}
+		if componentFilter != "" {
+			if c, _ := st["component"].(string); c != componentFilter {
+				continue
+			}
+		}
+		if _, ok := st["job_id"]; !ok {
+			st["job_id"] = strings.TrimSuffix(filepath.Base(p), ".json")
+		}
+		if componentJobStale(st, info.ModTime()) {
+			continue
+		}
+		if status, _ := st["status"].(string); status == "failed" {
+			logPath, _ := st["log_path"].(string)
+			if logPath != "" && fileContainsDoneMarker(logPath) {
+				st["status"] = "done"
+				st["exit_code"] = 0
+				st["error"] = ""
+				status = "done"
+			}
+		}
+		if status, _ := st["status"].(string); (status == "done" || status == "failed") && st["finished_at"] == nil {
+			st["finished_at"] = info.ModTime().Format(time.RFC3339)
+		}
+		out = append(out, item{mod: info.ModTime(), st: st})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].mod.After(out[j].mod) })
+	jobs := make([]map[string]any, 0, len(out))
+	for _, it := range out {
+		jobs = append(jobs, it.st)
+	}
+	writeJSON(w, map[string]any{"jobs": jobs})
+}
+
+func notificationsListHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var list []map[string]any
+	if !readJSONFile(panelNotifFile, &list) {
+		list = []map[string]any{}
+	}
+	unread := 0
+	for _, n := range list {
+		if read, ok := n["read"].(bool); ok && !read {
+			unread++
+		}
+	}
+	writeJSON(w, map[string]any{"notifications": list, "unread": unread})
+}
+
+func notificationsScanHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	script := filepath.Join(olcRepoRoot(), "scripts/olc-error-scan.sh")
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", script)
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+	_ = cmd.Run()
+	var list []map[string]any
+	if !readJSONFile(panelNotifFile, &list) {
+		list = []map[string]any{}
+	}
+	writeJSON(w, map[string]any{"notifications": list, "scanned": true})
+}
+
+func notificationsPatchHandler(w http.ResponseWriter, r *http.Request) {
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/notifications/"), "/")
+	if id == "" || id == "scan" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPatch && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Read    *bool `json:"read"`
+		Dismiss bool  `json:"dismiss"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	var list []map[string]any
+	if !readJSONFile(panelNotifFile, &list) {
+		list = []map[string]any{}
+	}
+	statePath := "/var/lib/olcrtc/notifications-state.json"
+	var state map[string]any
+	readJSONFile(statePath, &state)
+	if state == nil {
+		state = map[string]any{"seen": map[string]any{}, "dismissed": []any{}}
+	}
+	dismissed, _ := state["dismissed"].([]any)
+	for i, n := range list {
+		if n["id"] == id {
+			if body.Read != nil {
+				list[i]["read"] = *body.Read
+			}
+			if body.Dismiss {
+				if cid, ok := n["catalog_id"].(string); ok {
+					dismissed = append(dismissed, cid)
+				}
+				list = append(list[:i], list[i+1:]...)
+			}
+			break
+		}
+	}
+	state["dismissed"] = dismissed
+	b, _ := json.Marshal(list)
+	_ = os.WriteFile(panelNotifFile, b, 0644)
+	sb, _ := json.Marshal(state)
+	_ = os.WriteFile(statePath, sb, 0644)
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func componentsActionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if panelUpdateLocked() {
+		http.Error(w, "panel update in progress", http.StatusConflict)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/components/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) < 2 {
+		http.Error(w, "expected /api/components/{name}/{install|uninstall}", http.StatusBadRequest)
+		return
+	}
+	name, action := parts[0], parts[1]
+	allowed := map[string]bool{"zapret": true, "tor": true, "split": true, "bridges": true, "olcrtc": true, "warp": true}
+	if !allowed[name] || (action != "install" && action != "uninstall") {
+		http.Error(w, "unknown component or action", http.StatusBadRequest)
+		return
+	}
+	if action == "install" && (name == "split" || name == "bridges") {
+		flags := readFeatureFlags()
+		if !componentInstalled("tor") || !flags["tor"] {
+			http.Error(w, name+" requires installed and enabled tor", http.StatusConflict)
+			return
+		}
+	}
+	script := filepath.Join(olcRepoRoot(), "scripts/olc-component-job.sh")
+	jobID := fmt.Sprintf("%s-%s-%d", name, action, time.Now().Unix())
+	cmd := exec.Command("bash", script, name, action, jobID)
+	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+	if err := cmd.Start(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"job_id": jobID, "component": name, "action": action, "status": "running",
+		"log_path": fmt.Sprintf("/var/log/olcrtc-component-%s-%s.log", name, action),
+	})
+}
+
+/* olc-jitsi-preflight-v1 */
+/* olc-jitsi-preflight-v2 */
+/* olc-jitsi-preflight-v3 */
+/* olc-jitsi-preflight-v4 */
+type jitsiPreflightResponse struct {
+	OK                 bool     `json:"ok"`
+	Code               string   `json:"code"`
+	Summary            string   `json:"summary"`
+	Details            []string `json:"details"`
+	Host               string   `json:"host,omitempty"`
+	Room               string   `json:"room,omitempty"`
+	WSURL              string   `json:"ws_url,omitempty"`
+	WSCode             int      `json:"ws_status,omitempty"`
+	BOSHURL            string   `json:"bosh_url,omitempty"`
+	BOSHCode           int      `json:"bosh_status,omitempty"`
+	BridgePostJoinRisk bool     `json:"bridge_postjoin_risk,omitempty"`
+	BridgePostJoinNote string   `json:"bridge_postjoin_note,omitempty"`
+}
+
+func jitsiPreflightHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	roomID := strings.TrimSpace(r.URL.Query().Get("room_id"))
+	writeJSON(w, preflightJitsiRoom(roomID))
+}
+
+func preflightJitsiRoom(roomID string) jitsiPreflightResponse {
+	out := jitsiPreflightResponse{
+		OK:      false,
+		Code:    "invalid",
+		Summary: "Некорректный room id",
+		Details: []string{"Укажите ссылку вида https://host/room"},
+	}
+	raw := strings.TrimSpace(roomID)
+	if raw == "" {
+		return out
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		out.Details = []string{"Не удалось разобрать URL комнаты"}
+		return out
+	}
+	room := strings.Trim(strings.TrimSpace(u.Path), "/")
+	if room == "" {
+		out.Code = "invalid-room"
+		out.Summary = "Для Jitsi нужен URL с названием комнаты"
+		out.Details = []string{"Пример: https://meet.example.org/my-room"}
+		return out
+	}
+	out.Host = u.Host
+	out.Room = room
+	hostOnly := u.Hostname()
+	if ip := net.ParseIP(hostOnly); ip != nil {
+		out.BridgePostJoinRisk = true
+		out.BridgePostJoinNote = "IP-хост: после join обязательно проверьте bridge websocket в runtime-логе"
+	}
+
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	client := &http.Client{Timeout: 10 * time.Second, Transport: tr}
+	base := u.Scheme + "://" + u.Host
+
+	configJS := ""
+	if resp, e := client.Get(base + "/config.js"); e == nil {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+		_ = resp.Body.Close()
+		configJS = string(b)
+	}
+	resolve := func(v string) string {
+		v = strings.TrimSpace(v)
+		switch {
+		case v == "":
+			return ""
+		case strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "ws://") || strings.HasPrefix(v, "wss://"):
+			return v
+		case strings.HasPrefix(v, "//"):
+			return "https:" + v
+		case strings.HasPrefix(v, "/"):
+			return base + v
+		default:
+			return base + "/" + strings.TrimPrefix(v, "/")
+		}
+	}
+	reWS := regexp.MustCompile(`websocket:\s*['"]([^'"]+)['"]`)
+	altWS := ""
+	if m := reWS.FindStringSubmatch(configJS); len(m) == 2 {
+		altWS = resolve(m[1])
+	}
+	mainWS := base + "/xmpp-websocket"
+	reBOSH := regexp.MustCompile(`bosh:\s*['"]([^'"]+)['"]`)
+	boshURL := base + "/http-bind"
+	if m := reBOSH.FindStringSubmatch(configJS); len(m) == 2 {
+		boshURL = resolve(m[1])
+	}
+
+	out.WSURL = mainWS
+	if altWS != "" && altWS != mainWS {
+		out.WSURL = mainWS + " | alt: " + altWS
+	}
+	out.BOSHURL = boshURL
+
+	probe := func(target string, ws bool) int {
+		req, _ := http.NewRequest(http.MethodGet, target, nil)
+		if ws {
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "websocket")
+			req.Header.Set("Sec-WebSocket-Version", "13")
+			req.Header.Set("Sec-WebSocket-Key", "SGVsbG9Xb3JsZDEyMzQ=")
+		}
+		resp, e := client.Do(req)
+		if e != nil {
+			return 0
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	mainWSCode := probe(mainWS, true)
+	altWSCode := 0
+	if altWS != "" && altWS != mainWS {
+		altWSCode = probe(altWS, true)
+	}
+	boshCode := probe(boshURL, false)
+	out.WSCode = mainWSCode
+	out.BOSHCode = boshCode
+
+	if mainWSCode == 404 {
+		if altWSCode == 101 || altWSCode == 200 || altWSCode == 426 {
+			out.OK = true
+			out.Code = "ok-alt-websocket"
+			out.Summary = "Стандартный /xmpp-websocket не отвечает, но альтернативный endpoint живой"
+			out.Details = []string{fmt.Sprintf("/xmpp-websocket=%d, alt=%d", mainWSCode, altWSCode)}
+			return out
+		}
+		out.Code = "jitsi-websocket-404"
+		out.Summary = "Jitsi WebSocket endpoint не найден (404)"
+		out.Details = []string{
+			fmt.Sprintf("/xmpp-websocket=%d", mainWSCode),
+			"Для этого хоста runtime join обычно падает на xmpp dial / websocket handshake",
+		}
+		return out
+	}
+
+	// Important: many self-hosted Jitsi return 501 on websocket upgrade,
+	// but still support BOSH (/http-bind) and can work in runtime.
+	if mainWSCode == 501 && boshCode == 200 {
+		out.OK = true
+		out.Code = "ok-bosh-only"
+		out.Summary = "WebSocket upgrade (501), но BOSH доступен — хост потенциально рабочий"
+		out.Details = []string{
+			fmt.Sprintf("/xmpp-websocket=%d, bosh=%d", mainWSCode, boshCode),
+			"Проверяйте финальный статус по runtime-логу (join/token/jingle), а не только по preflight",
+		}
+		return out
+	}
+
+	if mainWSCode == 101 || mainWSCode == 200 || mainWSCode == 426 {
+		out.OK = true
+		out.Code = "ok"
+		out.Summary = "Базовая Jitsi-проверка пройдена"
+		out.Details = []string{fmt.Sprintf("/xmpp-websocket=%d, bosh=%d", mainWSCode, boshCode)}
+		if out.BridgePostJoinRisk || mainWSCode == 200 {
+			out.BridgePostJoinRisk = true
+			if out.BridgePostJoinNote == "" {
+				out.BridgePostJoinNote = "Проверяйте post-join в runtime: bridge websocket должен дать HTTP 101 (а не 200)"
+			}
+			out.Details = append(out.Details, "Bridge WS compatibility: ориентир в runtime - \"bridge open\" / \"Link connected\"")
+		}
+		return out
+	}
+
+	out.OK = true
+	out.Code = "weak-signal"
+	out.Summary = "Предпроверка не нашла явного блокера, но результат не окончательный"
+	out.Details = []string{
+		fmt.Sprintf("/xmpp-websocket=%d, bosh=%d", mainWSCode, boshCode),
+		"Финальный статус определяется runtime-логом jitsi join",
+		"Bridge WS compatibility (post-join): ошибка \"expected 101 but got 200\" = инстанс нерабочий",
+	}
+	if out.BridgePostJoinNote == "" {
+		out.BridgePostJoinRisk = true
+		out.BridgePostJoinNote = "Проверьте post-join runtime-лог: при проблеме будет \"expected handshake response status code 101 but got 200\""
+	}
+	return out
+}
+
+/* olc-jitsi-https-discovery-v1 */
+type jitsiHTTPSCandidate struct {
+	Domain     string   `json:"domain"`
+	URL        string   `json:"url"`
+	Confidence string   `json:"confidence"`
+	Evidence   []string `json:"evidence"`
+}
+
+type jitsiHTTPSDiscoveryResponse struct {
+	OK         bool                  `json:"ok"`
+	SourceIP   string                `json:"source_ip,omitempty"`
+	Summary    string                `json:"summary"`
+	Candidates []jitsiHTTPSCandidate `json:"candidates"`
+	Tried      int                   `json:"tried"`
+}
+
+type jitsiDomainProbe struct {
+	Jitsi      bool
+	ConfigCode int
+	RootCode   int
+	WSCode     int
+	BOSHCode   int
+}
+
+func jitsiHTTPSDiscoveryHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	result, status := discoverJitsiHTTPS(r.Context(), strings.TrimSpace(r.URL.Query().Get("server")))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func publicJitsiIP(raw string) (net.IP, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("укажите HTTP/IP Jitsi-сервера")
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return nil, errors.New("не удалось разобрать адрес сервера")
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		return nil, errors.New("помощник запускается только для числового IP")
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return nil, errors.New("для поиска нужен публичный IP")
+	}
+	return ip, nil
+}
+
+func cleanJitsiDomain(value string) string {
+	value = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(value, ".")))
+	value = strings.TrimPrefix(value, "*.")
+	if net.ParseIP(value) != nil || strings.ContainsAny(value, " /@") || !strings.Contains(value, ".") {
+		return ""
+	}
+	for _, label := range strings.Split(value, ".") {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return ""
+		}
+		for _, ch := range label {
+			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+				return ""
+			}
+		}
+	}
+	return value
+}
+
+func directJitsiCertificateNames(ip net.IP) []string {
+	dialer := &net.Dialer{Timeout: 4 * time.Second}
+	conn, err := tls.DialWithDialer(dialer, "tcp", net.JoinHostPort(ip.String(), "443"), &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return nil
+	}
+	names := append([]string(nil), state.PeerCertificates[0].DNSNames...)
+	if cn := strings.TrimSpace(state.PeerCertificates[0].Subject.CommonName); cn != "" {
+		names = append(names, cn)
+	}
+	return names
+}
+
+func jitsiIPHints(ctx context.Context, ip net.IP) map[string][]string {
+	hints := map[string][]string{}
+	add := func(raw, evidence string) {
+		raw = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, ".")))
+		wildcard := strings.HasPrefix(raw, "*.")
+		base := cleanJitsiDomain(raw)
+		if base == "" {
+			return
+		}
+		addOne := func(domain string) {
+			domain = cleanJitsiDomain(domain)
+			if domain == "" || len(hints) >= 56 {
+				return
+			}
+			for _, old := range hints[domain] {
+				if old == evidence {
+					return
+				}
+			}
+			hints[domain] = append(hints[domain], evidence)
+		}
+		if !wildcard {
+			addOne(base)
+			return
+		}
+		for _, prefix := range []string{"meet", "jitsi", "conf", "conference", "vc", "video", "call", "calls"} {
+			addOne(prefix + "." + base)
+		}
+	}
+
+	for _, name := range directJitsiCertificateNames(ip) {
+		add(name, "имя из TLS-сертификата IP:443")
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	if ptrs, err := net.DefaultResolver.LookupAddr(lookupCtx, ip.String()); err == nil {
+		for _, ptr := range ptrs {
+			add(ptr, "обратная DNS-запись IP")
+		}
+	}
+	cancel()
+
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			add(req.URL.Hostname(), "HTTPS/HTTP redirect с исходного IP")
+			return http.ErrUseLastResponse
+		},
+	}
+	hintRE := regexp.MustCompile(`(?i)(?:domain|anonymousdomain|authdomain|muc|focus|bosh|websocket)\s*[:=]\s*['"](?:https?:)?(?:/{2})?(?:[^@/'"]+@)?([a-z0-9][a-z0-9.-]+\.[a-z]{2,})(?::[0-9]+)?(?:[/][^'"]*)?['"]`)
+	for _, scheme := range []string{"https", "http"} {
+		base := scheme + "://" + net.JoinHostPort(ip.String(), map[bool]string{true: "443", false: "80"}[scheme == "https"])
+		for _, suffix := range []string{"/", "/config.js"} {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+suffix, nil)
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			if location := resp.Header.Get("Location"); location != "" {
+				if u, parseErr := url.Parse(location); parseErr == nil {
+					add(u.Hostname(), "redirect с исходного IP")
+				}
+			}
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+			_ = resp.Body.Close()
+			for _, match := range hintRE.FindAllStringSubmatch(string(body), 24) {
+				if len(match) == 2 {
+					add(match[1], "Jitsi config.js")
+				}
+			}
+		}
+	}
+	return hints
+}
+
+func resolveDomainToIP(ctx context.Context, domain string, sourceIP net.IP) bool {
+	lookupCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	addresses, err := net.DefaultResolver.LookupIPAddr(lookupCtx, domain)
+	if err != nil {
+		return false
+	}
+	for _, address := range addresses {
+		if address.IP.Equal(sourceIP) {
+			return true
+		}
+	}
+	return false
+}
+
+func probeJitsiHTTPS(ctx context.Context, domain string, forcedIP net.IP, insecureTLS bool) jitsiDomainProbe {
+	dialer := &net.Dialer{Timeout: 4 * time.Second}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: domain, InsecureSkipVerify: insecureTLS, MinVersion: tls.VersionTLS12}}
+	if forcedIP != nil {
+		transport.DialContext = func(dialCtx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(dialCtx, network, net.JoinHostPort(forcedIP.String(), "443"))
+		}
+	}
+	client := &http.Client{
+		Timeout:       6 * time.Second,
+		Transport:     transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	base := "https://" + net.JoinHostPort(domain, "443")
+	probe := func(path string, websocket bool) (int, string) {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+		if websocket {
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "websocket")
+			req.Header.Set("Sec-WebSocket-Version", "13")
+			req.Header.Set("Sec-WebSocket-Key", "SGVsbG9Xb3JsZDEyMzQ=")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, ""
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+		_ = resp.Body.Close()
+		return resp.StatusCode, strings.ToLower(string(body))
+	}
+
+	configCode, configBody := probe("/config.js", false)
+	rootCode, rootBody := probe("/", false)
+	wsCode, _ := probe("/xmpp-websocket", true)
+	boshCode, boshBody := probe("/http-bind", false)
+	configMarker := configCode == 200 && (strings.Contains(configBody, "var config") || strings.Contains(configBody, "hosts:") || strings.Contains(configBody, "websocket:") || strings.Contains(configBody, "bosh:"))
+	rootMarker := rootCode > 0 && rootCode < 500 && (strings.Contains(rootBody, "jitsi") || strings.Contains(rootBody, "config.js") || strings.Contains(rootBody, "interface_config"))
+	boshMarker := boshCode == 200 && (strings.Contains(boshBody, "body") || strings.Contains(boshBody, "xmpp"))
+	wsMarker := wsCode == 101 || wsCode == 200 || wsCode == 400 || wsCode == 426 || wsCode == 501
+	return jitsiDomainProbe{Jitsi: configMarker || (rootMarker && (boshMarker || wsMarker)), ConfigCode: configCode, RootCode: rootCode, WSCode: wsCode, BOSHCode: boshCode}
+}
+
+func verifyJitsiHTTPSCandidate(ctx context.Context, domain string, sourceIP net.IP, sourceEvidence []string) (jitsiHTTPSCandidate, bool) {
+	normal := probeJitsiHTTPS(ctx, domain, nil, false)
+	insecureTLS := false
+	if !normal.Jitsi {
+		normal = probeJitsiHTTPS(ctx, domain, nil, true)
+		if !normal.Jitsi {
+			return jitsiHTTPSCandidate{}, false
+		}
+		insecureTLS = true
+	}
+	dnsMatch := resolveDomainToIP(ctx, domain, sourceIP)
+	forced := jitsiDomainProbe{}
+	if dnsMatch {
+		forced = normal
+	} else {
+		forced = probeJitsiHTTPS(ctx, domain, sourceIP, insecureTLS)
+		if !forced.Jitsi {
+			return jitsiHTTPSCandidate{}, false
+		}
+	}
+	evidence := append([]string(nil), sourceEvidence...)
+	if dnsMatch {
+		evidence = append(evidence, "DNS домена указывает на исходный IP")
+	} else {
+		evidence = append(evidence, "домен работает обычно и как SNI/vhost на исходном IP")
+	}
+	confidence := "verified"
+	if insecureTLS {
+		confidence = "compatible-insecure"
+		evidence = append(evidence, fmt.Sprintf("Jitsi HTTPS работает, но TLS-цепочка не доверена; нужен OLCRTC_JITSI_INSECURE_TLS=1; config=%d, ws=%d, bosh=%d", normal.ConfigCode, normal.WSCode, normal.BOSHCode))
+	} else {
+		evidence = append(evidence, fmt.Sprintf("доверенный TLS; config=%d, ws=%d, bosh=%d", normal.ConfigCode, normal.WSCode, normal.BOSHCode))
+	}
+	return jitsiHTTPSCandidate{
+		Domain:     domain,
+		URL:        "https://" + domain,
+		Confidence: confidence,
+		Evidence:   evidence,
+	}, true
+}
+
+func discoverJitsiHTTPS(parent context.Context, raw string) (jitsiHTTPSDiscoveryResponse, int) {
+	out := jitsiHTTPSDiscoveryResponse{Summary: "Проверенный HTTPS-домен не найден", Candidates: []jitsiHTTPSCandidate{}}
+	ip, err := publicJitsiIP(raw)
+	if err != nil {
+		out.Summary = err.Error()
+		return out, http.StatusBadRequest
+	}
+	out.SourceIP = ip.String()
+	ctx, cancel := context.WithTimeout(parent, 32*time.Second)
+	defer cancel()
+	hints := jitsiIPHints(ctx, ip)
+	domains := make([]string, 0, len(hints))
+	for domain := range hints {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+	out.Tried = len(domains)
+	if len(domains) == 0 {
+		out.Summary = "Сервер сейчас не отдал TLS-имя, PTR, redirect или Jitsi config.js"
+		return out, http.StatusOK
+	}
+
+	sem := make(chan struct{}, 6)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, domain := range domains {
+		domain := domain
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			candidate, ok := verifyJitsiHTTPSCandidate(ctx, domain, ip, hints[domain])
+			if !ok {
+				return
+			}
+			mu.Lock()
+			out.Candidates = append(out.Candidates, candidate)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	sort.Slice(out.Candidates, func(i, j int) bool { return out.Candidates[i].Domain < out.Candidates[j].Domain })
+	if len(out.Candidates) > 0 {
+		out.OK = true
+		verified, compatible := 0, 0
+		for _, candidate := range out.Candidates {
+			if candidate.Confidence == "verified" {
+				verified++
+			} else {
+				compatible++
+			}
+		}
+		out.Summary = fmt.Sprintf("Найдено HTTPS-доменов: доверенных %d, с insecure TLS %d", verified, compatible)
+	} else if ctx.Err() != nil {
+		out.Summary = "Поиск завершён по таймауту; проверенный HTTPS-домен не найден"
+	}
+	return out, http.StatusOK
+}
+
+// OLC_MANAGER_UPSTREAM_FOLLOWUP_V1
+
+// OLC_AUTH_SESSION_LOCKOUT_V1
+
+// OLC_PROXY_POLICY_V1

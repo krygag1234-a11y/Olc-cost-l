@@ -45,6 +45,26 @@ expect_conflict() {
     fail "bootstrap [$*] должно было упасть, но rc=0: $(echo "$out" | tail -1)"
   fi
 }
+expect_update_rejected() {
+  local out rc
+  out="$(bash "$UPD" "$@" --plan 2>&1)"; rc=$?
+  if [[ $rc -ne 0 && "$out" == *"manager"* ]]; then
+    pass "olc-update [$*] -> obsolete manager mode rejected"
+  else
+    fail "olc-update [$*] must reject obsolete manager mode (rc=$rc)"
+  fi
+}
+
+expect_install_rejected() {
+  local out rc
+  out="$(OLC_INSTALL_DIR="$REPO_ROOT" bash "$REPO_ROOT/install.sh" "$@" --plan 2>&1)"; rc=$?
+  if [[ $rc -ne 0 && "$out" == *"Manager"* ]]; then
+    pass "install.sh [$*] -> obsolete manager mode rejected"
+  else
+    fail "install.sh [$*] must reject obsolete manager mode (rc=$rc)"
+  fi
+}
+
 
 # run_upd <expected-substring> <args...>
 run_upd() {
@@ -57,6 +77,31 @@ run_upd() {
     fail "olc-update [$*] (rc=$rc) ожидали '$want', получили: $(echo "$out" | tail -1)"
   fi
 }
+
+echo "== contract: полная таблица режимов установки =="
+run_matrix() {
+  local want="$1"; shift
+  local out rc
+  out="$(OLC_REPO_ROOT="$REPO_ROOT" bash "$BOOT" "$@" --plan 2>&1)"; rc=$?
+  if [[ $rc -eq 0 && "$out" == *"$want"* ]]; then
+    pass "matrix [$*] → $want"
+  else
+    fail "matrix [$*] (rc=$rc) expected '$want', got: $(echo "$out" | tail -1)"
+  fi
+}
+run_matrix "tor=1 split=1 zapret=1 bridges=1 warp=0" --full
+run_matrix "tor=0 split=0 zapret=1 bridges=0 warp=0" --full --no-tor
+run_matrix "tor=1 split=1 zapret=1 bridges=0 warp=0" --full --no-bridges
+run_matrix "tor=1 split=0 zapret=1 bridges=1 warp=0" --full --no-split
+run_matrix "tor=1 split=1 zapret=0 bridges=1 warp=0" --full --no-zapret
+run_matrix "tor=1 split=0 zapret=0 bridges=0 warp=0" --tor
+run_matrix "tor=1 split=0 zapret=0 bridges=1 warp=0" --tor --bridges
+run_matrix "tor=1 split=1 zapret=0 bridges=0 warp=0" --tor --split
+run_matrix "tor=0 split=0 zapret=0 bridges=1 warp=0 requires_existing_tor=1" --bridges
+run_matrix "tor=0 split=1 zapret=0 bridges=0 warp=0 requires_existing_tor=1" --split
+run_matrix "tor=0 split=0 zapret=1 bridges=0 warp=0" --zapret
+run_matrix "tor=0 split=0 zapret=0 bridges=0 warp=1" --warp
+run_matrix "tor=1 split=1 zapret=1 bridges=1 warp=0" --tor --bridges --split --zapret
 
 echo "== agent-bootstrap: корректные комбинации флагов установки =="
 run_boot "full=1"                                    --full
@@ -79,8 +124,8 @@ run_boot "access=ssh"                                --full --ssh
 run_boot "access=ip"                                 --full --ip
 run_boot "update=1"                                  --update
 run_boot "incremental=1"                             --incremental
-run_boot "full=1"                                    --full --manager-stable
-run_boot "full=1"                                    --full --manager-latest
+expect_conflict --full --manager-stable
+expect_conflict --full --manager-latest
 run_boot "full=1"                                    --full --force-sha-update
 run_boot "ru=1"                                      --ru
 run_boot "tor=0"                                     --foreign
@@ -91,16 +136,19 @@ run_boot "tor=0"                                     --foreign
 # Аналогично split/bridges с дефолтным tor=1 валидны; конфликт — только когда
 # tor явно выключен ПОСЛЕ включения компонента, зависящего от него.
 echo "== agent-bootstrap: конфликтующие флаги отклоняются =="
-expect_conflict --warp --tor          # оба включены → tor+warp конфликт
+expect_conflict --warp --tor
 expect_conflict --full --no-tor --split   # split при tor=0
 expect_conflict --no-tor --bridges        # bridges после выключения tor... (bridges ставит RU но не tor)
 expect_conflict --full --no-tor --bridges # bridges при tor=0
 
-echo "== agent-bootstrap: валидные (порядок сбрасывает зависимость) =="
-run_boot "warp=1"  --tor --warp       # --warp последний → tor=0, конфликта нет
-run_boot "split=1" --split            # split с дефолтным tor=1 — ок
+echo "== agent-bootstrap: зависимости от уже установленного Tor =="
+expect_conflict --tor --warp
+run_boot "requires_existing_tor=1" --split
+run_boot "requires_existing_tor=1" --bridges
 
 echo "== install.sh: dry-run плана с флагами (без сети/сборки) =="
+expect_install_rejected --manager-stable
+expect_install_rejected --manager-latest
 inst() {
   local want="$1"; shift
   local out rc
@@ -122,6 +170,8 @@ if [[ "$(id -u)" -eq 0 ]]; then
   inst "warp=1"                --with-warp
   inst "access=ssh"            --full --ssh
   inst "zapret=0"              --full --no-zapret
+  inst "tor=1 split=0 zapret=0 bridges=0 warp=0" --tor
+  inst "tor=0 split=0 zapret=1 bridges=0 warp=0" --zapret
 else
   echo "  (skip install.sh --plan: нужен root; проверено в bootstrap-плане выше)"
 fi
@@ -130,15 +180,15 @@ echo "== olc-update: все флаги обновления =="
 run_upd "mode=<menu/default>"               # без флагов → меню
 run_upd "mode=--update"                       --update
 run_upd "mode=--incremental"                  --incremental
-run_upd "mode=--update(default-with-flags)"   --manager-latest
-run_upd "mode=--update(default-with-flags)"   --manager-stable
+expect_update_rejected --manager-latest
+expect_update_rejected --manager-stable
 run_upd "mode=--update(default-with-flags)"   --ssh
 run_upd "mode=--update(default-with-flags)"   --https-letsencrypt
 run_upd "mode=--update(default-with-flags)"   --https-self-signed
 run_upd "mode=--update(default-with-flags)"   --http
 run_upd "mode=--update(default-with-flags)"   --force-sha-update
 run_upd "unknown=[--lolwut]"                  --lolwut
-run_upd "mode=--update"                       --update --manager-stable --ssh --force-sha-update
+expect_update_rejected --update --manager-stable --ssh --force-sha-update
 
 echo "== finish help: URL соответствует сохранённому TLS-режиму =="
 finish_help() {

@@ -73,7 +73,6 @@ finalize_job() {
 trap finalize_job EXIT
 
 run_install() {
-  rm -f "/var/lib/olcrtc/component-removed/$COMPONENT" 2>/dev/null || true
   case "$COMPONENT" in
     zapret)
       if [[ -x /opt/zapret/nfq/nfqws ]] && pidof nfqws >/dev/null 2>&1; then
@@ -86,23 +85,31 @@ run_install() {
       bash "$SCRIPT_DIR/olc-feature.sh" zapret on
       ;;
     tor)
-      bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tor ffmpeg
+      bash "$SCRIPT_DIR/secure-local-tor.sh"
       bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
       bash "$SCRIPT_DIR/olc-feature.sh" tor on
       ;;
     split)
-      # Split routes non-RU traffic through Tor. If the UI asks to install split
-      # while Tor is disabled, enable the dependency first instead of failing late.
-      bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
-      bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
-      bash "$SCRIPT_DIR/olc-feature.sh" tor on
+      command -v tor >/dev/null 2>&1 || {
+        echo "split requires an installed Tor module" >&2
+        return 1
+      }
       bash "$SCRIPT_DIR/setup-split-ru.sh"
       bash "$SCRIPT_DIR/olc-feature.sh" split on
       ;;
     bridges)
-      bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh"
-      bash "$SCRIPT_DIR/tor-bridge-pool.sh" refresh 2>/dev/null || true
-      bash "$SCRIPT_DIR/olc-feature.sh" webtunnel on 2>/dev/null || true
+      command -v tor >/dev/null 2>&1 || {
+        echo "bridges require an installed Tor module" >&2
+        return 1
+      }
+      bridge_types="obfs4"
+      if [[ -f /var/lib/olcrtc/bridge-profiles.json ]] && command -v jq >/dev/null 2>&1; then
+        bridge_types="$(jq -r '.active_profile as $p | .[$p].types // "obfs4"' /var/lib/olcrtc/bridge-profiles.json 2>/dev/null || echo obfs4)"
+      fi
+      bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" --types "$bridge_types"
+      BRIDGE_TYPES="$bridge_types" bash "$SCRIPT_DIR/tor-bridge-pool.sh" refresh 2>/dev/null || true
+      bash "$SCRIPT_DIR/olc-feature.sh" bridges on
       ;;
     warp)
       bash "$SCRIPT_DIR/install-warp.sh"
@@ -110,6 +117,8 @@ run_install() {
       ;;
     *) echo "unknown component: $COMPONENT" >&2; return 1 ;;
   esac
+  # Clear the detached marker only after the module attached successfully.
+  rm -f "/var/lib/olcrtc/component-removed/$COMPONENT" 2>/dev/null || true
 }
 
 run_uninstall() {

@@ -59,10 +59,11 @@ install -d /etc/olcrtc-manager "$TOR_BRIDGES_BACKUP_DIR"
 [[ -f "$FEATURES_ENV" ]] || cat >"$FEATURES_ENV" <<'EOF'
 # Olc-cost-l feature toggles (managed by /opt/Olc-cost-l/scripts/olc-feature.sh)
 # Values: 1 = enabled (default), 0 = disabled
-OLCRTC_ENABLE_ZAPRET=1
-OLCRTC_ENABLE_TOR=1
-OLCRTC_ENABLE_SPLIT=1
-OLCRTC_ENABLE_WEBTUNNEL=1
+OLCRTC_ENABLE_ZAPRET=0
+OLCRTC_ENABLE_TOR=0
+OLCRTC_ENABLE_SPLIT=0
+OLCRTC_ENABLE_BRIDGES=0
+OLCRTC_ENABLE_WEBTUNNEL=0
 OLCRTC_ENABLE_WARP=0
 EOF
 
@@ -94,8 +95,9 @@ status() {
   olc_print_section "Настройки (features.env)"
   olc_print_key_value "Zapret" "${OLCRTC_ENABLE_ZAPRET:-1}"
   olc_print_key_value "Tor" "${OLCRTC_ENABLE_TOR:-1}"
-  olc_print_key_value "Split routing" "${OLCRTC_ENABLE_SPLIT:-1}"
-  olc_print_key_value "Webtunnel" "${OLCRTC_ENABLE_WEBTUNNEL:-1}"
+  olc_print_key_value "Split routing" "${OLCRTC_ENABLE_SPLIT:-0}"
+  olc_print_key_value "Tor bridges" "${OLCRTC_ENABLE_BRIDGES:-0}"
+  olc_print_key_value "Webtunnel transport" "${OLCRTC_ENABLE_WEBTUNNEL:-0}"
   olc_print_key_value "WARP" "${OLCRTC_ENABLE_WARP:-0}"
 
   olc_print_section "Состояние сервисов"
@@ -183,6 +185,9 @@ tor_off() {
   if [[ "${OLCRTC_ENABLE_SPLIT:-1}" == "1" ]]; then
     split_off
   fi
+  if [[ "${OLCRTC_ENABLE_BRIDGES:-0}" == "1" ]]; then
+    bridges_off || echo "[tor] WARN: bridges_off had errors"
+  fi
   if [[ "${OLCRTC_ENABLE_WEBTUNNEL:-0}" == "1" ]]; then
     webtunnel_off || echo "[tor] WARN: webtunnel_off had errors"
   fi
@@ -242,8 +247,36 @@ split_off() {
   echo "[split] OFF (lists in $d/disabled; revert with: olc-feature split on)"
 }
 
+# ---------- TOR BRIDGES MODULE ----------
+bridges_on() {
+  _load
+  if [[ "${OLCRTC_ENABLE_TOR:-0}" != "1" ]]; then
+    echo "[bridges] ERROR: сначала установите и включите Tor" >&2
+    return 1
+  fi
+  _save OLCRTC_ENABLE_BRIDGES 1
+  systemctl enable --now olcrtc-tor-bridge-pool.timer \
+    olcrtc-tor-bridge-monitor.timer olcrtc-tor-bridge-deep.timer 2>/dev/null || true
+  systemctl restart tor@default.service 2>/dev/null || true
+  echo "[bridges] ON"
+}
+bridges_off() {
+  _save OLCRTC_ENABLE_BRIDGES 0
+  for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
+    systemctl stop "${u}.timer" 2>/dev/null || true
+    systemctl disable "${u}.timer" 2>/dev/null || true
+  done
+  systemctl restart tor@default.service 2>/dev/null || true
+  echo "[bridges] OFF (конфигурация и транспорты сохранены)"
+}
+
 # ---------- WEBTUNNEL ----------
 webtunnel_on() {
+  _load
+  if [[ "${OLCRTC_ENABLE_BRIDGES:-0}" != "1" ]]; then
+    echo "[webtunnel] ERROR: сначала установите и включите модуль bridges" >&2
+    return 1
+  fi
   _save OLCRTC_ENABLE_WEBTUNNEL 1
   # shellcheck source=lib-webtunnel-build.sh
   source "$REPO_ROOT/scripts/lib-webtunnel-build.sh"
@@ -277,14 +310,14 @@ warp_off() {
 
 webtunnel_off() {
   _save OLCRTC_ENABLE_WEBTUNNEL 0
-  rm -f /usr/bin/webtunnel-client /usr/local/bin/webtunnel-client
-  # Remove webtunnel lines from bridges.conf, keep obfs4
+  # WebTunnel is a transport submodule. Disable its active bridge lines but keep
+  # the binary and user configuration so the operation is fully reversible.
   if [[ -f "$TOR_BRIDGES" ]]; then
     cp "$TOR_BRIDGES" "$TOR_BRIDGES_BACKUP_DIR/bridges.conf.bak.$(_now)"
-    sed -i '/^\s*Bridge webtunnel /d; /^\s*ClientTransportPlugin webtunnel /d' "$TOR_BRIDGES"
+    sed -i '/^[[:space:]]*Bridge webtunnel /d; /^[[:space:]]*ClientTransportPlugin webtunnel /d' "$TOR_BRIDGES"
   fi
   systemctl restart tor@default 2>/dev/null || true
-  echo "[webtunnel] OFF (obfs4-only)"
+  echo "[webtunnel] OFF (binary/config kept; other bridge transports unchanged)"
 }
 
 # ---------- BULK ----------
@@ -318,6 +351,11 @@ case "${1:-status}" in
             on|enable) split_on ;;
             off|disable) split_off ;;
             *) echo "olc-feature split on|off"; exit 1 ;;
+          esac ;;
+  bridges) case "${2:-}" in
+            on|enable) bridges_on ;;
+            off|disable) bridges_off ;;
+            *) echo "olc-feature bridges on|off"; exit 1 ;;
           esac ;;
   webtunnel) case "${2:-}" in
             on|enable) webtunnel_on ;;

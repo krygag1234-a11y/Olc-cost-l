@@ -28,10 +28,35 @@ export OLC_REPO_ROOT="$REPO_ROOT"
 
 FULL=0
 INCREMENTAL=0  # Доустановка - skip того что работает
-ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
-ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
-ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
+SELECTIVE_COMPONENT_MODE=0
+HAS_FULL_FLAG=0
+REQUESTED_TOR=0
+REQUESTED_WARP=0
+for _arg in "$@"; do
+  case "$_arg" in
+    --full) HAS_FULL_FLAG=1 ;;
+    --tor|--with-tor) SELECTIVE_COMPONENT_MODE=1; REQUESTED_TOR=1 ;;
+    --warp|--with-warp) SELECTIVE_COMPONENT_MODE=1; REQUESTED_WARP=1 ;;
+    --split|--zapret|--bridges) SELECTIVE_COMPONENT_MODE=1 ;;
+  esac
+done
+[[ "$HAS_FULL_FLAG" -eq 1 ]] && SELECTIVE_COMPONENT_MODE=0
+
+if [[ "$SELECTIVE_COMPONENT_MODE" -eq 1 ]]; then
+  ENABLE_TOR=0
+  ENABLE_SPLIT=0
+  ENABLE_BRIDGES=0
+  ENABLE_WARP=0
+  export OLCRTC_ENABLE_ZAPRET=0
+else
+  ENABLE_TOR="${OLCRTC_ENABLE_TOR:-1}"
+  ENABLE_SPLIT="${OLCRTC_ENABLE_SPLIT:-1}"
+  ENABLE_BRIDGES="${OLCRTC_ENABLE_BRIDGES:-1}"
+  ENABLE_WARP="${OLCRTC_ENABLE_WARP:-0}"
+  export OLCRTC_ENABLE_ZAPRET="${OLCRTC_ENABLE_ZAPRET:-1}"
+fi
 RU_VPS="${OLCRTC_RU_VPS:-1}"
+TOR_EXPLICITLY_DISABLED=0
 PANEL_ACCESS="${OLCRTC_PANEL_ACCESS:-ip}"
 PANEL_TLS="${OLCRTC_PANEL_TLS:-0}"
 PANEL_TLS_MODE="${OLCRTC_PANEL_TLS_MODE:-}"
@@ -124,12 +149,12 @@ while [[ $# -gt 0 ]]; do
       # Fresh/full installs default to HTTPS unless --http was explicit (in either argument order).
       if [[ "$PANEL_TLS_EXPLICIT" -eq 0 ]]; then PANEL_TLS=1; PANEL_TLS_MODE="selfsigned"; PANEL_TLS_EXPLICIT=1; fi
       ;;
-    --tor|--with-tor) ENABLE_TOR=1; RU_VPS=1; FULL=1 ;;
+    --tor|--with-tor) ENABLE_TOR=1; ENABLE_WARP=0; RU_VPS=1; FULL=1 ;;
     --split) ENABLE_SPLIT=1; RU_VPS=1; FULL=1 ;;
     --zapret) export OLCRTC_ENABLE_ZAPRET=1; RU_VPS=1; FULL=1 ;;
-    --warp|--with-warp) ENABLE_WARP=1; ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; FULL=1 ;;
+    --warp|--with-warp) ENABLE_WARP=1; RU_VPS=0; FULL=1 ;;
     --bridges) ENABLE_BRIDGES=1; RU_VPS=1; FULL=1 ;;
-    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; ENABLE_WARP=0 ;;
+    --no-tor|--foreign) ENABLE_TOR=0; ENABLE_SPLIT=0; ENABLE_BRIDGES=0; RU_VPS=0; ENABLE_WARP=0; TOR_EXPLICITLY_DISABLED=1 ;;
     --no-split) ENABLE_SPLIT=0 ;;
     --no-zapret) export OLCRTC_ENABLE_ZAPRET=0 ;;
     --no-warp) ENABLE_WARP=0 ;;
@@ -147,8 +172,7 @@ while [[ $# -gt 0 ]]; do
     --plan) PLAN_ONLY=1 ;;
     --fresh-state) export OLCRTC_FRESH=1 ;;
     --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1 ;;
-    --manager-stable) export OLC_MANAGER_STABLE=1 ;;
-    --manager-latest) export OLC_MANAGER_LATEST=1 ;;
+    --manager-stable|--manager-latest) echo "Флаги --manager-stable/--manager-latest удалены: используется встроенная версия manager." >&2; exit 2 ;;
     --state) source "$SCRIPT_DIR/lib-install-state.sh"; state_show; exit 0 ;;
     --profile)
       PROFILE_ID="${2:-}"
@@ -164,21 +188,27 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Проверка конфликтов флагов
-if [[ "${ENABLE_TOR:-0}" -eq 1 && "${ENABLE_WARP:-0}" -eq 1 ]]; then
+if [[ "$REQUESTED_TOR" -eq 1 && "$REQUESTED_WARP" -eq 1 ]]; then
   tui_fatal "Нельзя комбинировать Tor и WARP одновременно" "Флаги --tor и --warp взаимоисключающие" "Выберите: --tor (для RU VPS) или --warp (для зарубежных VPS)"
 fi
-if [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
+if [[ "${ENABLE_SPLIT:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 && "$TOR_EXPLICITLY_DISABLED" -eq 1 ]]; then
   tui_fatal "Split-routing требует Tor" "Флаг --split используется без --tor" "Добавьте --tor для маршрутизации через Tor exit nodes"
 fi
-if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 ]]; then
+if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${ENABLE_TOR:-0}" -eq 0 && "$TOR_EXPLICITLY_DISABLED" -eq 1 ]]; then
   tui_fatal "Tor bridges требуют Tor" "Флаг --bridges используется без --tor" "Добавьте --tor для использования obfs4/webtunnel мостов"
 fi
+
+REQUIRES_EXISTING_TOR=$(( (ENABLE_SPLIT || ENABLE_BRIDGES) && ! ENABLE_TOR ))
 
 # --plan: dry-run проверка парсинга/валидации флагов — печать плана и выход,
 # БЕЗ каких-либо изменений на хосте (используется scripts/test-install-flags.sh)
 if [[ "$PLAN_ONLY" -eq 1 ]]; then
-  echo "[plan] full=$FULL update=$UPDATE incremental=$INCREMENTAL rebuild_only=$REBUILD_ONLY tor=${ENABLE_TOR:-0} split=${ENABLE_SPLIT:-0} zapret=${OLCRTC_ENABLE_ZAPRET:-1} bridges=${ENABLE_BRIDGES:-1} warp=${ENABLE_WARP:-0} ru=$RU_VPS access=$PANEL_ACCESS tls=$PANEL_TLS tls_mode=$PANEL_TLS_MODE profile=${PROFILE_ID:-none}"
+  echo "[plan] full=$FULL update=$UPDATE incremental=$INCREMENTAL rebuild_only=$REBUILD_ONLY tor=${ENABLE_TOR:-0} split=${ENABLE_SPLIT:-0} zapret=${OLCRTC_ENABLE_ZAPRET:-0} bridges=${ENABLE_BRIDGES:-0} warp=${ENABLE_WARP:-0} requires_existing_tor=$REQUIRES_EXISTING_TOR ru=$RU_VPS access=$PANEL_ACCESS tls=$PANEL_TLS tls_mode=$PANEL_TLS_MODE profile=${PROFILE_ID:-none}"
   exit 0
+fi
+
+if [[ "$REQUIRES_EXISTING_TOR" -eq 1 ]] && ! command -v tor >/dev/null 2>&1; then
+  tui_fatal "Для выбранного компонента требуется уже установленный Tor" "Tor не найден на сервере" "Сначала установите Tor через --tor, затем повторите установку --split или --bridges"
 fi
 
 if [[ -n "$PROFILE_ID" ]]; then
@@ -186,7 +216,9 @@ if [[ -n "$PROFILE_ID" ]]; then
 fi
 
 if [[ ! -f "$OLCRTC_DEPLOY_PROFILE" ]] && [[ "$UPDATE" -ne 1 ]]; then
-  profile_from_flags "$ENABLE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-1}" 1 "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP" "$PANEL_ACCESS" "$PANEL_TLS" "$PANEL_TLS_MODE"
+  PROFILE_TOR="$ENABLE_TOR"
+  [[ "$REQUIRES_EXISTING_TOR" -eq 1 ]] && PROFILE_TOR=1
+  profile_from_flags "$PROFILE_TOR" "$ENABLE_SPLIT" "${OLCRTC_ENABLE_ZAPRET:-0}" "$ENABLE_BRIDGES" "$RU_VPS" "agent-bootstrap" "$ENABLE_WARP" "$PANEL_ACCESS" "$PANEL_TLS" "$PANEL_TLS_MODE"
 fi
 
 if [[ "$PANEL_ACCESS_EXPLICIT" -eq 1 ]]; then
@@ -209,6 +241,23 @@ require_root() {
   fi
 }
 
+ensure_feature_flags_from_selection() {
+  local env=/etc/olcrtc-manager/features.env
+  [[ -f "$env" ]] && return 0
+  install -d /etc/olcrtc-manager
+  local runtime_tor="$ENABLE_TOR"
+  [[ "${REQUIRES_EXISTING_TOR:-0}" -eq 1 ]] && runtime_tor=1
+  cat >"$env" <<EOF
+# Olc-cost-l module toggles. Installed state is detected separately.
+OLCRTC_ENABLE_ZAPRET=${OLCRTC_ENABLE_ZAPRET:-0}
+OLCRTC_ENABLE_TOR=$runtime_tor
+OLCRTC_ENABLE_SPLIT=${ENABLE_SPLIT:-0}
+OLCRTC_ENABLE_BRIDGES=${ENABLE_BRIDGES:-0}
+OLCRTC_ENABLE_WEBTUNNEL=0
+OLCRTC_ENABLE_WARP=${ENABLE_WARP:-0}
+EOF
+}
+
 install_deps() {
   log "Установка зависимостей (git, build-essential, golang${ENABLE_TOR:+, tor, obfs4})"
   local apt_log="/var/log/olcrtc-apt-install.log"
@@ -227,8 +276,12 @@ install_deps() {
   apt-get install -y -qq patch nodejs npm >>"$apt_log" 2>&1 || true
 
   if [[ "${ENABLE_TOR:-0}" -eq 1 ]]; then
-    tui_log_info "Установка Tor и плагинов обхода..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tor obfs4proxy snowflake-client apparmor-utils ffmpeg >>"$apt_log" 2>&1 || true
+    tui_log_info "Установка Tor..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tor ffmpeg >>"$apt_log" 2>&1 || true
+  fi
+  if [[ "${ENABLE_BRIDGES:-0}" -eq 1 ]]; then
+    tui_log_info "Установка транспортов Tor bridges..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq obfs4proxy snowflake-client apparmor-utils >>"$apt_log" 2>&1 || true
   fi
 
   tui_log_info "Установка Go toolchain..."
@@ -239,15 +292,20 @@ install_deps() {
   tui_log_success "Зависимости установлены ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
   tui_log_info "  подробный лог: $apt_log"
 
-  if [[ "$ENABLE_TOR" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
+  if [[ "$ENABLE_BRIDGES" -eq 1 ]] && [[ ! -x /usr/bin/webtunnel-client ]]; then
     command -v go >/dev/null || apt-get install -y -qq golang-go >>"$apt_log" 2>&1
   fi
 }
 
 
 build_webtunnel() {
-  [[ "$ENABLE_TOR" -eq 1 ]] || return 0
-  log "webtunnel-client (optional — obfs4/snowflake work without it)"
+  [[ "$ENABLE_BRIDGES" -eq 1 ]] || return 0
+  local types=",${BRIDGE_TYPES:-obfs4},"
+  [[ "$types" == *",all,"* || "$types" == *",webtunnel,"* ]] || {
+    log "webtunnel-client: skip (transport submodule not selected)"
+    return 0
+  }
+  log "webtunnel-client transport submodule"
   build_webtunnel_client log || true
 }
 
@@ -266,54 +324,51 @@ setup_warp() {
 }
 
 setup_tor() {
-  [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor (--no-tor / foreign VPS)"; return 0; }
-  # Опубликовать активный лог — подробный режим (Ctrl+O) стримит его хвост
+  [[ "$ENABLE_TOR" -eq 1 ]] || { log "skip Tor installation"; return 0; }
   declare -f _olc_progress_logfile >/dev/null 2>&1 && \
     _olc_progress_logfile /var/log/olcrtc-bootstrap-tor.log || true
-  # Перенаправить весь вывод в лог, чтобы не накладывался на spinner
-  {
-    bash "$SCRIPT_DIR/secure-local-tor.sh" 2>/dev/null || true
-    bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" 2>/dev/null || true
-  } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
+  bash "$SCRIPT_DIR/secure-local-tor.sh" >>/var/log/olcrtc-bootstrap-tor.log 2>&1 || true
+  if [[ -f /etc/olcrtc-manager/features.env ]]; then
+    set -a; source /etc/olcrtc-manager/features.env; set +a
+  fi
+  if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
+    systemctl enable tor@default.service
+    systemctl restart tor@default.service || true
+  else
+    systemctl stop tor@default.service 2>/dev/null || true
+    systemctl disable tor@default.service 2>/dev/null || true
+    log "tor: installed/updated; service left stopped (features.env TOR=0)"
+  fi
+  bash "$SCRIPT_DIR/configure-tor-exit.sh" >>/var/log/olcrtc-bootstrap-tor.log 2>&1 || true
+  declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "" || true
+}
 
+setup_bridges() {
+  [[ "${ENABLE_BRIDGES:-0}" -eq 1 ]] || { log "skip Tor bridges"; return 0; }
+  declare -f _olc_progress_logfile >/dev/null 2>&1 && \
+    _olc_progress_logfile /var/log/olcrtc-bootstrap-tor.log || true
   local btypes
   btypes="$(effective_bridge_types "${BRIDGE_TYPES:-obfs4}")"
+  bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" --types "$btypes" >>/var/log/olcrtc-bootstrap-tor.log 2>&1 || true
   if ! webtunnel_client_ready; then
-    log "Tor bridges: obfs4-only (webtunnel-client not built — gitlab often times out from RU)"
+    log "Tor bridges: obfs4-only (webtunnel-client unavailable)"
   else
     log "Tor bridges pool ($btypes)"
   fi
   export BRIDGE_TYPES="$btypes"
-
   {
     bash "$SCRIPT_DIR/fetch-bridge-extra-sources.sh" 2>/dev/null || \
       bash "$SCRIPT_DIR/tor-bridge-pool.sh" --fetch --url-only --jobs 6 --target 12 --types "$btypes" || \
       bash "$SCRIPT_DIR/tor-bridge-rotate.sh" || true
     bash "$SCRIPT_DIR/tor-bridge-pool.sh" --apply --types "$btypes" 2>/dev/null || true
-  } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
-  # Respect features.env: maintenance may run, but don't force-start if user toggled off.
-  if [[ -f /etc/olcrtc-manager/features.env ]]; then
-    # shellcheck disable=SC1091
-    set -a; source /etc/olcrtc-manager/features.env; set +a
-  fi
-  {
-    if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
-      systemctl enable tor@default.service
-      systemctl restart tor@default.service || true
-    else
-      systemctl stop tor@default.service 2>/dev/null || true
-      systemctl disable tor@default.service 2>/dev/null || true
-      log "tor: pools refreshed; service left stopped (features.env TOR=0)"
-    fi
-    systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
-      olcrtc-tor-bridge-deep.timer 2>/dev/null || true
-    bash "$SCRIPT_DIR/configure-tor-exit.sh" 2>/dev/null || true
+    systemctl restart tor@default.service || true
   } >>/var/log/olcrtc-bootstrap-tor.log 2>&1
   declare -f _olc_progress_logfile >/dev/null 2>&1 && _olc_progress_logfile "" || true
 }
 
 setup_split_routing() {
-  if [[ "$RU_VPS" -ne 1 || "$ENABLE_SPLIT" -ne 1 || "$ENABLE_TOR" -ne 1 ]]; then
+
+  if [[ "$RU_VPS" -ne 1 || "$ENABLE_SPLIT" -ne 1 ]]; then
     log "skip split lists (foreign VPS or --no-split or --no-tor)"
     return 0
   fi
@@ -369,13 +424,13 @@ install_systemd_units() {
   cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service
   sed -i "s/^Environment=OLCRTC_MANAGER_ADDR=.*/Environment=OLCRTC_MANAGER_ADDR=${PANEL_LISTEN_ADDR:-0.0.0.0}/" \
     /etc/systemd/system/olcrtc-manager.service
-  if [[ "$ENABLE_TOR" -ne 1 ]]; then
+  if [[ "$ENABLE_TOR" -ne 1 && "$ENABLE_SPLIT" -ne 1 && "$ENABLE_BRIDGES" -ne 1 ]]; then
     sed -i '/tor@default\.service/d; /^Environment=OLCRTC_EXIT_PROXY=/d' \
       /etc/systemd/system/olcrtc-manager.service
   fi
 
   for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
-    [[ "$ENABLE_TOR" -eq 1 ]] || continue
+    [[ "$ENABLE_BRIDGES" -eq 1 ]] || continue
     sed "s|@OLC_SCRIPTS@|${scripts}|g" \
       "$REPO_ROOT/packaging/systemd/${u}.service" \
       >/etc/systemd/system/${u}.service
@@ -425,7 +480,7 @@ EOF
   # setup_tor выполняется ДО установки юнитов, и на чистой установке его
   # `systemctl enable …timer 2>/dev/null || true` тихо фейлился: таймеры
   # оставались disabled до первого olc-update (найдено боевым fresh-тестом).
-  if [[ "${ENABLE_TOR:-1}" -eq 1 && "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
+  if [[ "${ENABLE_BRIDGES:-0}" -eq 1 && "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
     systemctl enable --now olcrtc-tor-bridge-pool.timer \
       olcrtc-tor-bridge-monitor.timer olcrtc-tor-bridge-deep.timer 2>/dev/null || true
   fi
@@ -448,14 +503,20 @@ setup_cron() {
   install_cli_symlinks
   local cronf=/etc/cron.d/olcrtc-healthcheck
   safety_path_allowed "$cronf" || return 1
-  cat >"$cronf" <<EOF
+  {
+    cat <<EOF
 # Olc-cost-l — healthcheck (safe to delete this file to disable)
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 */10 * * * * root ${REPO_ROOT}/scripts/healthcheck.sh >>/var/log/olcrtc-healthcheck.log 2>&1
+EOF
+    if [[ "${ENABLE_SPLIT:-0}" -eq 1 ]]; then
+      cat <<EOF
 # After split list refresh (Sun 04:10) — sync zapret exclusions without full reinstall
 10 4 * * 0 root ${REPO_ROOT}/scripts/setup-split-ru.sh >>/var/log/olcrtc-zapret-sync.log 2>&1
 EOF
+    fi
+  } >"$cronf"
   chmod 0644 "$cronf"
   # Remove legacy line from /etc/crontab if present (older deploys)
   if grep -qF 'healthcheck.sh' /etc/crontab 2>/dev/null; then
@@ -465,6 +526,7 @@ EOF
 
 # --- main ---
 require_root
+ensure_feature_flags_from_selection
 
 # Автоматизация git pull для UPDATE/REBUILD режимов (если запущен напрямую, а не через olc-update)
 if [[ ( $UPDATE -eq 1 || $REBUILD_ONLY -eq 1 ) && "${OLC_UPDATE_WRAPPER:-0}" != "1" ]]; then
@@ -615,7 +677,7 @@ ensure_units_enabled() {
   # tor@default — static (нет [Install]); на Debian/Ubuntu автозапуск Tor даёт
   # tor.service (wrapper, тянет tor@default). Поэтому проверяем tor.service.
   local units=(olcrtc-manager.service)
-  [[ "${ENABLE_TOR:-1}" -eq 1 ]] && units+=(tor.service)
+  [[ "${ENABLE_TOR:-0}" -eq 1 || "${ENABLE_SPLIT:-0}" -eq 1 || "${ENABLE_BRIDGES:-0}" -eq 1 ]] && units+=(tor.service)
   for u in "${units[@]}"; do
     systemctl list-unit-files "$u" >/dev/null 2>&1 || continue
     if [[ "$(systemctl is-enabled "$u" 2>/dev/null)" != "enabled" ]]; then
@@ -627,7 +689,7 @@ ensure_units_enabled() {
     fi
   done
   # таймеры обслуживания мостов (если Tor включён)
-  if [[ "${ENABLE_TOR:-1}" -eq 1 ]]; then
+  if [[ "${ENABLE_BRIDGES:-0}" -eq 1 ]]; then
     systemctl enable olcrtc-tor-bridge-pool.timer olcrtc-tor-bridge-monitor.timer \
       olcrtc-tor-bridge-deep.timer >/dev/null 2>&1 || true
   fi
@@ -668,9 +730,6 @@ setup_zapret() {
   fi
   log "zapret (direct egress DPI — may take several minutes on first install)"
   # stdout в лог — иначе вывод накладывается на прогресс-бар
-  bash "$SCRIPT_DIR/tor-bridge-pool.sh" --jobs 8 --target 10 \
-    >>/var/log/olcrtc-bootstrap-tor.log 2>&1 || true
-  systemctl restart tor@default >/dev/null 2>&1 || true
   export OLCRTC_ZAPRET_FULL="${OLCRTC_ZAPRET_FULL:-1}"
   olc_run_with_progress "установка/обновление zapret" bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
 }
@@ -682,7 +741,7 @@ fi
 
 if [[ "$UPDATE" -eq 1 ]]; then
   export OLCRTC_UPDATE_MODE=1  # Флаг для отключения совета про olc-update
-  export OLCRTC_TOTAL_STEPS=11
+  export OLCRTC_TOTAL_STEPS=12
 
   OLC_PROFILE_LOG_QUIET=1 profile_apply_env  # ПОСЛЕ установки OLCRTC_UPDATE_MODE
 
@@ -698,6 +757,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
   state_step_profile sysctl               setup_sysctl
   state_step_profile warp                 setup_warp
   state_step_profile tor                  setup_tor
+state_step_profile bridges              setup_bridges
   state_step_profile split                setup_split_routing
   state_step_profile fetch-community-lists run_community_lists
   state_step_profile zapret               setup_zapret
@@ -717,7 +777,7 @@ if [[ "$UPDATE" -eq 1 ]]; then
 fi
 
 if [[ "$INCREMENTAL" -eq 1 ]]; then
-  export OLCRTC_TOTAL_STEPS=13
+  export OLCRTC_TOTAL_STEPS=14
   OLC_PROFILE_LOG_QUIET=1 profile_apply_env
 
   _profile_id="$(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo custom)"
@@ -740,6 +800,7 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   state_step_profile sysctl               setup_sysctl
   state_step_profile warp                 setup_warp
   state_step_profile tor                  setup_tor
+  state_step_profile bridges              setup_bridges
   state_step_profile split                setup_split_routing
   state_step_profile fetch-community-lists run_community_lists
   state_step_profile zapret               setup_zapret
@@ -764,10 +825,10 @@ fi
 # общий EXIT-trap спиннера (_olc_ui_abort_dump). Non-TTY (exec API/CI) —
 # прежний simple mode, alt-screen не открывается.
 if [[ "$FULL" -eq 1 ]]; then
-  # 13 шагов: packages, patches, webtunnel, sysctl + warp, tor, split,
+  # 14 шагов: packages, patches, webtunnel, sysctl + warp, tor, split,
   # fetch-community-lists, zapret + systemd, cron, cleanup-tmp, start-manager.
   # (Раньше стояло 9 — счётчик N/M и проценты в баре врали.)
-  export OLCRTC_TOTAL_STEPS=13
+  export OLCRTC_TOTAL_STEPS=14
   olc_ui_begin "Установка Olc-cost-l" \
     "Режим: FULL — зависимости, сборка панели, все сервисы" \
     "Компоненты: tor=${ENABLE_TOR} split=${ENABLE_SPLIT} zapret=${OLCRTC_ENABLE_ZAPRET:-1} warp=${ENABLE_WARP} bridges=${ENABLE_BRIDGES:-1} panel=${PANEL_ACCESS}" \
@@ -778,7 +839,7 @@ if [[ "$FULL" -eq 1 ]]; then
   state_step sysctl         setup_sysctl
 else
   if [[ ! -x /usr/local/bin/olcrtc ]] || [[ ! -x /usr/local/bin/olcrtc-manager ]]; then
-    export OLCRTC_TOTAL_STEPS=12
+    export OLCRTC_TOTAL_STEPS=13
     olc_ui_begin "Конфигурация Olc-cost-l" \
       "Режим: CONFIG — бинарники отсутствуют, сборка + конфигурация сервисов" \
       "Прервалось? Продолжить: sudo olc-update --resume"
@@ -787,7 +848,7 @@ else
     state_step patches        run_patches
     state_step webtunnel      build_webtunnel
   else
-    export OLCRTC_TOTAL_STEPS=9
+    export OLCRTC_TOTAL_STEPS=10
     olc_ui_begin "Конфигурация Olc-cost-l" \
       "Режим: CONFIG — конфигурация сервисов (бинарники уже собраны)" \
       "Прервалось? Продолжить: sudo olc-update --resume"
@@ -796,6 +857,7 @@ fi
 
 state_step_profile warp                   setup_warp
 state_step_profile tor                   setup_tor
+  state_step_profile bridges              setup_bridges
 state_step_profile split                 setup_split_routing
 state_step_profile fetch-community-lists run_community_lists
 state_step_profile zapret                setup_zapret

@@ -19,8 +19,7 @@
 | Компонент | Ветка / источник | Ссылка |
 |-----------|------------------|--------|
 | olcrtc | **`master`** (pin в `data/upstream-pins.json`) | https://github.com/openlibrecommunity/olcrtc/tree/master |
-| manager panel | **`main`** + патчи в `scripts/patch-olcrtc-manager-*.sh` | https://github.com/BigDaddy3334/olcrtc-manager-panel |
-| local version of the panel | **`stable-v1`** | https://github.com/krygag1234-a11y/local-panel-version |
+| manager panel | встроенный исходный код (`components/olcrtc-manager`) | upstream для аудита: https://github.com/BigDaddy3334/olcrtc-manager-panel |
 | webtunnel-client | **mirror-cry** (prebuilt) | https://github.com/krygag1234-a11y/mirror-cry/releases |
 | Olcbox | **`nightly`** | https://github.com/alananisimov/olcbox/releases/tag/nightly |
 
@@ -86,7 +85,6 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | `--https-letsencrypt` | HTTPS по публичному IP с доверенным короткоживущим сертификатом Let's Encrypt и автопродлением |
 | `--https-self-signed` / `--https` | HTTPS с локальным сертификатом; браузер покажет предупреждение |
 | `--http` | HTTP без TLS (для открытого IP или SSH-туннеля) |
-| `--manager-stable` / `--manager-latest` | версия панели (по умолчанию stable) |
 | `--update` | только обновление, без переустановки |
 | `--resume` | продолжить прерванную установку |
 | `--state` | показать состояние установки |
@@ -111,21 +109,13 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 </details>
 
 <details>
-<summary>🔧 Версии панели (для продвинутых)</summary>
+<summary>🔧 Исходный код панели</summary>
 
-По умолчанию устанавливается **стабильная версия панели** из нашего форка (`local-panel-version`, ветка `stable-v1`). Это проверенная версия с протестированными патчами — **рекомендуется для всех**.
+Проверенная версия manager хранится прямо в `components/olcrtc-manager` и собирается установщиком/обновлением без наложения manager patch-stack. Upstream проверяется отдельным аудитом, после чего нужные изменения адаптируются в нашу версию. Флаги `--manager-stable` и `--manager-latest` удалены.
 
-**Когда использовать `--manager-latest`:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full --manager-latest
-```
+Панель содержит готовые UI/API-точки для системных модулей, но не вшивает их пакеты в manager. Tor, Bridges, Split, Zapret и WARP подключаются одинаково тремя путями: выбором в TUI, CLI-флагами либо позднее из раздела компонентов в UI. Все пути используют общий `deploy-profile.json` + `features.env`, поэтому обновление не должно самовольно доустанавливать отсутствующие модули.
 
-Флаг `--manager-latest` устанавливает **последнюю версию из upstream** (`olcrtc-manager-panel`, ветка `main`). Используйте только если:
-- Вам нужны самые свежие функции upstream (до того как они попадут в наш форк)
-- Вы готовы к возможным поломкам (upstream может измениться несовместимо с патчами)
-- Вы понимаете риски экспериментальной версии
-
-**Не используйте `--manager-latest` для production** — стабильная версия по умолчанию покрывает 99% случаев.
+`Bridges` — отдельный модуль, зависящий от Tor. `obfs4`, `webtunnel` и `snowflake` — transport-подмодули внутри него. Их выбор хранится в профиле мостов; новый профиль по умолчанию начинает с `obfs4`, а остальные transport-ы можно подключить отдельно. Отключение/отсоединение сохраняет пользовательские конфиги и отражается в backup/export/import.
 
 </details>
 
@@ -238,10 +228,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 <details>
 <summary>⚙️ Другие варианты обновления (для продвинутых)</summary>
 
-**Обновление до последней версии панели:**
-```bash
-sudo olc-update --manager-latest
-```
+Manager обновляется обычной командой вместе с Olc-cost-l; отдельного режима latest больше нет.
 
 **Обновление без смены версии панели:**
 ```bash
@@ -286,8 +273,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | Флаг | Результат |
 |------|-----------|
 | **ВЕРСИЯ ПАНЕЛИ** | |
-| По умолчанию | Стабильная версия из нашего форка (рекомендуется) |
-| `--manager-latest` | Последняя версия upstream (экспериментальная, может сломаться) |
+| Встроенная | Исходный код manager хранится в `components/olcrtc-manager` и собирается напрямую |
 | **ВСЕ, НО БЕЗ ..** | |
 | `--full` | **Полная установка:** Панель + Tor + мосты + split + zapret |
 | `--full --no-tor` | Устанавливает всё, кроме Tor и мостов |
