@@ -55,10 +55,10 @@ neutral_state = '''  const stateClass = mixed
       ? "border-border bg-secondary text-secondary-foreground shadow-sm"
       : "border-border/80 bg-background text-muted-foreground";'''
 muted_color_state = '''  const stateClass = mixed
-    ? "border-amber-500/35 bg-amber-500/10 text-amber-200/90"
+    ? "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
     : checked
-      ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-200/90 shadow-sm"
-      : "border-border/80 bg-background text-muted-foreground";'''
+      ? "border-green-500/40 bg-green-500/10 text-green-600 hover:bg-green-500/20"
+      : "border-border bg-transparent text-foreground hover:bg-muted";'''
 if legacy_marker_v1 in text or legacy_marker_v2 in text or legacy_marker_v3 in text:
     if legacy_marker_v1 in text:
         if text.count(legacy_state) != 1:
@@ -80,9 +80,10 @@ if legacy_marker_v1 in text or legacy_marker_v2 in text or legacy_marker_v3 in t
             raise SystemExit("[toggle-buttons] v2 state style shape changed")
     text = text.replace(
         'cursor-pointer hover:bg-accent hover:text-accent-foreground',
-        'cursor-pointer hover:brightness-110',
+        'cursor-pointer',
         1,
     )
+    text = text.replace('cursor-pointer hover:brightness-110', 'cursor-pointer', 1)
     text = text.replace(
         '      onClick={(event) => {\n        onClick?.(event);',
         '      onClick={(event) => {\n        event.stopPropagation();\n        onClick?.(event);',
@@ -113,10 +114,10 @@ type OlcToggleButtonProps = {
 function OlcToggleButton({ checked = false, disabled = false, mixed = false, compact = false, title, className = "", onClick, onChange }: OlcToggleButtonProps) {
   const stateLabel = mixed ? "Часть" : checked ? "Вкл" : "Выкл";
   const stateClass = mixed
-    ? "border-amber-500/35 bg-amber-500/10 text-amber-200/90"
+    ? "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
     : checked
-      ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-200/90 shadow-sm"
-      : "border-border/80 bg-background text-muted-foreground";
+      ? "border-green-500/40 bg-green-500/10 text-green-600 hover:bg-green-500/20"
+      : "border-border bg-transparent text-foreground hover:bg-muted";
   const sizeClass = compact ? "h-6 min-w-[44px] px-1.5 text-[10px]" : "h-8 min-w-[72px] px-3 text-xs";
   return (
     <button
@@ -126,7 +127,7 @@ function OlcToggleButton({ checked = false, disabled = false, mixed = false, com
       aria-label={title || stateLabel}
       title={title}
       disabled={disabled}
-      className={`inline-flex shrink-0 items-center justify-center rounded-md border font-semibold transition-colors ${sizeClass} ${stateClass} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:brightness-110"} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-md border font-semibold transition-colors ${sizeClass} ${stateClass} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"} ${className}`}
       onClick={(event) => {
         event.stopPropagation();
         onClick?.(event);
