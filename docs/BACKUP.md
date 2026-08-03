@@ -27,6 +27,19 @@
 возможно только после явного подтверждения, когда исходный сервер остановлен
 или перенос выполняется осознанно.
 
+### Отсутствующие модули при импорте
+
+Начиная со schema `3`, export сохраняет снимок `components` с признаками `installed` и `enabled`.
+Если в backup были установлены Tor, Bridges, Split, Zapret или WARP, а на целевом VPS их нет,
+backend до любой записи возвращает HTTP 409 и полный список недостающих модулей.
+
+UI предлагает три действия:
+
+- отменить импорт без изменений на диске;
+- пропустить только настройки и состояния отсутствующих модулей;
+- восстановить данные и последовательно доустановить модули через штатные component jobs.
+
+
 ## Что попадает в бэкап
 
 | Ключ в бэкапе | Источник на диске | Что это |
@@ -77,18 +90,25 @@ JSON** и имена файлов из таблицы выше. Для явны�
 переустановку/перенос — вы ОБЯЗАНЫ адаптировать бэкап:**
 
 1. Убедитесь, что новые данные лежат **в `config.json`** ИЛИ **в одном из файлов**
-   из `backupExtraFiles()` (см. `scripts/patch-olcrtc-manager-backup-api.sh`).
+   из `backupExtraFiles()` в `components/olcrtc-manager/cmd/olcrtc-manager/main.go`.
    Если это новый файл настроек — **добавьте его** в `backupExtraFiles()`.
 2. При **переименовании/переезде** ключа добавьте преобразование в
    `migrateBackup()` (там же), сверяясь с `schema_version`, и поднимите
    `olcBackupSchemaVersion` при несовместимых изменениях формата.
-3. В UI-патчах (`scripts/patch-olcrtc-manager-panel-*.sh`) новые настройки должны
+3. В vendored UI (`components/olcrtc-manager/src/main.tsx`) новые настройки должны
    в итоге сохраняться в один из перечисленных файлов — иначе они не попадут в бэкап.
 4. Обновите таблицу «Что попадает в бэкап» в этом файле.
 
+5. Если меняется структура JSON-конверта, повысить `schema_version` и добавить последовательный шаг в
+   `migrateBackup()`. Все ранее выпущенные шаги миграции сохраняются: старый backup должен декодироваться
+   до текущей схемы, а импорт не должен ничего записывать до успешного завершения миграции.
+6. Backup с более новой схемой отклоняется до записи. После готовности обновления из UI панель должна
+   предложить обновление с логами и автоматически продолжить импорт уже загруженного файла после
+   возвращения backend, без повторного выбора файла.
+
 Соответствующие предупреждающие комментарии продублированы прямо в коде:
-- бэкенд: `scripts/patch-olcrtc-manager-backup-api.sh` (блок `Backup / Restore`);
-- фронтенд: `scripts/patch-olcrtc-manager-panel-backup-ui.sh` (компонент `BackupSection`).
+- бэкенд: `components/olcrtc-manager/cmd/olcrtc-manager/main.go` (блок `Backup / Restore`);
+- фронтенд: `components/olcrtc-manager/src/main.tsx` (компонент `BackupSection`).
 
 ## API (для CLI/автоматизации)
 
@@ -131,17 +151,18 @@ JSON-файлы сохраняются как `kind: "json"`, env-файлы —
 дополнительного файла импорт создаёт рядом копию `.bak-import-<timestamp>` и
 записывает новое содержимое атомарно через временный файл.
 
-## Формат конверта (schema_version 1)
+## Формат конверта (schema_version 3)
 
 ```json
 {
   "olc_backup": true,
-  "schema_version": 1,
+  "schema_version": 3,
   "app": "olcrtc-manager",
   "source_host_id": "machine-id-of-source-vps",
   "created_at": "2026-07-16T21:40:00Z",
   "note": "Эти данные принадлежат только вам и хранятся локально…",
   "manifest": ["config", "panel_env", "features_env", "..."],
+  "components": { "tor": { "installed": true, "enabled": true }, "warp": { "installed": false, "enabled": false } },
   "config": { "...": "сырой config.json" },
   "extras": {
     "panel_env":    { "kind": "env",  "values": { "OLCRTC_MANAGER_USER": "admin", "...": "..." } },

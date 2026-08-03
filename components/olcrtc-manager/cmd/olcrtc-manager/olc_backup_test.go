@@ -210,11 +210,101 @@ func TestBackupExportRecordsAbsentFiles(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != 2 {
+	if envelope.SchemaVersion != 3 {
 		t.Fatalf("schema_version=%d", envelope.SchemaVersion)
 	}
 	if got := envelope.Extras["panel_env"]["kind"]; got != "absent" {
 		t.Fatalf("panel_env kind=%v, want absent", got)
+	}
+}
+
+func TestBackupMissingComponentsAndSkip(t *testing.T) {
+	envelope := map[string]any{
+		"components": map[string]any{
+			"tor":     map[string]any{"installed": true, "enabled": true},
+			"bridges": map[string]any{"installed": true, "enabled": true},
+			"split":   map[string]any{"installed": false, "enabled": false},
+		},
+		"extras": map[string]any{
+			"torrc":          map[string]any{"kind": "text", "value": "SocksPort 9050"},
+			"bridge_sources": map[string]any{"kind": "json", "value": []any{}},
+			"features_env": map[string]any{
+				"kind": "env",
+				"values": map[string]any{
+					"OLCRTC_ENABLE_TOR":     "1",
+					"OLCRTC_ENABLE_BRIDGES": "1",
+				},
+			},
+			"deploy_profile": map[string]any{
+				"kind": "json",
+				"value": map[string]any{
+					"profile_id": "full",
+					"label":      "Full",
+					"components": map[string]any{"tor": true, "bridges": true},
+				},
+			},
+		},
+	}
+	missing := backupMissingComponentsWith(envelope, func(name string) bool {
+		return name == "bridges"
+	})
+	if len(missing) != 1 || missing[0] != "tor" {
+		t.Fatalf("missing=%v, want [tor]", missing)
+	}
+
+	backupSkipMissingComponents(envelope, missing)
+	extras := envelope["extras"].(map[string]any)
+	if _, ok := extras["torrc"]; ok {
+		t.Fatal("tor settings were not skipped")
+	}
+	if _, ok := extras["bridge_sources"]; !ok {
+		t.Fatal("unrelated bridge settings were removed")
+	}
+	featureValues := extras["features_env"].(map[string]any)["values"].(map[string]any)
+	if _, ok := featureValues["OLCRTC_ENABLE_TOR"]; ok {
+		t.Fatal("tor feature state was not skipped")
+	}
+	if _, ok := featureValues["OLCRTC_ENABLE_BRIDGES"]; !ok {
+		t.Fatal("unrelated bridge feature state was removed")
+	}
+	profile := extras["deploy_profile"].(map[string]any)["value"].(map[string]any)
+	components := profile["components"].(map[string]any)
+	if _, ok := components["tor"]; ok {
+		t.Fatal("tor deploy-profile state was not skipped")
+	}
+	if got := profile["profile_id"]; got != "custom-import" {
+		t.Fatalf("profile_id=%v, want custom-import", got)
+	}
+}
+func TestBackupImportRejectsNewerSchemaBeforeWrite(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	original := []byte("{\"sentinel\":\"unchanged\"}\n")
+	if err := os.WriteFile(configPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"olc_backup": true, "schema_version": olcBackupSchemaVersion + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/backup/import", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	backupImportHandler(configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if got := response["code"]; got != "backup_schema_newer" {
+		t.Fatalf("code=%v, want backup_schema_newer", got)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil || !bytes.Equal(after, original) {
+		t.Fatalf("config changed before schema rejection: %q err=%v", after, err)
 	}
 }
 

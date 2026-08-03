@@ -5483,7 +5483,7 @@ func adminPageHandler(files http.Handler) http.HandlerFunc {
 // в backupExtraFiles() ниже; при переименовании ключа — миграция в migrateBackup().
 // ============================================================================
 
-const olcBackupSchemaVersion = 2
+const olcBackupSchemaVersion = 3
 
 // backupHostID binds an export to the VPS that created it.  It is deliberately
 // not used as an authentication secret; it only prevents an accidental import
@@ -5526,6 +5526,104 @@ func backupHasRoomKey(v any) bool {
 // backupExtraFiles: файлы настроек/состояния (кроме config.json), входящие в
 // бэкап. Ключ — стабильный ид в конверте бэкапа, значение — путь на диске.
 // ДОБАВЛЯЙТЕ СЮДА новые файлы настроек, которые должны переживать перенос.
+var backupComponentNames = []string{"tor", "bridges", "split", "zapret", "warp"}
+
+func backupComponentSnapshot() map[string]any {
+	flags := loadFeatureFlagsMap()
+	out := map[string]any{}
+	for _, name := range backupComponentNames {
+		out[name] = map[string]any{
+			"installed": componentInstalled(name),
+			"enabled":   flags[name],
+		}
+	}
+	return out
+}
+
+func backupMissingComponentsWith(env map[string]any, installed func(string) bool) []string {
+	snapshot, _ := env["components"].(map[string]any)
+	missing := []string{}
+	for _, name := range backupComponentNames {
+		state, _ := snapshot[name].(map[string]any)
+		wasInstalled, _ := state["installed"].(bool)
+		if wasInstalled && !installed(name) {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+func backupMissingComponents(env map[string]any) []string {
+	return backupMissingComponentsWith(env, componentInstalled)
+}
+
+var backupComponentExtras = map[string][]string{
+	"tor": {
+		"tor_exit_env", "tor_exit_exclude_env", "torrc", "removed_tor",
+	},
+	"bridges": {
+		"bridge_sources", "bridge_extra_urls", "tor_bridges", "tor_user_bridges",
+		"bridge_profiles", "bridge_pool_cron", "removed_bridges",
+	},
+	"split": {
+		"force_tor_domains", "ru_blocked_tor_domains", "custom_direct_domains",
+		"ru_domains_extra", "split_discovered", "split_panel_hosts", "split_panel_cidrs",
+		"removed_split",
+	},
+	"zapret": {
+		"zapret_exclude_domains", "zapret_force_domains", "zapret_strategy",
+		"zapret_sync_cron", "zapret_sync_cron_legacy", "removed_zapret",
+	},
+	"warp": {"removed_warp"},
+}
+
+func backupSkipMissingComponents(env map[string]any, missing []string) {
+	extras, _ := env["extras"].(map[string]any)
+	if extras == nil {
+		return
+	}
+	for _, name := range missing {
+		for _, key := range backupComponentExtras[name] {
+			delete(extras, key)
+		}
+	}
+	if entry, ok := extras["features_env"].(map[string]any); ok {
+		if values, ok := entry["values"].(map[string]any); ok {
+			for _, name := range missing {
+				delete(values, "OLCRTC_ENABLE_"+strings.ToUpper(name))
+				if name == "bridges" {
+					delete(values, "OLCRTC_ENABLE_WEBTUNNEL")
+				}
+			}
+		}
+	}
+	if entry, ok := extras["deploy_profile"].(map[string]any); ok {
+		if value, ok := entry["value"].(map[string]any); ok {
+			if components, ok := value["components"].(map[string]any); ok {
+				for _, name := range missing {
+					delete(components, name)
+				}
+				value["profile_id"] = "custom-import"
+				value["label"] = "Custom import (missing components skipped)"
+			}
+		}
+	}
+	if entry, ok := extras["panel_env"].(map[string]any); ok {
+		if values, ok := entry["values"].(map[string]any); ok {
+			for _, name := range missing {
+				if name != "warp" {
+					continue
+				}
+				for key := range values {
+					if strings.HasPrefix(key, "OLCRTC_WARP_") {
+						delete(values, key)
+					}
+				}
+			}
+		}
+	}
+}
+
 func backupExtraFiles(configPath string) map[string]string {
 	dir := filepath.Dir(configPath)
 	return map[string]string{
@@ -5727,6 +5825,7 @@ func backupExportHandler(configPath string) http.HandlerFunc {
 			"created_at":     time.Now().UTC().Format(time.RFC3339),
 			"note":           "Эти данные принадлежат только вам и хранятся локально на устройстве с панелью. Сервер их никуда не отправляет.",
 		}
+		env["components"] = backupComponentSnapshot()
 		// config.json — сырой generic JSON (поля не теряются между версиями)
 		if raw, err := os.ReadFile(configPath); err == nil {
 			var cfg any
@@ -5819,10 +5918,36 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 			sv = int(fv)
 		}
 		if sv > olcBackupSchemaVersion {
-			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("бэкап новее панели (schema_version=%d > %d) — обновите панель", sv, olcBackupSchemaVersion)})
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{
+				"error":                    fmt.Sprintf("бэкап новее панели (schema_version=%d > %d) — обновите панель", sv, olcBackupSchemaVersion),
+				"code":                     "backup_schema_newer",
+				"backup_schema_version":    sv,
+				"supported_schema_version": olcBackupSchemaVersion,
+			})
 			return
 		}
 		env = migrateBackup(sv, env)
+
+		missingComponents := backupMissingComponents(env)
+		installComponents := []string{}
+		if len(missingComponents) != 0 {
+			decision := strings.TrimSpace(r.URL.Query().Get("missing_components"))
+			if decision != "skip" && decision != "install" {
+				writeJSONStatus(w, http.StatusConflict, map[string]any{
+					"error":                 "В бэкапе есть модули, которые отсутствуют на этом VPS: " + strings.Join(missingComponents, ", "),
+					"code":                  "missing_components_confirmation_required",
+					"requires_confirmation": true,
+					"missing_components":    missingComponents,
+					"available_actions":     []string{"skip", "install"},
+				})
+				return
+			}
+			if decision == "skip" {
+				backupSkipMissingComponents(env, missingComponents)
+			} else {
+				installComponents = append(installComponents, missingComponents...)
+			}
+		}
 
 		// Importing the same room+key bindings on a second VPS creates an
 		// indistinguishable live server clone.  Refuse before writing anything;
@@ -5880,9 +6005,11 @@ func backupImportHandler(configPath string) http.HandlerFunc {
 			setSessionCookie(w, token)
 		}
 		writeJSON(w, map[string]any{
-			"status":   "ok",
-			"restored": restored,
-			"note":     "Данные восстановлены. Нажмите «Перезапустить панель» ниже, чтобы применить их.",
+			"status":             "ok",
+			"missing_components": missingComponents,
+			"install_components": installComponents,
+			"restored":           restored,
+			"note":               "Данные восстановлены. Нажмите «Перезапустить панель» ниже, чтобы применить их.",
 		})
 	}
 }

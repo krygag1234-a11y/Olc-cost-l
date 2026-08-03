@@ -2357,6 +2357,135 @@ function olcConfirm(message: string, options: OlcConfirmOptions = {}): Promise<b
   });
 }
 
+type MissingComponentsChoice = "skip" | "install";
+
+function olcChooseMissingComponents(missing: string[]): Promise<MissingComponentsChoice | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+
+    const panel = document.createElement("div");
+    panel.className = "w-full max-w-xl rounded-lg border border-border bg-card p-4 shadow-2xl";
+
+    const title = document.createElement("div");
+    title.className = "text-base font-semibold text-foreground";
+    title.textContent = "В бэкапе есть отсутствующие модули";
+
+    const body = document.createElement("div");
+    body.className = "mt-2 grid gap-3 text-sm leading-relaxed text-muted-foreground";
+    const intro = document.createElement("p");
+    intro.textContent = "На этом VPS не установлены модули, настройки и состояния которых сохранены в бэкапе:";
+    const list = document.createElement("div");
+    list.className = "max-h-40 overflow-y-auto rounded-md border border-border bg-background/50 p-3 font-mono text-foreground";
+    list.textContent = missing.join(", ");
+    const explanation = document.createElement("p");
+    explanation.textContent = "Можно пропустить только данные этих модулей либо восстановить их и последовательно запустить доустановку.";
+    body.append(intro, list, explanation);
+
+    const actions = document.createElement("div");
+    actions.className = "mt-4 flex flex-wrap justify-end gap-2";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted";
+    cancel.textContent = "Отмена";
+
+    const skip = document.createElement("button");
+    skip.type = "button";
+    skip.className = "rounded-md border border-border bg-muted/30 px-3 py-1.5 text-sm text-foreground hover:bg-muted";
+    skip.textContent = "Пропустить их настройки";
+
+    const install = document.createElement("button");
+    install.type = "button";
+    install.className = "rounded-md border border-primary/60 bg-primary/10 px-3 py-1.5 text-sm text-primary hover:bg-primary/20";
+    install.textContent = "Восстановить и доустановить";
+
+    const previousOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    let finished = false;
+    const finish = (choice: MissingComponentsChoice | null) => {
+      if (finished) return;
+      finished = true;
+      document.removeEventListener("keydown", onKeyDown);
+      document.documentElement.style.overflow = previousOverflow;
+      overlay.remove();
+      resolve(choice);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") finish(null);
+    };
+    cancel.addEventListener("click", () => finish(null));
+    skip.addEventListener("click", () => finish("skip"));
+    install.addEventListener("click", () => finish("install"));
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) finish(null);
+    });
+    document.addEventListener("keydown", onKeyDown);
+
+    actions.append(cancel, skip, install);
+    panel.append(title, body, actions);
+    overlay.append(panel);
+    document.body.append(overlay);
+    window.requestAnimationFrame(() => skip.focus());
+  });
+}
+
+async function installBackupComponents(raw: unknown): Promise<string[]> {
+  const requested = Array.isArray(raw) ? raw.filter((name): name is string => typeof name === "string") : [];
+  const order = ["tor", "bridges", "split", "zapret", "warp"];
+  const components = order.filter((name) => requested.includes(name));
+  const installed: string[] = [];
+  for (const name of components) {
+    const res = await fetch(`/api/components/${name}/install`, { method: "POST" });
+    const data = await res.json().catch(() => ({} as any));
+    if (!res.ok) throw new Error(`Не удалось запустить установку модуля ${name}: ${data?.error || `HTTP ${res.status}`}`);
+    const jobId = String(data?.job_id || "");
+    if (!jobId) throw new Error(`Установка модуля ${name} не вернула job_id`);
+    const status = await waitForComponentJobDone(name, jobId);
+    if (status !== "done") throw new Error(`Установка модуля ${name} завершилась со статусом ${status}`);
+    installed.push(name);
+  }
+  if (installed.length) {
+    window.dispatchEvent(new Event("olc-capabilities-changed"));
+    window.dispatchEvent(new Event("olc-features-changed"));
+  }
+  return installed;
+}
+
+async function importBackupWithDecisions(endpoint: string, body: string, foreignWarning: string) {
+  let confirmedForeign = false;
+  let missingMode: "" | MissingComponentsChoice = "";
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const params = new URLSearchParams();
+    if (confirmedForeign) params.set("confirm_foreign_host", "1");
+    if (missingMode) params.set("missing_components", missingMode);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    const res = await fetch(endpoint + suffix, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    const data = await res.json().catch(() => ({} as any));
+    if (res.status === 409 && data?.code === "missing_components_confirmation_required") {
+      const choice = await olcChooseMissingComponents(Array.isArray(data?.missing_components) ? data.missing_components : []);
+      if (!choice) return { cancelled: true, data: null as any, installed: [] as string[] };
+      missingMode = choice;
+      continue;
+    }
+    if (res.status === 409 && data?.code === "foreign_host_confirmation_required") {
+      if (!await olcConfirm(foreignWarning)) return { cancelled: true, data: null as any, installed: [] as string[] };
+      confirmedForeign = true;
+      continue;
+    }
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    const installed = await installBackupComponents(data?.install_components);
+    return { cancelled: false, data, installed };
+  }
+  throw new Error("Импорт не удалось подтвердить после нескольких попыток");
+}
+
 function Modal({
   title,
   children,
@@ -2441,18 +2570,12 @@ function LoginView({ setupRequired, onLogin }: { setupRequired: boolean; onLogin
     setBusy(true); setError("");
     try {
       const body = await file.text();
-      const send = async (confirmed: boolean) => {
-        const suffix = confirmed ? "?confirm_foreign_host=1" : "";
-        const res = await fetch("/api/backup/import-first-run" + suffix, { method: "POST", headers: { "Content-Type": "application/json" }, body });
-        const data = await res.json().catch(() => ({} as any));
-        return { res, data };
-      };
-      let { res, data } = await send(false);
-      if (res.status === 409 && data?.code === "foreign_host_confirmation_required") {
-        if (!await olcConfirm("Бекап создан на другом VPS и содержит активные room+key. Импортировать его на этот сервер?")) return;
-        ({ res, data } = await send(true));
-      }
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      const result = await importBackupWithDecisions(
+        "/api/backup/import-first-run",
+        body,
+        "Бэкап создан на другом VPS и содержит активные room+key. Импортировать его на этот сервер?"
+      );
+      if (result.cancelled) return;
       await onLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -3981,33 +4104,21 @@ function BackupSection() {
     setBusy(true); setErr(null); setMsg(null);
     try {
       const text = await file.text();
-      const send = async (confirmed: boolean) => {
-        const suffix = confirmed ? "?confirm_foreign_host=1" : "";
-        const res = await fetch("/api/backup/import" + suffix, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: text,
-        });
-        const data = await res.json().catch(() => ({} as any));
-        return { res, data };
-      };
-      let { res, data } = await send(false);
-      if (res.status === 409 && data?.code === "foreign_host_confirmation_required") {
-        const accepted = await olcConfirm(
-          "ВНИМАНИЕ: этот бэкап создан на другом VPS или в старой версии панели.\n\n" +
+      const result = await importBackupWithDecisions(
+        "/api/backup/import",
+        text,
+        "ВНИМАНИЕ: этот бэкап создан на другом VPS или в старой версии панели.\n\n" +
           "Он содержит активные room+key. Если исходный сервер всё ещё работает, после запуска второго сервера клиенты могут случайно подключаться то к одному, то к другому.\n\n" +
           "Продолжайте только если старый сервер остановлен либо вы осознанно переносите панель. Импортировать всё равно?"
-        );
-        if (!accepted) {
-          setMsg("Импорт отменён: данные на диске не изменены.");
-          return;
-        }
-        ({ res, data } = await send(true));
+      );
+      if (result.cancelled) {
+        setMsg("Импорт отменён: данные на диске не изменены.");
+        return;
       }
-      if (!res.ok) throw new Error((data && data.error) || ("HTTP " + res.status));
-      const restored = (data && data.restored) || [];
+      const restored = result.data?.restored || [];
+      const installed = result.installed.length ? ` Доустановлены модули: ${result.installed.join(", ")}.` : "";
       setRestartReady(true);
-      setMsg("Восстановлено: " + (restored.join(", ") || "нет данных") + ". " + ((data && data.note) || ""));
+      setMsg("Восстановлено: " + (restored.join(", ") || "нет данных") + "." + installed + " " + (result.data?.note || ""));
     } catch (e: any) {
       setErr("Не удалось импортировать: " + (e?.message || String(e)));
     } finally {
