@@ -24,9 +24,15 @@ tor_socks_ok() {
 }
 
 panel_ok() {
-  local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8888/admin 2>/dev/null || echo 000)"
-  [[ "$code" =~ ^(200|302|303|307|308)$ ]]
+  local code url
+  # The saved profile can switch the same port between HTTPS and explicit
+  # HTTP. Probe both transports so a healthy TLS panel is not restarted just
+  # because an HTTP request received an SSL protocol error.
+  for url in https://127.0.0.1:8888/admin http://127.0.0.1:8888/admin; do
+    code="$(curl -ksS -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || echo 000)"
+    [[ "$code" =~ ^(200|302|303|307|308)$ ]] && return 0
+  done
+  return 1
 }
 
 TOR_OK=0

@@ -140,6 +140,28 @@ run_upd "mode=--update(default-with-flags)"   --force-sha-update
 run_upd "unknown=[--lolwut]"                  --lolwut
 run_upd "mode=--update"                       --update --manager-stable --ssh --force-sha-update
 
+echo "== finish help: URL соответствует сохранённому TLS-режиму =="
+finish_help() {
+  local access="$1" tls_mode="$2"
+  PANEL_ACCESS="$access" PANEL_TLS_MODE="$tls_mode" REPO_ROOT="$REPO_ROOT" bash -c '
+    source "$1/scripts/lib-olc-ru.sh"
+    olc_detect_panel_host() { echo 203.0.113.10; }
+    olc_print_finish_help 8888
+  ' _ "$REPO_ROOT" 2>&1
+}
+out="$(finish_help ip letsencrypt)"
+if [[ "$out" == *"https://203.0.113.10:8888/admin"* && "$out" == *"https://127.0.0.1:8888/admin"* ]]; then
+  pass "finish help: Let's Encrypt → HTTPS"
+else
+  fail "finish help: Let's Encrypt не напечатал HTTPS URL"
+fi
+out="$(finish_help ssh http)"
+if [[ "$out" == *"http://127.0.0.1:8888/admin"* && "$out" != *"https://127.0.0.1:8888/admin"* ]]; then
+  pass "finish help: SSH + HTTP → HTTP"
+else
+  fail "finish help: SSH + HTTP напечатал неверную схему"
+fi
+
 echo ""
 if [[ "$fails" -eq 0 ]]; then
   echo "[install-flags-test] OK: все флаги установки и обновления парсятся без поломок"

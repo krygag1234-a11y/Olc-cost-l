@@ -302,16 +302,39 @@ olc_panel_access_mode() {
   echo ip
 }
 
+olc_panel_tls_mode() {
+  if [[ -n "${PANEL_TLS_MODE:-}" ]]; then
+    printf '%s\n' "$PANEL_TLS_MODE"
+    return 0
+  fi
+  if [[ -f /etc/olcrtc-manager/deploy-profile.json ]] && command -v jq >/dev/null 2>&1; then
+    local mode
+    mode="$(jq -r '.panel.tls_mode // empty' /etc/olcrtc-manager/deploy-profile.json 2>/dev/null || true)"
+    [[ -n "$mode" ]] && { printf '%s\n' "$mode"; return 0; }
+  fi
+  if [[ "${PANEL_TLS:-${OLCRTC_PANEL_TLS:-0}}" == "1" ]]; then
+    echo selfsigned
+  else
+    echo http
+  fi
+}
+
 olc_print_finish_help() {
   local port="${1:-8888}"
-  local host public_url panel_access
+  local host public_url tunnel_url panel_access panel_tls_mode scheme
   host="$(olc_detect_panel_host)"
   panel_access="$(olc_panel_access_mode)"
+  panel_tls_mode="$(olc_panel_tls_mode)"
+  case "$panel_tls_mode" in
+    letsencrypt|selfsigned|https) scheme="https" ;;
+    *) scheme="http" ;;
+  esac
   if [[ "$panel_access" == "ssh" ]]; then
-    public_url="http://127.0.0.1:${port}/admin"
+    public_url="${scheme}://127.0.0.1:${port}/admin"
   else
-    public_url="http://${host}:${port}/admin"
+    public_url="${scheme}://${host}:${port}/admin"
   fi
+  tunnel_url="${scheme}://127.0.0.1:${port}/admin"
 
   cat >&2 <<EOF
 
@@ -323,7 +346,7 @@ olc_print_finish_help() {
 
   SSH-туннель:
     ssh -L ${port}:127.0.0.1:${port} root@${host}
-    затем открыть: http://127.0.0.1:${port}/admin
+    затем открыть: ${tunnel_url}
 
   Короткие команды:
     sudo olc-update          обновить / доустановить компоненты

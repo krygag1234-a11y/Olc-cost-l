@@ -72,7 +72,9 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/uni
 ## Динамический IP VPS (DDNS)
 
 В Olcbox импортируйте подписку по **домену**, не по IP:  
-`http://ВАШ-DDNS:8888/<client_id>/`
+`http://ВАШ-DDNS:8888/<client_id>/` — для этого варианта явно выберите `--http`.
+
+Доверенный IP-сертификат из `--https-letsencrypt` действует для публичного IP, а не для DDNS-имени. В HTTPS-подписке используйте `https://ВАШ_ПУБЛИЧНЫЙ_IP:8888/<client_id>/`.
 
 В `/etc/olcrtc-manager/panel.env`:
 ```bash
@@ -280,7 +282,8 @@ ssh -L 8888:127.0.0.1:8888 root@ВАШ_IP_ИЛИ_DDNS
 ```bash
 systemctl is-active tor@default olcrtc-manager
 curl -s --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip | jq .
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8888/admin
+curl -ks -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8888/admin  # HTTPS
+# либо http://127.0.0.1:8888/admin после явного --http
 wc -l /var/lib/olcrtc/tor-bridges-pool.txt /var/lib/olcrtc/ru-cidrs.txt
 journalctl -u olcrtc-manager -n 20 --no-pager
 ```

@@ -318,7 +318,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 </details>
 
-Панель: `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` либо `http://127.0.0.1:8888/admin` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [UPDATE.md](docs/UPDATE.md)
+Панель: `https://ВАШ_IP:8888/admin` для HTTPS-режимов; `http://ВАШ_IP_ИЛИ_DDNS:8888/admin` только при явном `--http` · [QUICKSTART-RU.md](docs/QUICKSTART-RU.md) · [PANEL-HTTPS.md](docs/PANEL-HTTPS.md)
 
 ## Доступ к панели через localhost / SSH-туннель
 

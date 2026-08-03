@@ -113,12 +113,13 @@ sudo olc-update --force-sha-update
 Проверка с VPS:
 
 ```bash
-curl -I -u admin:admin http://127.0.0.1:8888/api/project/status
-curl -I -u admin:admin http://127.0.0.1:8888/api/notification-settings
-curl -I -u admin:admin http://127.0.0.1:8888/api/settings/warp
+curl -kI -u admin:admin https://127.0.0.1:8888/api/project/status
+curl -kI -u admin:admin https://127.0.0.1:8888/api/notification-settings
+curl -kI -u admin:admin https://127.0.0.1:8888/api/settings/warp
 ```
 
 Ожидаемо: `HTTP/1.1 200 OK` (или `401`, если без корректной авторизации).
+Для явно выбранного `--http` замените `https://` на `http://` и уберите `-k`.
 
 Если job завис в `running`:
 

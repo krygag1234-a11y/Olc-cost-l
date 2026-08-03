@@ -41,12 +41,18 @@ export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
 (cd "$MGR_REPO" && go build -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager/)
 systemctl restart olcrtc-manager 2>/dev/null || true
 
-if [[ -f /etc/olcrtc-manager/deploy-profile.json ]] \
-  && command -v jq >/dev/null 2>&1 \
-  && [[ "$(jq -r '.panel.access // "ip"' /etc/olcrtc-manager/deploy-profile.json 2>/dev/null || echo ip)" == "ssh" ]]; then
-  log "готово. Проверка: http://127.0.0.1:8888/admin (через SSH-туннель)"
+# shellcheck source=lib-olc-ru.sh
+source "$SCRIPT_DIR/lib-olc-ru.sh"
+panel_access="$(olc_panel_access_mode)"
+panel_tls_mode="$(olc_panel_tls_mode)"
+case "$panel_tls_mode" in
+  letsencrypt|selfsigned|https) panel_scheme=https ;;
+  *) panel_scheme=http ;;
+esac
+if [[ "$panel_access" == "ssh" ]]; then
+  log "готово. Проверка: ${panel_scheme}://127.0.0.1:8888/admin (через SSH-туннель)"
 else
-  log "готово. Проверка: http://$(hostname -I | awk '{print $1}'):8888/admin"
+  log "готово. Проверка: ${panel_scheme}://$(hostname -I | awk '{print $1}'):8888/admin"
 fi
 if grep -q videochannel "$MGR_REPO/src/main.tsx" 2>/dev/null; then
   log "WARN: в main.tsx всё ещё есть videochannel"
