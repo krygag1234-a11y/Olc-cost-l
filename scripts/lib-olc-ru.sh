@@ -118,6 +118,16 @@ olc_spinner_active() {
 }
 
 # Сообщения [state] из lib-install-state.sh
+olc_step_label() {
+  case "${1:-}" in
+    patches) echo "сборка OlcRTC core + встроенного manager" ;;
+    *) echo "${1:-}" ;;
+  esac
+}
+
+# Сообщения [state] из lib-install-state.sh. Имя persisted-шагa остаётся
+# `patches` для совместимости resume-state, меняется только отображение.
+
 olc_state_line() {
   if [[ "${OLC_LANG}" == en ]]; then
     echo "[state] $*"
@@ -128,8 +138,8 @@ olc_state_line() {
   # Animated-режим: результаты шагов уходят в очередь и печатаются НАД баром
   # с отступом «→» — сам бар остаётся статичной нижней строкой.
   if olc_spinner_active && declare -f olc_progress_msg >/dev/null 2>&1; then
-    line="${line/✓ patches/✓ патчи применены}"
-    line="${line/✗ patches/✗ патчи — ошибка}"
+    line="${line/✓ patches/✓ OlcRTC core и встроенный manager собраны}"
+    line="${line/✗ patches/✗ сборка OlcRTC core и manager — ошибка}"
     line="${line/skip /пропуск (уже сделано): }"
     olc_progress_msg "$line"
     return
@@ -142,8 +152,8 @@ olc_state_line() {
     case "$line" in
       "✓ "*|"✗ "*|"пропуск "*)
         # Применить переводы и вывести без префикса
-        line="${line/✓ patches/✓ патчи применены}"
-        line="${line/✗ patches/✗ патчи — ошибка}"
+        line="${line/✓ patches/✓ OlcRTC core и встроенный manager собраны}"
+        line="${line/✗ patches/✗ сборка OlcRTC core и manager — ошибка}"
         line="${line/skip /пропуск (уже сделано): }"
         echo "$line"
         return
@@ -152,11 +162,11 @@ olc_state_line() {
   fi
 
   # Стандартный режим: переводы + префикс [этап]
-  line="${line/→ patches/→ патчи (olcrtc + панель manager)}"
+  line="${line/→ patches/→ сборка OlcRTC core + встроенного manager}"
   line="${line/→ packages/→ пакеты apt}"
   line="${line/→ go-toolchain/→ Go toolchain}"
-  line="${line/✓ patches/✓ патчи применены}"
-  line="${line/✗ patches/✗ патчи — ошибка}"
+  line="${line/✓ patches/✓ OlcRTC core и встроенный manager собраны}"
+  line="${line/✗ patches/✗ сборка OlcRTC core и manager — ошибка}"
   line="${line/skip /пропуск (уже сделано): }"
   line="${line/ABORT/СТОП}"
   line="${line/Resume with:/Продолжить:}"

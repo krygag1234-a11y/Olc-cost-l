@@ -248,6 +248,9 @@ _olc_show_progress() {
 # последующие вызовы только обновляют IPC (шаг, имя, сброс подзадач).
 _olc_progress_start() {
   local step_name="$1"
+  if declare -f olc_step_label >/dev/null 2>&1; then
+    step_name="$(olc_step_label "$step_name")"
+  fi
   _olc_progress_ipc_init || return 1
   _OLCRTC_PROGRESS_STEP_NAME="$step_name"
 

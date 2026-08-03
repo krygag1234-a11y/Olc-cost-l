@@ -440,6 +440,20 @@ else
   pass "selective Tor recap does not claim bridges or system routing"
 fi
 
+if ! grep -Fq 'local boot_args=("$update_mode")' "$UPD" || \
+   ! grep -Fq '"$arg" == "--update" || "$arg" == "--incremental"' "$UPD" || \
+   grep -Fq '(ветка )' "$UPD"; then
+  fail "olc-update must pass exactly one selected mode and display its branch"
+else
+  pass "olc-update passes one mode and displays the resolved branch"
+fi
+
+if ! grep -Fq 'patches) echo "сборка OlcRTC core + встроенного manager"' "$REPO_ROOT/scripts/lib-olc-ru.sh"; then
+  fail "persisted patches key must have a truthful user-facing label"
+else
+  pass "persisted patches state is displayed as core + built-in manager build"
+fi
+
 if [[ "$fails" -ne 0 ]]; then
   echo "[install-flags-test] FAIL after repository-safety regressions: $fails"
   exit 1

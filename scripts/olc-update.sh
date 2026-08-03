@@ -158,7 +158,7 @@ main() {
 
   # Стартовые системные сообщения — эфемерной статусной строкой:
   # каждое новое заменяет предыдущее, терминал не засоряется.
-  tui_status "Проверка актуальности репозитория (ветка )…"
+  tui_status "Проверка актуальности репозитория (ветка $update_branch)…"
   local_sha="$(git rev-parse HEAD 2>/dev/null || true)"
   remote_sha="$(git ls-remote origin "refs/heads/$update_branch" 2>/dev/null | awk '{print $1}' || true)"
 
@@ -280,7 +280,7 @@ main() {
   fi
   # Re-read profile id if passed as --profile <id>
   export OLC_UPDATE_WRAPPER=1
-  local boot_args=(--update)
+  local boot_args=("$update_mode")
   if [[ "${#tui_panel_args[@]}" -gt 0 ]]; then
     boot_args+=("${tui_panel_args[@]}")
   fi
@@ -288,6 +288,10 @@ main() {
   while [[ $i -le $# ]]; do
     eval "arg=\${$i}"
     if [[ "$arg" == "--profile" ]]; then
+    if [[ "$arg" == "--update" || "$arg" == "--incremental" ]]; then
+      i=$((i + 1))
+      continue
+    fi
       next=$((i + 1))
       if [[ $next -le $# ]]; then
         eval "pid=\${$next}"

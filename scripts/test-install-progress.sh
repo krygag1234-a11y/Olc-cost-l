@@ -51,7 +51,7 @@ nested_progress_step() {
 output="$(state_step patches nested_progress_step)"
 grep -Fq '→ Первая подзадача (1/2, 50%)' <<<"$output"
 grep -Fq '→ Вторая подзадача (2/2, 100%)' <<<"$output"
-grep -Fq '✓ патчи применены' <<<"$output"
+grep -Fq '✓ OlcRTC core и встроенный manager собраны' <<<"$output"
 # substep удаляется после шага; simple-флаг ПЕРСИСТЕНТЕН между шагами
 # (нужен olc_state_line/olc_progress_msg — удаляется только в _olc_progress_cleanup)
 [[ ! -e "$parent_substep" ]]
