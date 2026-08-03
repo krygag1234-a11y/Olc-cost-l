@@ -11,7 +11,7 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
-marker = "OLC_TOGGLE_BUTTONS_UI_V3"
+marker = "OLC_TOGGLE_BUTTONS_UI_V4"
 if marker in text:
     print(f"[toggle-buttons] already applied: {path}")
     raise SystemExit(0)
@@ -43,6 +43,7 @@ def neutralize_toggle_contexts(source: str) -> tuple[str, int]:
 
 legacy_marker_v1 = "OLC_TOGGLE_BUTTONS_UI_V1"
 legacy_marker_v2 = "OLC_TOGGLE_BUTTONS_UI_V2"
+legacy_marker_v3 = "OLC_TOGGLE_BUTTONS_UI_V3"
 legacy_state = '''  const stateClass = mixed
     ? "border-amber-400/50 bg-amber-500/15 text-amber-200"
     : checked
@@ -53,19 +54,35 @@ neutral_state = '''  const stateClass = mixed
     : checked
       ? "border-border bg-secondary text-secondary-foreground shadow-sm"
       : "border-border/80 bg-background text-muted-foreground";'''
-if legacy_marker_v1 in text or legacy_marker_v2 in text:
+muted_color_state = '''  const stateClass = mixed
+    ? "border-amber-500/35 bg-amber-500/10 text-amber-200/90"
+    : checked
+      ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-200/90 shadow-sm"
+      : "border-border/80 bg-background text-muted-foreground";'''
+if legacy_marker_v1 in text or legacy_marker_v2 in text or legacy_marker_v3 in text:
     if legacy_marker_v1 in text:
         if text.count(legacy_state) != 1:
             raise SystemExit("[toggle-buttons] legacy state style shape changed")
         text = text.replace(legacy_marker_v1, marker, 1)
-        text = text.replace(legacy_state, neutral_state, 1)
-        text = text.replace(
-            'cursor-pointer hover:brightness-110',
-            'cursor-pointer hover:bg-accent hover:text-accent-foreground',
-            1,
-        )
+        text = text.replace(legacy_state, muted_color_state, 1)
+    elif legacy_marker_v3 in text:
+        if text.count(neutral_state) != 1:
+            raise SystemExit("[toggle-buttons] v3 neutral state style shape changed")
+        text = text.replace(legacy_marker_v3, marker, 1)
+        text = text.replace(neutral_state, muted_color_state, 1)
     else:
         text = text.replace(legacy_marker_v2, marker, 1)
+        if neutral_state in text:
+            text = text.replace(neutral_state, muted_color_state, 1)
+        elif legacy_state in text:
+            text = text.replace(legacy_state, muted_color_state, 1)
+        else:
+            raise SystemExit("[toggle-buttons] v2 state style shape changed")
+    text = text.replace(
+        'cursor-pointer hover:bg-accent hover:text-accent-foreground',
+        'cursor-pointer hover:brightness-110',
+        1,
+    )
     text = text.replace(
         '      onClick={(event) => {\n        onClick?.(event);',
         '      onClick={(event) => {\n        event.stopPropagation();\n        onClick?.(event);',
@@ -73,7 +90,7 @@ if legacy_marker_v1 in text or legacy_marker_v2 in text:
     )
     text, wrapper_count = neutralize_toggle_contexts(text)
     path.write_text(text)
-    print(f"[toggle-buttons] upgraded neutral style and click targets: wrappers={wrapper_count} {path}")
+    print(f"[toggle-buttons] upgraded muted semantic colors and click targets: wrappers={wrapper_count} {path}")
     raise SystemExit(0)
 
 needle = 'type="checkbox"'
@@ -81,7 +98,7 @@ original_count = text.count(needle)
 if original_count != 32:
     raise SystemExit(f"[toggle-buttons] expected 32 native checkboxes, got {original_count}")
 
-component = r'''/* OLC_TOGGLE_BUTTONS_UI_V3 */
+component = r'''/* OLC_TOGGLE_BUTTONS_UI_V4 */
 type OlcToggleButtonProps = {
   checked?: boolean;
   disabled?: boolean;
@@ -96,9 +113,9 @@ type OlcToggleButtonProps = {
 function OlcToggleButton({ checked = false, disabled = false, mixed = false, compact = false, title, className = "", onClick, onChange }: OlcToggleButtonProps) {
   const stateLabel = mixed ? "Часть" : checked ? "Вкл" : "Выкл";
   const stateClass = mixed
-    ? "border-border bg-muted text-foreground"
+    ? "border-amber-500/35 bg-amber-500/10 text-amber-200/90"
     : checked
-      ? "border-border bg-secondary text-secondary-foreground shadow-sm"
+      ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-200/90 shadow-sm"
       : "border-border/80 bg-background text-muted-foreground";
   const sizeClass = compact ? "h-6 min-w-[44px] px-1.5 text-[10px]" : "h-8 min-w-[72px] px-3 text-xs";
   return (
@@ -109,7 +126,7 @@ function OlcToggleButton({ checked = false, disabled = false, mixed = false, com
       aria-label={title || stateLabel}
       title={title}
       disabled={disabled}
-      className={`inline-flex shrink-0 items-center justify-center rounded-md border font-semibold transition-colors ${sizeClass} ${stateClass} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-accent hover:text-accent-foreground"} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-md border font-semibold transition-colors ${sizeClass} ${stateClass} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:brightness-110"} ${className}`}
       onClick={(event) => {
         event.stopPropagation();
         onClick?.(event);
