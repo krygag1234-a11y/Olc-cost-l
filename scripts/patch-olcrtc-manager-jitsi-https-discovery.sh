@@ -156,6 +156,7 @@ func jitsiIPHints(ctx context.Context, ip net.IP) map[string][]string {
 		for _, ptr := range ptrs {
 			add(ptr, "обратная DNS-запись IP")
 		}
+	}
 	cancel()
 
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}
