@@ -77,6 +77,7 @@
 | POST | `/api/notifications/scan` | Скан |
 | PATCH | `/api/notifications/{id}` | Прочитано |
 | GET | `/api/jitsi/preflight` | Preflight Jitsi URL |
+| GET | `/api/jitsi/discover-https?server=HTTP_IP` | Найти и строго проверить HTTPS Jitsi domain:443 для публичного числового IP |
 | POST | `/api/reload` | Reload supervisor |
 | GET | `/admin`, `/assets/*` | SPA панели |
 | GET | `/{subscription_path}/` | Subscription |

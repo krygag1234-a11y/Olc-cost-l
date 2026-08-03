@@ -86,6 +86,12 @@ curl -fsSL .../install.sh | sudo bash   # авто: detect installed → update,
 При создании/удалении локации hostname из `room_id` (`https://jitsi.etudevs.ru/room`) добавляется в
 `/var/lib/olcrtc/lists/panel-carrier-hosts.txt` и в `ru-direct-domains.txt` (для split/zapret).
 
+В формах создания и редактирования Jitsi адрес хранится раздельно как **Jitsi Server** и **Room ID**.
+Полную ссылку можно вставить в любое из этих полей — панель сама разложит server и room. Если в
+**Jitsi Server** указан публичный числовой HTTP/IP, появляется помощник **«Найти HTTPS-домен»**.
+Он проверяет TLS-сертификат, DNS, `config.js`, XMPP WebSocket и BOSH, показывает только подтверждённые
+домены `https://domain:443` и не меняет Server без нажатия **«Использовать»**. Room ID при замене сохраняется.
+
 ```bash
 olc-sync-panel-host.sh sync-config   # пересобрать из config.json
 ```
