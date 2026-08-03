@@ -5483,7 +5483,7 @@ func adminPageHandler(files http.Handler) http.HandlerFunc {
 // в backupExtraFiles() ниже; при переименовании ключа — миграция в migrateBackup().
 // ============================================================================
 
-const olcBackupSchemaVersion = 1
+const olcBackupSchemaVersion = 2
 
 // backupHostID binds an export to the VPS that created it.  It is deliberately
 // not used as an authentication secret; it only prevents an accidental import
@@ -5529,42 +5529,44 @@ func backupHasRoomKey(v any) bool {
 func backupExtraFiles(configPath string) map[string]string {
 	dir := filepath.Dir(configPath)
 	return map[string]string{
-		"panel_env":              filepath.Join(dir, "panel.env"),
-		"features_env":           filepath.Join(dir, "features.env"),
-		"deploy_profile":         filepath.Join(dir, "deploy-profile.json"),
-		"notification_settings":  notificationSettingsPath,
-		"instance_defaults":      instanceDefaultsPath,
-		"access_control":         "/var/lib/olcrtc/access-control.json",
-		"key_rotation":           "/var/lib/olcrtc/key-rotation.json",
-		"key_randomization":      "/var/lib/olcrtc/key-randomization.json",
-		"bridge_sources":         "/var/lib/olcrtc/bridge-sources.json",
-		"force_tor_domains":      "/var/lib/olcrtc/force-tor-domains.txt",
-		"ru_blocked_tor_domains": "/var/lib/olcrtc/ru-blocked-tor-domains.txt",
-		"custom_direct_domains":  "/var/lib/olcrtc/lists/custom-direct-domains.txt",
-		"ru_domains_extra":       "/var/lib/olcrtc/ru-domains-extra.txt",
-		"split_discovered":       "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
-		"split_panel_hosts":      "/var/lib/olcrtc/lists/panel-carrier-hosts.txt",
-		"split_panel_cidrs":      "/var/lib/olcrtc/lists/panel-carrier-cidrs.txt",
-		"zapret_exclude_domains": "/var/lib/olcrtc/zapret-custom/exclude-domains.txt",
-		"zapret_force_domains":   "/var/lib/olcrtc/zapret-custom/force-domains.txt",
-		"zapret_strategy":        filepath.Join(dir, "zapret.strategy"),
-		"zapret_sync_cron":       "/etc/cron.d/olcrtc-zapret-sync",
-		"tor_exit_env":           filepath.Join(dir, "tor-exit.env"),
-		"tor_exit_exclude_env":   filepath.Join(dir, "tor-exit-exclude.env"),
-		"torrc":                  "/etc/tor/torrc",
-		"tor_bridges":            "/etc/tor/bridges.conf",
-		"tor_user_bridges":       "/var/lib/olcrtc/tor-user-bridges.txt",
-		"bridge_profiles":        "/var/lib/olcrtc/bridge-profiles.json",
-		"bridge_pool_cron":       "/etc/cron.d/olcrtc-bridge-pool",
-		"install_profile":        "/var/lib/olcrtc/install-profile.json",
-		"github_env":             filepath.Join(dir, "github.env"),
-		"access_attempts":        "/var/lib/olcrtc/access-attempts.json",
-		"access_connections":     "/var/lib/olcrtc/access-connections.json",
-		"removed_zapret":         "/var/lib/olcrtc/component-removed/zapret",
-		"removed_tor":            "/var/lib/olcrtc/component-removed/tor",
-		"removed_split":          "/var/lib/olcrtc/component-removed/split",
-		"removed_bridges":        "/var/lib/olcrtc/component-removed/bridges",
-		"removed_warp":           "/var/lib/olcrtc/component-removed/warp",
+		"panel_env":               filepath.Join(dir, "panel.env"),
+		"features_env":            filepath.Join(dir, "features.env"),
+		"deploy_profile":          filepath.Join(dir, "deploy-profile.json"),
+		"notification_settings":   notificationSettingsPath,
+		"instance_defaults":       instanceDefaultsPath,
+		"access_control":          "/var/lib/olcrtc/access-control.json",
+		"key_rotation":            "/var/lib/olcrtc/key-rotation.json",
+		"key_randomization":       "/var/lib/olcrtc/key-randomization.json",
+		"bridge_sources":          "/var/lib/olcrtc/bridge-sources.json",
+		"bridge_extra_urls":       "/var/lib/olcrtc/bridge-extra-urls.txt",
+		"force_tor_domains":       "/var/lib/olcrtc/force-tor-domains.txt",
+		"ru_blocked_tor_domains":  "/var/lib/olcrtc/ru-blocked-tor-domains.txt",
+		"custom_direct_domains":   "/var/lib/olcrtc/lists/custom-direct-domains.txt",
+		"ru_domains_extra":        "/var/lib/olcrtc/ru-domains-extra.txt",
+		"split_discovered":        "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
+		"split_panel_hosts":       "/var/lib/olcrtc/lists/panel-carrier-hosts.txt",
+		"split_panel_cidrs":       "/var/lib/olcrtc/lists/panel-carrier-cidrs.txt",
+		"zapret_exclude_domains":  "/var/lib/olcrtc/zapret-custom/exclude-domains.txt",
+		"zapret_force_domains":    "/var/lib/olcrtc/zapret-custom/force-domains.txt",
+		"zapret_strategy":         filepath.Join(dir, "zapret.strategy"),
+		"zapret_sync_cron":        "/etc/cron.d/olcrtc-zapret-sync",
+		"zapret_sync_cron_legacy": "/etc/cron.d/zapret-sync",
+		"tor_exit_env":            filepath.Join(dir, "tor-exit.env"),
+		"tor_exit_exclude_env":    filepath.Join(dir, "tor-exit-exclude.env"),
+		"torrc":                   "/etc/tor/torrc",
+		"tor_bridges":             "/etc/tor/bridges.conf",
+		"tor_user_bridges":        "/var/lib/olcrtc/tor-user-bridges.txt",
+		"bridge_profiles":         "/var/lib/olcrtc/bridge-profiles.json",
+		"bridge_pool_cron":        "/etc/cron.d/olcrtc-bridge-pool",
+		"install_profile":         "/var/lib/olcrtc/install-profile.json",
+		"github_env":              filepath.Join(dir, "github.env"),
+		"access_attempts":         "/var/lib/olcrtc/access-attempts.json",
+		"access_connections":      "/var/lib/olcrtc/access-connections.json",
+		"removed_zapret":          "/var/lib/olcrtc/component-removed/zapret",
+		"removed_tor":             "/var/lib/olcrtc/component-removed/tor",
+		"removed_split":           "/var/lib/olcrtc/component-removed/split",
+		"removed_bridges":         "/var/lib/olcrtc/component-removed/bridges",
+		"removed_warp":            "/var/lib/olcrtc/component-removed/warp",
 	}
 }
 
@@ -5605,6 +5607,14 @@ func writeBackupFileAtomic(path string, data []byte, mode os.FileMode) error {
 
 func restoreBackupExtra(path string, ev map[string]any) bool {
 	switch kind, _ := ev["kind"].(string); kind {
+	case "absent":
+		if err := backupFileBeforeRestore(path); err != nil {
+			return false
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return false
+		}
+		return true
 	case "json":
 		bv, ok := ev["value"]
 		if !ok {
@@ -5728,6 +5738,9 @@ func backupExportHandler(configPath string) http.HandlerFunc {
 		for key, path := range backupExtraFiles(configPath) {
 			data, err := os.ReadFile(path)
 			if err != nil {
+				if os.IsNotExist(err) {
+					extras[key] = map[string]any{"kind": "absent"}
+				}
 				continue
 			}
 			if strings.HasSuffix(path, ".json") {

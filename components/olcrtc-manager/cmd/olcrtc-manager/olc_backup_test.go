@@ -16,10 +16,10 @@ func TestBackupExtraFilesCompleteness(t *testing.T) {
 	want := []string{
 		"panel_env", "features_env", "deploy_profile", "notification_settings",
 		"instance_defaults", "access_control", "key_rotation", "key_randomization",
-		"bridge_sources", "force_tor_domains", "ru_blocked_tor_domains",
+		"bridge_sources", "bridge_extra_urls", "force_tor_domains", "ru_blocked_tor_domains",
 		"custom_direct_domains", "ru_domains_extra", "split_discovered",
 		"split_panel_hosts", "split_panel_cidrs", "zapret_exclude_domains",
-		"zapret_force_domains", "zapret_strategy", "zapret_sync_cron",
+		"zapret_force_domains", "zapret_strategy", "zapret_sync_cron", "zapret_sync_cron_legacy",
 		"tor_exit_env", "tor_exit_exclude_env", "torrc", "tor_bridges",
 		"tor_user_bridges", "bridge_profiles", "bridge_pool_cron",
 		"install_profile", "github_env", "access_attempts", "access_connections",
@@ -109,6 +109,55 @@ func TestRestoreBackupExtraAllKinds(t *testing.T) {
 	data, _ = os.ReadFile(textPath)
 	if string(data) != "a.example\nb.example\n" {
 		t.Fatalf("text not restored exactly: %q", data)
+	}
+}
+
+func TestRestoreBackupExtraAbsentIsExactAndReversible(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "removed-marker")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !restoreBackupExtra(path, map[string]any{"kind": "absent"}) {
+		t.Fatal("absent restore failed")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("path still exists after absent restore: %v", err)
+	}
+	snapshots, err := filepath.Glob(path + ".bak-import-*")
+	if err != nil || len(snapshots) != 1 {
+		t.Fatalf("snapshots=%v err=%v", snapshots, err)
+	}
+	old, err := os.ReadFile(snapshots[0])
+	if err != nil || string(old) != "old\n" {
+		t.Fatalf("snapshot = %q, err=%v", old, err)
+	}
+}
+
+func TestBackupExportRecordsAbsentFiles(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/backup/export", nil)
+	rec := httptest.NewRecorder()
+	backupExportHandler(configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		SchemaVersion int                       `json:"schema_version"`
+		Extras        map[string]map[string]any `json:"extras"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != 2 {
+		t.Fatalf("schema_version=%d", envelope.SchemaVersion)
+	}
+	if got := envelope.Extras["panel_env"]["kind"]; got != "absent" {
+		t.Fatalf("panel_env kind=%v, want absent", got)
 	}
 }
 
