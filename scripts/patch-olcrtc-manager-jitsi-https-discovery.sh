@@ -209,9 +209,9 @@ func resolveDomainToIP(ctx context.Context, domain string, sourceIP net.IP) bool
 	return false
 }
 
-func probeJitsiHTTPS(ctx context.Context, domain string, forcedIP net.IP) jitsiDomainProbe {
+func probeJitsiHTTPS(ctx context.Context, domain string, forcedIP net.IP, insecureTLS bool) jitsiDomainProbe {
 	dialer := &net.Dialer{Timeout: 4 * time.Second}
-	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: domain, MinVersion: tls.VersionTLS12}}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: domain, InsecureSkipVerify: insecureTLS, MinVersion: tls.VersionTLS12}}
 	if forcedIP != nil {
 		transport.DialContext = func(dialCtx context.Context, network, _ string) (net.Conn, error) {
 			return dialer.DialContext(dialCtx, network, net.JoinHostPort(forcedIP.String(), "443"))
@@ -252,16 +252,21 @@ func probeJitsiHTTPS(ctx context.Context, domain string, forcedIP net.IP) jitsiD
 }
 
 func verifyJitsiHTTPSCandidate(ctx context.Context, domain string, sourceIP net.IP, sourceEvidence []string) (jitsiHTTPSCandidate, bool) {
-	normal := probeJitsiHTTPS(ctx, domain, nil)
+	normal := probeJitsiHTTPS(ctx, domain, nil, false)
+	insecureTLS := false
 	if !normal.Jitsi {
-		return jitsiHTTPSCandidate{}, false
+		normal = probeJitsiHTTPS(ctx, domain, nil, true)
+		if !normal.Jitsi {
+			return jitsiHTTPSCandidate{}, false
+		}
+		insecureTLS = true
 	}
 	dnsMatch := resolveDomainToIP(ctx, domain, sourceIP)
 	forced := jitsiDomainProbe{}
 	if dnsMatch {
 		forced = normal
 	} else {
-		forced = probeJitsiHTTPS(ctx, domain, sourceIP)
+		forced = probeJitsiHTTPS(ctx, domain, sourceIP, insecureTLS)
 		if !forced.Jitsi {
 			return jitsiHTTPSCandidate{}, false
 		}
@@ -272,11 +277,17 @@ func verifyJitsiHTTPSCandidate(ctx context.Context, domain string, sourceIP net.
 	} else {
 		evidence = append(evidence, "домен работает обычно и как SNI/vhost на исходном IP")
 	}
-	evidence = append(evidence, fmt.Sprintf("доверенный TLS; config=%d, ws=%d, bosh=%d", normal.ConfigCode, normal.WSCode, normal.BOSHCode))
+	confidence := "verified"
+	if insecureTLS {
+		confidence = "compatible-insecure"
+		evidence = append(evidence, fmt.Sprintf("Jitsi HTTPS работает, но TLS-цепочка не доверена; нужен OLCRTC_JITSI_INSECURE_TLS=1; config=%d, ws=%d, bosh=%d", normal.ConfigCode, normal.WSCode, normal.BOSHCode))
+	} else {
+		evidence = append(evidence, fmt.Sprintf("доверенный TLS; config=%d, ws=%d, bosh=%d", normal.ConfigCode, normal.WSCode, normal.BOSHCode))
+	}
 	return jitsiHTTPSCandidate{
 		Domain:     domain,
 		URL:        "https://" + net.JoinHostPort(domain, "443"),
-		Confidence: "verified",
+		Confidence: confidence,
 		Evidence:   evidence,
 	}, true
 }
@@ -298,6 +309,10 @@ func discoverJitsiHTTPS(parent context.Context, raw string) (jitsiHTTPSDiscovery
 	}
 	sort.Strings(domains)
 	out.Tried = len(domains)
+	if len(domains) == 0 {
+		out.Summary = "Сервер сейчас не отдал TLS-имя, PTR, redirect или Jitsi config.js"
+		return out, http.StatusOK
+	}
 
 	sem := make(chan struct{}, 6)
 	var mu sync.Mutex
@@ -326,7 +341,15 @@ func discoverJitsiHTTPS(parent context.Context, raw string) (jitsiHTTPSDiscovery
 	sort.Slice(out.Candidates, func(i, j int) bool { return out.Candidates[i].Domain < out.Candidates[j].Domain })
 	if len(out.Candidates) > 0 {
 		out.OK = true
-		out.Summary = fmt.Sprintf("Найдено проверенных HTTPS-доменов: %d", len(out.Candidates))
+		verified, compatible := 0, 0
+		for _, candidate := range out.Candidates {
+			if candidate.Confidence == "verified" {
+				verified++
+			} else {
+				compatible++
+			}
+		}
+		out.Summary = fmt.Sprintf("Найдено HTTPS-доменов: доверенных %d, с insecure TLS %d", verified, compatible)
 	} else if ctx.Err() != nil {
 		out.Summary = "Поиск завершён по таймауту; проверенный HTTPS-домен не найден"
 	}

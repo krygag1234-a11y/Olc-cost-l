@@ -77,12 +77,13 @@ function JitsiHTTPSDiscovery({ server, onUse }: { server: string; onUse: (server
   }, [ip, server]);
 
   if (!ip) return null;
+  const hasInsecureCandidate = Boolean(result?.candidates.some((candidate) => candidate.confidence !== "verified"));
   return (
     <div className="grid gap-2 rounded-md border border-border bg-background/50 p-3 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="font-medium text-foreground">Помощник Jitsi HTTP IP → HTTPS domain:443</div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">Проверяет сертификат, DNS и Jitsi endpoints. Server меняется только после вашего выбора; Room ID сохраняется.</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">Проверяет DNS, Jitsi endpoints и доверие TLS. Домены с просроченным/недоверенным сертификатом показываются отдельно и требуют insecure TLS.</div>
         </div>
         <button
           type="button"
@@ -96,22 +97,27 @@ function JitsiHTTPSDiscovery({ server, onUse }: { server: string; onUse: (server
       {error ? <p className="text-destructive">{error}</p> : null}
       {result ? (
         <div className="grid gap-2">
-          <p className={result.ok ? "text-green-600" : "text-amber-600"}>{result.summary} · проверено кандидатов: {result.tried}</p>
-          {result.candidates.map((candidate) => (
-            <div key={candidate.domain} className="grid gap-1 rounded-md border border-green-500/30 bg-green-500/5 p-2">
+          <p className={result.ok && !hasInsecureCandidate ? "text-primary" : "text-amber-500"}>{result.summary} · проверено кандидатов: {result.tried}</p>
+          {result.candidates.map((candidate) => {
+            const trusted = candidate.confidence === "verified";
+            return (
+            <div key={candidate.domain} className={`grid gap-1 rounded-md border p-2 ${trusted ? "border-primary/30 bg-primary/5" : "border-amber-500/40 bg-amber-500/5"}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-green-600">{candidate.url}</span>
+                <span className={`font-mono ${trusted ? "text-primary" : "text-amber-500"}`}>{candidate.url}</span>
                 <button
                   type="button"
-                  className="inline-flex h-7 items-center rounded-md border border-green-500/40 bg-green-500/10 px-2 text-[11px] text-green-600 hover:bg-green-500/20"
+                  className={`inline-flex h-7 items-center rounded-md border px-2 text-[11px] ${trusted ? "border-primary/40 text-primary hover:bg-primary/10" : "border-amber-500/50 text-amber-500 hover:bg-amber-500/10"}`}
                   onClick={() => onUse(candidate.url)}
                 >
                   Использовать
                 </button>
               </div>
+              <div className={`text-[10px] font-medium ${trusted ? "text-primary" : "text-amber-500"}`}>
+                {trusted ? "TLS-сертификат доверен" : "Требует OLCRTC_JITSI_INSECURE_TLS=1"}
+              </div>
               {candidate.evidence.slice(0, 4).map((item) => <div key={item} className="text-[10px] text-muted-foreground">• {item}</div>)}
             </div>
-          ))}
+          )})}
         </div>
       ) : null}
     </div>
