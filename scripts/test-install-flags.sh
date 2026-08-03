@@ -403,6 +403,12 @@ else
   echo "$dirty_out" | tail -20
 fi
 
+if grep -Fq 'chmod +x "$INSTALL_DIR"/scripts/*.sh' "$REPO_ROOT/install.sh"; then
+  fail "install.sh must not alter executable bits of every tracked helper"
+else
+  pass "install.sh preserves tracked helper modes"
+fi
+
 if [[ "$fails" -ne 0 ]]; then
   echo "[install-flags-test] FAIL after repository-safety regressions: $fails"
   exit 1
