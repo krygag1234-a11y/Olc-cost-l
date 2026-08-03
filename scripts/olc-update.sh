@@ -153,12 +153,14 @@ main() {
   }
   cd "$repo"
   export OLC_REPO_ROOT="$repo"
+  local update_branch="${OLC_REPO_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+  : "${update_branch:=main}"
 
   # Стартовые системные сообщения — эфемерной статусной строкой:
   # каждое новое заменяет предыдущее, терминал не засоряется.
-  tui_status "Проверка актуальности репозитория (ветка main)…"
+  tui_status "Проверка актуальности репозитория (ветка )…"
   local_sha="$(git rev-parse HEAD 2>/dev/null || true)"
-  remote_sha="$(git ls-remote origin main 2>/dev/null | awk '{print $1}' || true)"
+  remote_sha="$(git ls-remote origin "refs/heads/$update_branch" 2>/dev/null | awk '{print $1}' || true)"
 
   local repo_uptodate=0
   if [[ -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
@@ -260,9 +262,9 @@ main() {
     if locale -a 2>/dev/null | grep -qiE '^ru_RU\.utf-?8$'; then
       git_locale="ru_RU.UTF-8"
     fi
-    LANG="$git_locale" LC_ALL="$git_locale" olc_git "$repo" pull --quiet --ff-only origin main || {
+    LANG="$git_locale" LC_ALL="$git_locale" olc_git "$repo" pull --quiet --ff-only origin "$update_branch" || {
       if declare -f tui_fatal >/dev/null 2>&1; then
-        tui_fatal "Ошибка git pull при обновлении репозитория" "Не удалось получить изменения с GitHub origin/main" "Проверьте сеть: ping github.com && curl -I https://github.com"
+        tui_fatal "Ошибка git pull при обновлении репозитория" "Не удалось получить изменения с GitHub origin/$update_branch" "Проверьте сеть: ping github.com && curl -I https://github.com"
       else
         echo "ОШИБКА: git pull failed. Проверьте подключение к GitHub." >&2
         exit 1

@@ -22,6 +22,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${OLC_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+UPDATE_BRANCH="${OLC_REPO_BRANCH:-$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || true)}"
+: "${UPDATE_BRANCH:=main}"
 DOC="$REPO_ROOT/docs/VPS-SETUP.md"
 PATCH_SCRIPT="$SCRIPT_DIR/apply-olcrtc-patches.sh"
 export OLC_REPO_ROOT="$REPO_ROOT"
@@ -532,7 +534,7 @@ ensure_feature_flags_from_selection
 if [[ ( $UPDATE -eq 1 || $REBUILD_ONLY -eq 1 ) && "${OLC_UPDATE_WRAPPER:-0}" != "1" ]]; then
   if [[ -d "$REPO_ROOT/.git" ]]; then
     local_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
-    remote_sha="$(git -C "$REPO_ROOT" ls-remote origin main 2>/dev/null | awk '{print $1}' || true)"
+    remote_sha="$(git -C "$REPO_ROOT" ls-remote origin "refs/heads/$UPDATE_BRANCH" 2>/dev/null | awk '{print $1}' || true)"
 
     if [[ -n "$remote_sha" && "$local_sha" != "$remote_sha" ]]; then
       echo "Обнаружены обновления репозитория. Обновляю..." >&2
@@ -540,7 +542,7 @@ if [[ ( $UPDATE -eq 1 || $REBUILD_ONLY -eq 1 ) && "${OLC_UPDATE_WRAPPER:-0}" != 
       if [[ -n "$unmanaged_dirty" ]]; then
         tui_fatal "Репозиторий содержит локальные изменения" "agent-bootstrap не будет сбрасывать или удалять их автоматически: $unmanaged_dirty" "Сохраните изменения в commit/stash и повторите обновление"
       fi
-      git -C "$REPO_ROOT" pull --ff-only origin main || tui_fatal "Не удалось выполнить безопасный fast-forward" "Локальная ветка разошлась с origin/main" "Слейте ветки вручную без reset --hard"
+      git -C "$REPO_ROOT" pull --ff-only origin "$UPDATE_BRANCH" || tui_fatal "Не удалось выполнить безопасный fast-forward" "Локальная ветка разошлась с origin/$UPDATE_BRANCH" "Слейте ветки вручную без reset --hard"
       echo "✓ Репозиторий обновлён до $(git -C "$REPO_ROOT" rev-parse --short HEAD)" >&2
     fi
   fi

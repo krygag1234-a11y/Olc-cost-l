@@ -409,6 +409,14 @@ else
   pass "install.sh preserves tracked helper modes"
 fi
 
+if grep -Eq 'ls-remote origin main|pull( --quiet)? --ff-only origin main' "$BOOT" "$UPD"; then
+  fail "update paths must not hardcode origin/main"
+elif ! grep -q 'OLC_REPO_BRANCH' "$BOOT" || ! grep -q 'OLC_REPO_BRANCH' "$UPD"; then
+  fail "update paths must accept the selected repository branch"
+else
+  pass "install-update and olc-update follow the selected/current branch"
+fi
+
 if [[ "$fails" -ne 0 ]]; then
   echo "[install-flags-test] FAIL after repository-safety regressions: $fails"
   exit 1
