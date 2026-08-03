@@ -166,7 +166,8 @@ tor_on() {
     return 1
   fi
   _save OLCRTC_ENABLE_TOR 1
-  systemctl enable --now tor@default.service
+  systemctl enable tor.service >/dev/null 2>&1 || true
+  systemctl start tor@default.service
   if [[ -f /etc/systemd/system/olcrtc-manager.service ]]; then
     if ! grep -q 'OLCRTC_EXIT_PROXY=' /etc/systemd/system/olcrtc-manager.service; then
       cp "$REPO_ROOT/packaging/systemd/olcrtc-manager.service" /etc/systemd/system/olcrtc-manager.service

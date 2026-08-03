@@ -417,6 +417,29 @@ else
   pass "install-update and olc-update follow the selected/current branch"
 fi
 
+if grep -Fq '_olc_substep "go build olcrtc-manager"' "$REPO_ROOT/scripts/apply-olcrtc-patches.sh"; then
+  fail "parallel builds must use one truthful progress step"
+elif ! grep -Fq '_olc_substep_reset 4' "$REPO_ROOT/scripts/apply-olcrtc-patches.sh"; then
+  fail "vendored manager build must expose four real substeps"
+else
+  pass "vendored manager progress follows four real substeps without premature advance"
+fi
+
+if grep -Fq 'systemctl enable tor@default.service' "$BOOT" "$REPO_ROOT/scripts/olc-feature.sh"; then
+  fail "static tor@default unit must not be enabled directly"
+else
+  pass "Tor uses the enableable tor.service wrapper without static-unit warnings"
+fi
+
+if grep -Fq 'Tor + bridge pool (RU VPS)' "$BOOT" || \
+   grep -Fq 'весь трафик через Tor exit' "$BOOT" || \
+   ! grep -Fq 'Режим: Tor без мостов' "$BOOT" || \
+   ! grep -Fq 'системная маршрутизация не изменялась' "$BOOT"; then
+  fail "selective Tor recap must describe bridges and split truthfully"
+else
+  pass "selective Tor recap does not claim bridges or system routing"
+fi
+
 if [[ "$fails" -ne 0 ]]; then
   echo "[install-flags-test] FAIL after repository-safety regressions: $fails"
   exit 1

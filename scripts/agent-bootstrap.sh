@@ -334,11 +334,11 @@ setup_tor() {
     set -a; source /etc/olcrtc-manager/features.env; set +a
   fi
   if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" ]]; then
-    systemctl enable tor@default.service
+    systemctl enable tor.service >/dev/null 2>&1 || true
     systemctl restart tor@default.service || true
   else
     systemctl stop tor@default.service 2>/dev/null || true
-    systemctl disable tor@default.service 2>/dev/null || true
+    systemctl disable tor.service 2>/dev/null || true
     log "tor: installed/updated; service left stopped (features.env TOR=0)"
   fi
   bash "$SCRIPT_DIR/configure-tor-exit.sh" >>/var/log/olcrtc-bootstrap-tor.log 2>&1 || true
@@ -878,15 +878,23 @@ olc_ui_logs_recap
 echo ""
 
 tui_log_info "Документация: $DOC"
-tui_log_info "Патчи: $REPO_ROOT/patches/PATCHES.md"
+tui_log_info "Патчи OlcRTC core: $REPO_ROOT/patches/PATCHES.md"
 if [[ "$ENABLE_TOR" -eq 0 ]]; then
   tui_log_info "Режим: FOREIGN / NO TOR — только панель, без мостов и split"
 else
-  tui_log_info "Режим: Tor + bridge pool (RU VPS)"
+  if [[ "${ENABLE_BRIDGES:-0}" -eq 1 ]]; then
+    tui_log_info "Режим: Tor + bridge pool"
+  else
+    tui_log_info "Режим: Tor без мостов"
+  fi
   if [[ "$RU_VPS" -eq 1 && "$ENABLE_SPLIT" -eq 1 ]]; then
     tui_log_info "Split: *.ru + players + RF-blocked → direct (zapret DPI); force-tor (YT) + rest → Tor"
   elif [[ "$ENABLE_SPLIT" -eq 0 ]]; then
-    tui_log_info "Split: disabled (--no-split), весь трафик через Tor exit"
+    if [[ "${SELECTIVE_COMPONENT_MODE:-0}" -eq 1 ]]; then
+      tui_log_info "Split: не установлен; системная маршрутизация не изменялась"
+    else
+      tui_log_info "Split: отключён; используется настроенный Tor-маршрут OlcRTC"
+    fi
   fi
 fi
 tui_log_info "Olcbox: https://github.com/alananisimov/olcbox/releases"

@@ -33,7 +33,7 @@ source "${OLC_SCRIPTS_DIR:?}/lib-tui.sh"
 echo "BEFORE-MENU"
 mode=$(tui_menu "Выберите режим обновления:" \
   "Доустановка (быстро - skip работающих компонентов)" \
-  "Обновление (полная пересборка - patches, binaries)" \
+  "Обновление (полная пересборка - OlcRTC core patches + binaries)" \
   "Отмена")
 echo "RESULT=[$mode]"
 FAKE

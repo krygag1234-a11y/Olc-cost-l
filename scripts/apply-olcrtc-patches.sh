@@ -698,7 +698,7 @@ build_binaries() {
   fi
 
   # Параллельная сборка Go-бинарей для ускорения (экономия ~10-12s)
-  _olc_substep "go build olcrtc" 2>/dev/null || true
+  _olc_substep "go build olcrtc + olcrtc-manager" 2>/dev/null || true
   tui_spinner_start "Параллельная сборка olcrtc + olcrtc-manager ($(go version 2>/dev/null | awk '{print $3}' || echo 'go'))"
 
   local olcrtc_log="/tmp/olcrtc-build-$$.log"
@@ -712,7 +712,6 @@ build_binaries() {
   (cd "$OLCRTC_REPO" && go build -trimpath -buildvcs=false "$build_flags" -o /usr/local/bin/olcrtc ./cmd/olcrtc 2>&1 | tee "$olcrtc_log") &
   local olcrtc_pid=$!
 
-  _olc_substep "go build olcrtc-manager" 2>/dev/null || true
   (cd "$MGR_REPO" && go build -trimpath -buildvcs=false "$build_flags" -o /usr/local/bin/olcrtc-manager ./cmd/olcrtc-manager 2>&1 | tee "$manager_log") &
   local manager_pid=$!
 
@@ -746,10 +745,14 @@ build_binaries() {
 }
 
 # Число подзадач зависит от реально исполняемых npm/build веток.
-# Conservative upper bound: 4 (patch) + 2 (npm) + 3 (build) = 9 для всех веток.
-# Fresh install без npm выполнит меньше, но clamp защищает от >100%.
+# Vendored path has four real stages: sources, OlcRTC patches, build preparation, parallel Go build.
+# The temporary legacy audit path has eight stages because it also patches and rebuilds the frontend.
 if declare -f _olc_substep_reset >/dev/null 2>&1; then
-  _olc_substep_reset 9
+  if use_vendored_manager; then
+    _olc_substep_reset 4
+  else
+    _olc_substep_reset 8
+  fi
 fi
 
 clone_repos

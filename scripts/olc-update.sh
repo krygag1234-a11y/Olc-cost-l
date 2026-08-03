@@ -103,7 +103,7 @@ main() {
     echo "" >&2
     echo "При обновлении доступны только:" >&2
     echo "  --incremental        Доустановка (быстро — skip работающих компонентов)" >&2
-    echo "  --update             Обновление (полная пересборка — patches, binaries)" >&2
+    echo "  --update             Обновление (полная пересборка — OlcRTC core patches + binaries)" >&2
     echo "  --force-sha-update   Принудительно обновить pinned SHA из upstream" >&2
     echo "  --ssh / --localhost  Переключить панель в режим SSH-туннеля" >&2
     echo "  --ip --http / --ip --https  Переключить доступ и протокол панели" >&2
@@ -183,12 +183,12 @@ main() {
       if [[ "$repo_uptodate" -eq 1 ]]; then
         mode=$(tui_menu "Репозиторий актуален. Выберите действие:" \
           "Доустановка (быстро - skip работающих компонентов)" \
-          "Обновление (полная пересборка - patches, binaries)" \
+          "Обновление (полная пересборка - OlcRTC core patches + binaries)" \
           "Отмена")
       else
         mode=$(tui_menu "Выберите режим обновления:" \
           "Доустановка (быстро - skip работающих компонентов)" \
-          "Обновление (полная пересборка - patches, binaries)" \
+          "Обновление (полная пересборка - OlcRTC core patches + binaries)" \
           "Отмена")
       fi
       # tui_menu returns 0-based index
