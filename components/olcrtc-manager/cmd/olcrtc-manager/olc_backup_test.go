@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -29,6 +32,60 @@ func TestBackupExtraFilesCompleteness(t *testing.T) {
 		if files[key] == "" {
 			t.Fatalf("backup path missing for %q", key)
 		}
+	}
+}
+
+func TestBackupInventoryClassifiesPersistentPaths(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate backup test source")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(testFile), "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := map[string]bool{"/etc/olcrtc-manager/config.json": true}
+	for _, path := range backupExtraFiles("/etc/olcrtc-manager/config.json") {
+		covered[path] = true
+	}
+	excluded := map[string]string{
+		"/etc/machine-id":                                           "host identity, never user-controlled",
+		"/etc/netns":                                                "runtime network namespace root",
+		"/var/lib/olcrtc":                                           "state directory, not a setting file",
+		"/var/lib/olcrtc/.split-routing-reload":                     "runtime reload signal",
+		"/var/lib/olcrtc/bridge-pool-status.json":                   "derived health status",
+		"/var/lib/olcrtc/component-removed":                         "directory; individual markers are backed up",
+		"/var/lib/olcrtc/lists":                                     "directory; user-owned files are backed up separately",
+		"/var/lib/olcrtc/lists/*.txt":                               "component detection glob",
+		"/var/lib/olcrtc/lists/disabled/*.txt":                      "component detection glob, not written by manager",
+		"/var/lib/olcrtc/lists/panel-carrier-generated-cidrs.txt":   "derived from discovered hosts",
+		"/var/lib/olcrtc/lists/panel-carrier-generated-domains.txt": "derived from discovered hosts",
+		"/var/lib/olcrtc/manager-run":                               "runtime process directory",
+		"/var/lib/olcrtc/notifications-state.json":                  "runtime scanner cursor",
+		"/var/lib/olcrtc/notifications.json":                        "runtime notification journal",
+		"/var/lib/olcrtc/panel-jobs":                                "runtime job directory",
+		"/var/lib/olcrtc/panel-update-status.json":                  "runtime update progress",
+		"/var/lib/olcrtc/panel-update.lock":                         "runtime update lock",
+		"/var/lib/olcrtc/ru-cidrs.txt":                              "downloaded/generated list",
+		"/var/lib/olcrtc/ru-direct-domains.txt":                     "downloaded/generated list",
+		"/var/lib/olcrtc/tor-bridge-health.tsv":                     "derived health journal",
+		"/var/lib/olcrtc/tor-bridges-pool.txt":                      "downloaded/generated pool",
+	}
+	pathPattern := regexp.MustCompile(`"(/(?:etc|var/lib)/[^" ]+)"`)
+	unknown := map[string]bool{}
+	for _, match := range pathPattern.FindAllSubmatch(source, -1) {
+		path := string(match[1])
+		if !covered[path] && excluded[path] == "" {
+			unknown[path] = true
+		}
+	}
+	if len(unknown) != 0 {
+		paths := make([]string, 0, len(unknown))
+		for path := range unknown {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
+		t.Fatalf("persistent path inventory is incomplete: %v; add each path to backupExtraFiles or document a runtime-only exclusion", paths)
 	}
 }
 
