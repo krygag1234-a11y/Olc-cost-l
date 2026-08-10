@@ -112,8 +112,8 @@ sudo OLC_REINSTALL_SOURCE_DIR=/root/validated-Olc-cost-l \
   /root/validated-Olc-cost-l/scripts/olc-reinstall.sh --yes
 ```
 
-В этом режиме старый `/opt/Olc-cost-l` попадает в полный rollback-архив, а после
-purge устанавливаются только Git-tracked файлы и `.git` проверенного checkout.
+В этом режиме старый `/opt/Olc-cost-l` попадает в полный rollback-архив, а новый
+checkout переносится автономным Git bundle и после purge клонируется в `/opt`.
 Источник обязан быть без staged/unstaged изменений отслеживаемых файлов.
 
 ## Проверка после обновления
