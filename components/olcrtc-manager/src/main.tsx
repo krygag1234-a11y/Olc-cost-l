@@ -3492,11 +3492,13 @@ function BridgesSettingsFields({
   const custom = (prof.profiles as Record<string, unknown>[]) ?? [];
   const activeId = String(prof.active_profile ?? "system");
   const transports = (settings.transports as Record<string, Record<string, unknown>>) ?? {};
+  const selectedTransportCount = Object.values(transports).filter((state) => Boolean(state.enabled)).length;
   const [addMode, setAddMode] = useState<"" | "manual" | "url">("");
   const [newLabel, setNewLabel] = useState("");
   const [newBridges, setNewBridges] = useState("");
   const [newUrls, setNewUrls] = useState("");
   const [poolBusy, setPoolBusy] = useState(false);
+  const [transportBusy, setTransportBusy] = useState("");
   const [poolUiOpen, setPoolUiOpen] = useState(false);
   const [poolHint, setPoolHint] = useState("");
   // --- Sources management ---
@@ -3694,6 +3696,54 @@ function BridgesSettingsFields({
     }
   };
 
+  const transportAction = async (id: string, action: "install" | "enable" | "disable") => {
+    setTransportBusy(id);
+    setPoolHint(action === "install" ? "Установка транспорта…" : "Обновление выбора транспорта…");
+    try {
+      const res = await fetch("/api/settings/bridges", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "transport_" + action, transport: id }),
+      });
+      const raw = await res.text();
+      let body: { error?: string; profiles?: Record<string, unknown>; pool_job?: Record<string, unknown> } = {};
+      try {
+        body = (raw ? JSON.parse(raw) : {}) as typeof body;
+      } catch {
+        body = {};
+      }
+      if (!res.ok) throw new Error(body.error || raw || "HTTP " + res.status);
+      if (body.profiles) patchProfiles(body.profiles);
+      if (body.pool_job) {
+        setSettings((s) => ({ ...s, pool_job: body.pool_job }));
+        if (String(body.pool_job.status ?? "") === "running") {
+          setPoolUiOpen(true);
+          const started = Date.now();
+          while (Date.now() - started < 1_500_000) {
+            await new Promise((resolve) => window.setTimeout(resolve, 1500));
+            const check = await fetch("/api/settings/bridges", { cache: "no-store" });
+            if (!check.ok) break;
+            const payload = (await check.json()) as { settings?: Record<string, unknown> };
+            const next = payload.settings ?? {};
+            setSettings((s) => ({ ...s, ...next }));
+            const status = String((next.pool_job as Record<string, unknown> | undefined)?.status ?? "");
+            if (status === "error") {
+              const job = next.pool_job as Record<string, unknown> | undefined;
+              throw new Error(String(job?.error ?? "Ошибка операции с транспортом"));
+            }
+            if (status === "done") break;
+          }
+        }
+      }
+      await onReload();
+      setPoolHint(action === "install" ? "Транспорт установлен" : "Выбор транспорта обновлён");
+    } catch (e) {
+      setPoolHint(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTransportBusy("");
+    }
+  };
+
   const addCustomProfile = () => {
     if (!newLabel.trim()) return;
     const id = `p-${Date.now().toString(36)}`;
@@ -3742,6 +3792,21 @@ function BridgesSettingsFields({
                 <span className={`rounded border px-1.5 py-0.5 ${state.active ? "border-emerald-500/40 text-emerald-300" : state.configured ? "border-amber-500/40 text-amber-300" : "border-border text-muted-foreground"}`}>
                   {state.active ? "активен" : state.configured ? "настроен" : "не настроен"}
                 </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {!state.installed ? (
+                  <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50" disabled={transportBusy !== ""} onClick={() => void transportAction(id, "install")}>
+                    {transportBusy === id ? "Установка…" : "Установить"}
+                  </button>
+                ) : state.enabled ? (
+                  <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50" disabled={transportBusy !== "" || selectedTransportCount <= 1} title={selectedTransportCount <= 1 ? "Должен остаться хотя бы один выбранный транспорт" : undefined} onClick={() => void transportAction(id, "disable")}>
+                    {transportBusy === id ? "Сохранение…" : "Убрать"}
+                  </button>
+                ) : (
+                  <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50" disabled={transportBusy !== ""} onClick={() => void transportAction(id, "enable")}>
+                    {transportBusy === id ? "Сохранение…" : "Выбрать"}
+                  </button>
+                )}
               </div>
             </div>
           );

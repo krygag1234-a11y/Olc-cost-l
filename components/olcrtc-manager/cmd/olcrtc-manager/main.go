@@ -9069,6 +9069,102 @@ func writeBridgeProfiles(data map[string]any) error {
 	return os.WriteFile(bridgeProfilesPath, b, 0644)
 }
 
+func bridgeProfileForEdit(data map[string]any) (map[string]any, error) {
+	id := strings.TrimSpace(fmt.Sprint(data["active_profile"]))
+	if id == "" || id == "system" {
+		profile, _ := data["system"].(map[string]any)
+		if profile == nil {
+			profile = map[string]any{"id": "system", "types": "obfs4", "auto_update": true, "readonly": true}
+			data["system"] = profile
+		}
+		return profile, nil
+	}
+	profiles, _ := data["profiles"].([]any)
+	for _, raw := range profiles {
+		profile, _ := raw.(map[string]any)
+		if profile != nil && fmt.Sprint(profile["id"]) == id {
+			return profile, nil
+		}
+	}
+	return nil, fmt.Errorf("active bridge profile %q not found", id)
+}
+
+func setBridgeTransportEnabled(name string, enabled bool) (map[string]any, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name != "obfs4" && name != "webtunnel" && name != "snowflake" {
+		return nil, fmt.Errorf("unknown bridge transport %q", name)
+	}
+	profiles := readBridgeProfiles()
+	profile, err := bridgeProfileForEdit(profiles)
+	if err != nil {
+		return nil, err
+	}
+	selected := bridgeTypesSet(fmt.Sprint(profile["types"]))
+	selected[name] = enabled
+	ordered := make([]string, 0, 3)
+	for _, candidate := range []string{"obfs4", "webtunnel", "snowflake"} {
+		if selected[candidate] {
+			ordered = append(ordered, candidate)
+		}
+	}
+	if len(ordered) == 0 {
+		return nil, fmt.Errorf("at least one bridge transport must remain selected")
+	}
+	types := strings.Join(ordered, ",")
+	flags := readFeatureFlags()
+	if flags["bridges"] && fmt.Sprint(readBridgePoolStatus()["status"]) == "running" {
+		return nil, fmt.Errorf("another bridge job is already running")
+	}
+	profile["types"] = types
+	if err := writeBridgeProfiles(profiles); err != nil {
+		return nil, err
+	}
+	if flags["bridges"] {
+		runBridgePoolRefresh(types)
+	}
+	return profiles, nil
+}
+
+func runBridgeTransportInstall(name string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name != "obfs4" && name != "webtunnel" && name != "snowflake" {
+		return fmt.Errorf("unknown bridge transport %q", name)
+	}
+	if status := readBridgePoolStatus(); fmt.Sprint(status["status"]) == "running" {
+		return fmt.Errorf("another bridge job is already running")
+	}
+	writeBridgePoolStatus(map[string]any{
+		"status": "running", "stage": "install-transports", "transport": name,
+		"started_at": time.Now().Format(time.RFC3339),
+		"log_path":   "/var/log/olcrtc-bridge-pool.log",
+	})
+	go func() {
+		appendBridgePoolLog("[bridge-transport] installing: " + name)
+		installer := filepath.Join(olcRepoRoot(), "scripts/install-tor-pluggable-transports.sh")
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "bash", installer, "--types", name)
+		cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+		out, installErr := cmd.CombinedOutput()
+		if len(out) > 0 {
+			appendBridgePoolLog(string(out))
+		}
+		status := map[string]any{
+			"status": "done", "stage": "install-transports", "transport": name,
+			"installed":   commandExists(map[string]string{"obfs4": "obfs4proxy", "webtunnel": "webtunnel-client", "snowflake": "snowflake-client"}[name]),
+			"finished_at": time.Now().Format(time.RFC3339),
+			"log_path":    "/var/log/olcrtc-bridge-pool.log",
+			"log_tail":    tailLogFile("/var/log/olcrtc-bridge-pool.log", 40),
+		}
+		if installErr != nil {
+			status["status"] = "error"
+			status["error"] = strings.TrimSpace(installErr.Error())
+		}
+		writeBridgePoolStatus(status)
+	}()
+	return nil
+}
+
 func readBridgePoolStatus() map[string]any {
 	var st map[string]any
 	if readJSONFile(bridgePoolStatusFile, &st) {
@@ -10296,6 +10392,25 @@ func componentSettingsHandler() http.HandlerFunc {
 				return
 			}
 			if name == "bridges" {
+				action, _ := body["action"].(string)
+				transport, _ := body["transport"].(string)
+				if action == "transport_install" {
+					if err := runBridgeTransportInstall(transport); err != nil {
+						http.Error(w, err.Error(), http.StatusConflict)
+						return
+					}
+					writeJSON(w, map[string]any{"status": "ok", "pool_job": readBridgePoolStatus()})
+					return
+				}
+				if action == "transport_enable" || action == "transport_disable" {
+					profiles, err := setBridgeTransportEnabled(transport, action == "transport_enable")
+					if err != nil {
+						http.Error(w, err.Error(), http.StatusConflict)
+						return
+					}
+					writeJSON(w, map[string]any{"status": "ok", "profiles": profiles, "pool_job": readBridgePoolStatus()})
+					return
+				}
 				if action, ok := body["action"].(string); ok && action == "probe_now" {
 					runBridgeProbe()
 					writeJSON(w, map[string]any{"status": "ok", "pool_job": readBridgePoolStatus()})
