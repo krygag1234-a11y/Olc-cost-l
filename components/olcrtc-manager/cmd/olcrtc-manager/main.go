@@ -8666,6 +8666,80 @@ func componentInstalled(name string) bool {
 	}
 }
 
+func bridgeSelectedTypes() map[string]bool {
+	selected := map[string]bool{"obfs4": false, "webtunnel": false, "snowflake": false}
+	bp := readBridgeProfiles()
+	activeID, _ := bp["active_profile"].(string)
+	if activeID == "" {
+		activeID = "system"
+	}
+	var active map[string]any
+	if activeID == "system" {
+		active, _ = bp["system"].(map[string]any)
+	} else if profiles, ok := bp["profiles"].([]any); ok {
+		for _, raw := range profiles {
+			candidate, _ := raw.(map[string]any)
+			if candidate != nil && fmt.Sprint(candidate["id"]) == activeID {
+				active = candidate
+				break
+			}
+		}
+	}
+	if active == nil {
+		active, _ = bp[activeID].(map[string]any) // compatibility with old drafts
+	}
+	types, _ := active["types"].(string)
+	for _, name := range strings.Split(types, ",") {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if _, ok := selected[name]; ok {
+			selected[name] = true
+		}
+	}
+	if types == "" && active != nil {
+		if lines, ok := active["bridges"].(string); ok {
+			for _, line := range strings.Split(lines, "\n") {
+				fields := strings.Fields(strings.TrimSpace(line))
+				if len(fields) >= 2 && strings.EqualFold(fields[0], "Bridge") {
+					name := strings.ToLower(fields[1])
+					if _, ok := selected[name]; ok {
+						selected[name] = true
+					}
+				}
+			}
+		}
+	}
+	if !selected["obfs4"] && !selected["webtunnel"] && !selected["snowflake"] {
+		selected["obfs4"] = true
+	}
+	return selected
+}
+
+func bridgeTransportStates(flags map[string]bool, live map[string]string) map[string]any {
+	selected := bridgeSelectedTypes()
+	parentActive := flags["bridges"] && strings.TrimSpace(live["tor"]) == "active"
+	definitions := map[string]struct {
+		binary string
+		label  string
+	}{
+		"obfs4":     {binary: "obfs4proxy", label: "obfs4"},
+		"webtunnel": {binary: "webtunnel-client", label: "WebTunnel"},
+		"snowflake": {binary: "snowflake-client", label: "Snowflake"},
+	}
+	out := map[string]any{}
+	for name, def := range definitions {
+		_, err := exec.LookPath(def.binary)
+		installed := err == nil
+		configured := fileHasActivePrefix("/etc/tor/bridges.conf", "ClientTransportPlugin "+name+" ") ||
+			fileHasActivePrefix("/etc/tor/bridges.conf", "Bridge "+name+" ")
+		active := parentActive && selected[name] && installed && configured
+		out[name] = map[string]any{
+			"label": def.label, "installed": installed, "enabled": selected[name],
+			"configured": configured, "active": active,
+		}
+	}
+	return out
+}
+
 func componentConfigured(name string) bool {
 	if !componentInstalled(name) {
 		return false
@@ -9551,6 +9625,7 @@ func componentSettingsGet(name string) (map[string]any, error) {
 		return map[string]any{
 			"bridges_conf":   readTextFile("/etc/tor/bridges.conf"),
 			"webtunnel":      fileExists("/usr/bin/webtunnel-client"),
+			"transports":     bridgeTransportStates(readFeatureFlags(), featureLiveStatus()),
 			"pool_job":       readBridgePoolStatus(),
 			"pool_stats":     bridgePoolStats(),
 			"profiles":       bp,
@@ -10236,14 +10311,15 @@ func capabilitiesHandler() http.HandlerFunc {
 		ver := readVersionJSON()
 		profile := readDeployProfileID()
 		type comp struct {
-			Installed    bool     `json:"installed"`
-			Enabled      bool     `json:"enabled"`
-			Configured   bool     `json:"configured"`
-			Active       bool     `json:"active"`
-			Runtime      string   `json:"runtime"`
-			Configurable bool     `json:"configurable"`
-			Label        string   `json:"label,omitempty"`
-			Requires     []string `json:"requires,omitempty"`
+			Installed    bool           `json:"installed"`
+			Enabled      bool           `json:"enabled"`
+			Configured   bool           `json:"configured"`
+			Active       bool           `json:"active"`
+			Runtime      string         `json:"runtime"`
+			Configurable bool           `json:"configurable"`
+			Label        string         `json:"label,omitempty"`
+			Requires     []string       `json:"requires,omitempty"`
+			Submodules   map[string]any `json:"submodules,omitempty"`
 		}
 		live := featureLiveStatus()
 		makeComp := func(name, label string, requires []string) comp {
@@ -10253,9 +10329,13 @@ func capabilitiesHandler() http.HandlerFunc {
 			if name == "bridges" {
 				configurable = componentInstalled("tor")
 			}
+			submodules := map[string]any(nil)
+			if name == "bridges" {
+				submodules = bridgeTransportStates(flags, live)
+			}
 			return comp{
 				Installed: installed, Enabled: flags[name], Configured: componentConfigured(name),
-				Active: active, Runtime: runtime, Configurable: configurable, Label: label, Requires: requires,
+				Active: active, Runtime: runtime, Configurable: configurable, Label: label, Requires: requires, Submodules: submodules,
 			}
 		}
 		components := map[string]comp{

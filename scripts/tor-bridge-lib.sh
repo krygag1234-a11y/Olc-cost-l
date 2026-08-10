@@ -25,14 +25,29 @@ BRIDGE_BLACKLIST_FP=(
 )
 
 # RU VPS: obfs4 default (webtunnel has TEST-NET addresses issue)
-# Read from bridge-profiles.json if available
+# Read the active system or custom profile. Custom profiles live in profiles[],
+# not as top-level keys; keep compatibility with the old top-level draft.
 get_bridge_types_from_profile() {
-  local profiles_json="/var/lib/olcrtc/bridge-profiles.json"
+  local profiles_json="${BRIDGE_PROFILES_PATH:-/var/lib/olcrtc/bridge-profiles.json}"
   if [[ -f "$profiles_json" ]] && command -v jq &>/dev/null; then
     local active_profile types
     active_profile="$(jq -r '.active_profile // "system"' "$profiles_json" 2>/dev/null)"
-    types="$(jq -r --arg prof "$active_profile" '.[$prof].types // "obfs4"' "$profiles_json" 2>/dev/null)"
-    [[ -n "$types" ]] && echo "$types" && return 0
+    types="$(jq -r --arg prof "$active_profile" '
+      if $prof == "system" then .system.types
+      else ((.profiles // []) | map(select(.id == $prof)) | first | .types) // .[$prof].types
+      end // empty
+    ' "$profiles_json" 2>/dev/null)"
+    if [[ -z "$types" && "$active_profile" != "system" ]]; then
+      types="$(jq -r --arg prof "$active_profile" \
+        '((.profiles // []) | map(select(.id == $prof)) | first | .bridges // "")' \
+        "$profiles_json" 2>/dev/null \
+        | awk '/^[[:space:]]*Bridge[[:space:]]+(obfs4|webtunnel|snowflake)[[:space:]]/{print $2}' \
+        | sort -u | paste -sd, -)"
+    fi
+    if [[ -n "$types" ]]; then
+      printf '%s\n' "$types"
+      return 0
+    fi
   fi
   echo "obfs4"
 }

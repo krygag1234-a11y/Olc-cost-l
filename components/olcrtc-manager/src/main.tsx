@@ -3491,6 +3491,7 @@ function BridgesSettingsFields({
   const sys = (prof.system as Record<string, unknown>) ?? {};
   const custom = (prof.profiles as Record<string, unknown>[]) ?? [];
   const activeId = String(prof.active_profile ?? "system");
+  const transports = (settings.transports as Record<string, Record<string, unknown>>) ?? {};
   const [addMode, setAddMode] = useState<"" | "manual" | "url">("");
   const [newLabel, setNewLabel] = useState("");
   const [newBridges, setNewBridges] = useState("");
@@ -3725,6 +3726,27 @@ function BridgesSettingsFields({
 
   return (
     <>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {["obfs4", "webtunnel", "snowflake"].map((id) => {
+          const state = transports[id] ?? {};
+          return (
+            <div key={id} className="rounded-md border border-border bg-muted/20 px-2.5 py-2 text-xs">
+              <div className="font-medium text-foreground">{String(state.label ?? id)}</div>
+              <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                <span className={`rounded border px-1.5 py-0.5 ${state.installed ? "border-emerald-500/40 text-emerald-300" : "border-border text-muted-foreground"}`}>
+                  {state.installed ? "установлен" : "не установлен"}
+                </span>
+                <span className={`rounded border px-1.5 py-0.5 ${state.enabled ? "border-blue-500/40 text-blue-300" : "border-border text-muted-foreground"}`}>
+                  {state.enabled ? "выбран" : "не выбран"}
+                </span>
+                <span className={`rounded border px-1.5 py-0.5 ${state.active ? "border-emerald-500/40 text-emerald-300" : state.configured ? "border-amber-500/40 text-amber-300" : "border-border text-muted-foreground"}`}>
+                  {state.active ? "активен" : state.configured ? "настроен" : "не настроен"}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded border border-border bg-muted/50 px-2 py-1">
           webtunnel-client: <strong className={wtInstalled ? "text-emerald-400" : "text-amber-400"}>{wtInstalled ? t("yes") : t("no")}</strong>
@@ -3795,7 +3817,11 @@ function BridgesSettingsFields({
               >
                 <option value="obfs4">obfs4</option>
                 <option value="webtunnel">webTunnel</option>
+                <option value="snowflake">Snowflake</option>
                 <option value="obfs4,webtunnel">obfs4 + webTunnel</option>
+                <option value="obfs4,snowflake">obfs4 + Snowflake</option>
+                <option value="webtunnel,snowflake">webTunnel + Snowflake</option>
+                <option value="obfs4,webtunnel,snowflake">Все три транспорта</option>
               </select>
             </label>
             <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">

@@ -105,7 +105,9 @@ run_install() {
       }
       bridge_types="obfs4"
       if [[ -f /var/lib/olcrtc/bridge-profiles.json ]] && command -v jq >/dev/null 2>&1; then
-        bridge_types="$(jq -r '.active_profile as $p | .[$p].types // "obfs4"' /var/lib/olcrtc/bridge-profiles.json 2>/dev/null || echo obfs4)"
+        # shellcheck source=tor-bridge-lib.sh
+        source "$SCRIPT_DIR/tor-bridge-lib.sh"
+        bridge_types="$(get_bridge_types_from_profile)"
       fi
       bash "$SCRIPT_DIR/install-tor-pluggable-transports.sh" --types "$bridge_types"
       BRIDGE_TYPES="$bridge_types" bash "$SCRIPT_DIR/tor-bridge-pool.sh" refresh 2>/dev/null || true
