@@ -406,7 +406,7 @@ sudo olc-cleanup-caches
 | [SECURITY-NETWORK.md](docs/SECURITY-NETWORK.md) | SOCKS, авторизация |
 | [SAFETY.md](docs/SAFETY.md) | [DEV] Allowlist путей, откат |
 | [CLIENT.md](docs/CLIENT.md) | Olcbox |
-| [patches/PATCHES.md](patches/PATCHES.md) | Патчи olcrtc / manager |
+| [patches/PATCHES.md](patches/PATCHES.md) | Патчи OlcRTC core |
 | [INTEGRATION-GAP.md](docs/INTEGRATION-GAP.md) | [DEV] Отличия Olc-cost-l от upstream |
 | [UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md) | [DEV] Обновление upstream + zapret4rocket |
 | [FEATURES.md](docs/FEATURES.md) | `olc-feature` — toggle zapret/tor/split/webtunnel/warp |

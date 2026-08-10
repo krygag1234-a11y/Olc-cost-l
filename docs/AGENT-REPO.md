@@ -58,12 +58,3 @@ Live-проверка сначала выполняется на API-VPS, produc
 `config.json` или инвентаре `backupExtraFiles()`. Постоянное браузерное состояние
 использует стабильный ключ `olc-*` и попадает в `ui_preferences`. Изменение схемы
 требует новой версии и последовательного мигратора. См. [BACKUP.md](BACKUP.md).
-
-## Legacy
-
-`apply-olcrtc-patches.sh` остаётся активным оркестратором: он патчит OlcRTC core,
-копирует vendored manager во временный build-каталог и собирает оба бинарника.
-Только его ветка `OLC_MANAGER_LEGACY_PATCHSTACK=1`, manager `patch-*`,
-`packaging/golden-panel` и экспорт golden-panel являются миграционным материалом.
-Их физическое удаление выполняется отдельным подтверждённым cleanup после
-перевода production и проверки отката.

@@ -4073,7 +4073,7 @@ function AddonSettingsIntro({ feature }: { feature: FeatureName }) {
 //
 // !!! ПРИ ИЗМЕНЕНИИ UI/НАСТРОЕК: новые данные, которые должны переживать
 // переустановку, должны попадать в бэкап на бэкенде (config.json или
-// backupExtraFiles() в patch-olcrtc-manager-backup-api.sh). См. docs/BACKUP.md.
+// backupExtraFiles() в cmd/olcrtc-manager/main.go). См. docs/BACKUP.md.
 // ============================================================================
 function BackupSection() {
   const [busy, setBusy] = useState(false);

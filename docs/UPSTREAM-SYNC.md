@@ -11,11 +11,9 @@
 | `components/olcrtc-manager` | единственный production-исходник нашей панели |
 | `IndeecFOX/zapret4rocket` | отдельный аудит/обновление списков и стратегий |
 
-`local-panel-version`, `manager-stable`, `manager-latest` и golden-panel больше
-не являются источниками production manager. `apply-olcrtc-patches.sh` по
-умолчанию патчит только core, проверяет/copy vendored manager во временную сборку
-и собирает бинарники. Его отдельная ветка `OLC_MANAGER_LEGACY_PATCHSTACK=1` и
-старые manager patch-скрипты сохранены только как миграционный материал.
+`local-panel-version`, `manager-stable`, `manager-latest`, golden-panel и manager patch-stack
+удалены из репозитория и production pipeline. `apply-olcrtc-patches.sh` патчит только OlcRTC core,
+проверяет и копирует vendored manager во временный build-каталог, затем собирает бинарники.
 
 ## Аудит manager
 
@@ -55,9 +53,9 @@ sudo /opt/Olc-cost-l/scripts/upstream-sync.sh --check
 
 Старый `upstream-sync.sh --apply` затрагивает миграционный patch-stack и не
 является production-командой обновления manager. Обычный VPS обновляется через
-`olc-update`.
-
-## zapret4rocket
+`upstream-sync.sh --apply` предназначен только для контролируемого обновления upstream core/pins.
+Изменения upstream manager сначала проходят аудит и затем переносятся непосредственно в
+`components/olcrtc-manager`. Обычный VPS обновляется через `olc-update`.
 
 ```bash
 sudo /opt/Olc-cost-l/scripts/sync-zapret4rocket.sh --check

@@ -117,7 +117,7 @@ sudo olc-update --resume
 Только пересобрать встроенный manager (без полного update):
 
 ```bash
-sudo olc-panel-refresh-local.sh
+sudo olc-update --update
 ```
 
 ## 5. Полезные команды
@@ -166,7 +166,7 @@ sudo olc-panel-refresh-local.sh
 
 ## 7. Если что-то сломалось
 
-- **Панель белая / «Ошибка панели» (React #300)** — обновите панель: `sudo olc-panel-refresh-local.sh` или `install.sh --update`, затем Ctrl+F5
+- **Панель белая / «Ошибка панели» (React #300)** — обновите панель: `sudo olc-update --update` или `install.sh --update`, затем Ctrl+F5
 - **Нет места на диске** — `sudo olc-disk-check`, очистить `/var/backups/olc-vps/`, кэши
 - **Tor не работает при включённом WARP** — `sudo olc-feature warp off`
 - **Не создаётся локация** — проверьте Room ID (для Telemost — не URL, а ID)

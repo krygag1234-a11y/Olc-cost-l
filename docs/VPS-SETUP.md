@@ -300,7 +300,7 @@ journalctl -u olcrtc-manager -n 20 --no-pager
 6. DDNS + `OLCRTC_PUBLIC_URL`  
 7. TCP 8888 открыт  
 
-**Ветка:** `master`. **Панель:** `main` + idempotent `patch-olcrtc-manager-*.sh`.
+**Ветка:** `master`. **Панель:** готовый исходник `components/olcrtc-manager`; manager-патчи при установке не применяются.
 
 ---
 

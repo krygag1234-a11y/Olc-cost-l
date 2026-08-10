@@ -495,9 +495,12 @@ EOF
 
 install_cli_symlinks() {
   local s
-  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-split-analyze.sh olc-vps-backup.sh olc-vps-snapshot.sh olc-panel-verify.sh olc-panel-refresh-local.sh olc-cleanup-caches.sh olc-purge.sh olc-backup.sh olc-reinstall.sh; do
+  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-split-analyze.sh olc-vps-backup.sh olc-vps-snapshot.sh olc-panel-verify.sh olc-cleanup-caches.sh olc-purge.sh olc-backup.sh olc-reinstall.sh; do
     [[ -f "$SCRIPT_DIR/$s" ]] || continue
     ln -sfn "$SCRIPT_DIR/$s" "/usr/local/bin/${s%.sh}" 2>/dev/null || true
+  done
+  for obsolete in olc-export-golden-panel olc-sync-from-vps olc-panel-refresh-local; do
+    [[ -L "/usr/local/bin/$obsolete" ]] && rm -f "/usr/local/bin/$obsolete"
   done
 }
 

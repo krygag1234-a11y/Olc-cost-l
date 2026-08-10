@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply VPS patches to cloned olcrtc + olcrtc-manager before build.
+# Apply VPS patches to cloned OlcRTC core and build the vendored manager.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,11 +24,7 @@ olc_git_safe_register "$REPO_ROOT"
 OLCRTC_REPO="${OLCRTC_REPO:-/tmp/olcrtc-src}"
 MGR_REPO="${OLCRTC_MGR_REPO:-/tmp/olcrtc-manager-panel}"
 VENDORED_MANAGER_SOURCE="${OLC_VENDORED_MANAGER_SOURCE:-$REPO_ROOT/components/olcrtc-manager}"
-OLC_MANAGER_LEGACY_PATCHSTACK="${OLC_MANAGER_LEGACY_PATCHSTACK:-0}"
 
-use_vendored_manager() {
-  [[ "$OLC_MANAGER_LEGACY_PATCHSTACK" != "1" ]]
-}
 
 prepare_vendored_manager() {
   [[ -f "$VENDORED_MANAGER_SOURCE/cmd/olcrtc-manager/main.go" ]] || {
@@ -102,38 +98,6 @@ pin_olcrtc_sha() {
   jq -r '.olcrtc.pinned_sha // empty' "$pins" 2>/dev/null || true
 }
 
-pin_manager_sha() {
-  local pins="${UPSTREAM_PINS:-$REPO_ROOT/data/upstream-pins.json}"
-  [[ -f "$pins" ]] || return 0
-  jq -r '.["olcrtc-manager"].pinned_sha // empty' "$pins" 2>/dev/null || true
-}
-
-get_manager_source() {
-  # Выбор источника manager: upstream или stable fork
-  # --manager-stable → fork, --manager-latest → upstream, по умолчанию → upstream с pin
-  if [[ "${OLC_MANAGER_STABLE:-0}" == "1" ]]; then
-    echo "stable"
-  elif [[ "${OLC_MANAGER_LATEST:-0}" == "1" ]]; then
-    echo "latest"
-  else
-    echo "pinned"
-  fi
-}
-
-clone_manager_from_fork() {
-  local fork_url="https://github.com/krygag1234-a11y/local-panel-version.git"
-  local fork_branch="stable-v1"
-  log "clone manager from STABLE FORK: $fork_url ($fork_branch)"
-  rm -rf "$MGR_REPO"
-  if git clone -b "$fork_branch" --depth 1 "$fork_url" "$MGR_REPO" 2>/dev/null; then
-    olc_git_safe_register "$MGR_REPO"
-    log "✓ stable fork cloned successfully"
-    return 0
-  else
-    log "ERROR: failed to clone stable fork"
-    return 1
-  fi
-}
 
 clone_repos() {
   _olc_substep "Клонирование репозиториев" 2>/dev/null || true
@@ -143,8 +107,6 @@ clone_repos() {
   export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   local pin_sha
   pin_sha="$(pin_olcrtc_sha)"
-  local mgr_pin_sha
-  mgr_pin_sha="$(pin_manager_sha)"
   olc_git_safe_register "$OLCRTC_REPO"
   olc_git_safe_register "$MGR_REPO"
   # --- olcrtc core: ГАРАНТИРОВАННО приводим к ПИНУ (Урок 69). Раньше fresh-clone
@@ -181,87 +143,7 @@ clone_repos() {
     olc_git "$OLCRTC_REPO" reset --hard "origin/$OLCRTC_BRANCH"
   fi
 
-  if use_vendored_manager; then
-    prepare_vendored_manager
-    return 0
-  fi
-
-  log "legacy manager source/patch-stack explicitly enabled"
-  if [[ -d "$MGR_REPO/.git" ]]; then
-    log "reset manager to clean state"
-    olc_git "$MGR_REPO" reset --hard HEAD 2>/dev/null || true
-    olc_git "$MGR_REPO" clean -fd 2>/dev/null || true
-    
-    # Проверяем, это stable fork или upstream
-    local mgr_remote
-    mgr_remote="$(olc_git "$MGR_REPO" remote get-url origin 2>/dev/null || true)"
-    local mgr_source
-    mgr_source="$(get_manager_source)"
-    
-    if [[ "$mgr_remote" == *"local-panel-version"* ]]; then
-      # Сейчас используется stable fork
-      if [[ "$mgr_source" == "stable" ]]; then
-        log "detected stable fork, keeping as-is"
-      else
-        log "switching from stable fork to upstream"
-        rm -rf "$MGR_REPO"
-        git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
-        olc_git_safe_register "$MGR_REPO"
-        if [[ "$mgr_source" == "pinned" && -n "$mgr_pin_sha" ]]; then
-          log "checkout pinned manager ${mgr_pin_sha:0:12}"
-          olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
-            olc_git "$MGR_REPO" fetch origin main --depth 50
-          olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
-        fi
-      fi
-    elif [[ "$mgr_source" == "stable" ]]; then
-      log "switching to stable fork"
-      clone_manager_from_fork || tui_fatal "Не удалось клонировать stable fork панели" "Репозиторий: krygag1234-a11y/local-panel-version (stable-v1)" "Проверьте сеть и повторите: sudo olc-update --manager-stable"
-    elif [[ -n "$mgr_pin_sha" && "$mgr_source" == "pinned" ]]; then
-      log "checkout pinned manager ${mgr_pin_sha:0:12}"
-      olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
-        olc_git "$MGR_REPO" fetch origin main --depth 50
-      olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
-    elif [[ "${UPSTREAM_FRESH:-0}" == "1" || "$mgr_source" == "latest" ]]; then
-      log "refresh manager main (latest)"
-      olc_git "$MGR_REPO" fetch origin main --depth 1 2>/dev/null || \
-        olc_git "$MGR_REPO" fetch origin main
-      olc_git "$MGR_REPO" reset --hard origin/main
-    fi
-  elif [[ -e "$MGR_REPO" ]]; then
-    rm -rf "$MGR_REPO"
-    git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
-    olc_git_safe_register "$MGR_REPO"
-    if [[ -n "$mgr_pin_sha" ]]; then
-      log "checkout pinned manager ${mgr_pin_sha:0:12}"
-      olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
-        olc_git "$MGR_REPO" fetch origin main --depth 50
-      olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
-    fi
-  else
-    local mgr_source
-    mgr_source="$(get_manager_source)"
-    if [[ "$mgr_source" == "stable" ]]; then
-      clone_manager_from_fork || tui_fatal "Не удалось клонировать stable fork панели при первой установке" "Репозиторий: krygag1234-a11y/local-panel-version (stable-v1)" "Проверьте сеть и повторите: sudo olc-update --manager-stable"
-    else
-      git clone --depth 1 https://github.com/BigDaddy3334/olcrtc-manager-panel.git "$MGR_REPO"
-      olc_git_safe_register "$MGR_REPO"
-      if [[ -n "$mgr_pin_sha" && "$mgr_source" != "latest" ]]; then
-        log "checkout pinned manager ${mgr_pin_sha:0:12}"
-        olc_git "$MGR_REPO" fetch origin "$mgr_pin_sha" --depth 1 2>/dev/null || \
-          olc_git "$MGR_REPO" fetch origin main --depth 50
-        olc_git "$MGR_REPO" reset --hard "$mgr_pin_sha" 2>/dev/null || true
-      fi
-    fi
-  fi
-  if [[ ! -f "$MGR_REPO/cmd/olcrtc-manager/main.go" ]]; then
-    log "WARN: manager clone incomplete (нет main.go) — trying stable fork fallback"
-    if clone_manager_from_fork; then
-      log "✓ fallback to stable fork successful"
-    else
-      tui_fatal "Не удалось клонировать панель — upstream и fork недоступны" "Upstream: BigDaddy3334/olcrtc-manager-panel, Fork: krygag1234-a11y/local-panel-version" "Проверьте доступ к GitHub и повторите через 5-10 минут"
-    fi
-  fi
+  prepare_vendored_manager
 }
 
 apply_olcrtc() {
@@ -308,376 +190,6 @@ apply_olcrtc() {
   tui_spinner_ok
 }
 
-apply_manager() {
-  _olc_substep "Применение патчей backend" 2>/dev/null || true
-  tui_spinner_start "Применение патчей для olcrtc-manager (134 патча)"
-  find "$MGR_REPO" -name '*.rej' -o -name '*.orig' 2>/dev/null | xargs -r rm -f
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-go-version.sh" "$MGR_REPO"
-  # Always run idempotent core patch (upstream main may already have logs API partial)
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
-  if ! grep -q 'exitProxyReachable' "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null; then
-    if [[ -f "$PATCH_DIR/olcrtc-manager-main.go.patch" ]]; then
-      if ! (cd "$MGR_REPO" && patch -p1 --forward -N --batch <"$PATCH_DIR/olcrtc-manager-main.go.patch" >/dev/null 2>&1); then
-        if declare -f olc_patch_skip_msg >/dev/null 2>&1; then
-          olc_patch_skip_msg
-        else
-          tui_spinner_stop
-          tui_log_warning "skip olcrtc-manager-main.go.patch (already applied or upstream mismatch)"
-          tui_spinner_start "Продолжение патчинга"
-        fi
-      fi
-    fi
-    bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  fi
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-socks.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-domains.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-link-direct.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-default-link-tor.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-host-network.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-vps-extras.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-input-guard.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-room-validate.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-features.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-webtunnel-status-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-capabilities.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-olcrtc-settings.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-olcrtc-settings-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-profiles.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-profiles-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-status-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-notifications.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-go-fixes.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-status.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-status-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-status-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-pool-job.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-pool-job-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v4.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-component-settings-v5.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-update-guard-v1.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-notification-settings.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backend-v4.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backend-v4-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-jitsi-preflight-v1.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-jitsi-preflight-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-jitsi-preflight-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-jitsi-preflight-v4.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-git-safe-dir.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-releases-check.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-releases-check-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-releases-check-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" || true
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-project-stack-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-settings-actions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-room-binding.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-runtime-dir.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v1.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v4.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v5.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v6.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v7.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v8.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v9.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v10.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v11.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v12.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v13.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v14-routes.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v15.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v16-bridge-pool-log.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v17.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-core.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go" 2>/dev/null || true
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-link.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-transports.sh" \
-    "$MGR_REPO/src/main.tsx" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-vp8-defaults.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-features-split-tolerant.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-features-api-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-host-sync.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-stop-action.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-features.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-features-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-header-network.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v3.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-capabilities.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-safe-state.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-room-hint.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-settings-forms.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-settings-forms-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-phase456-ui.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v5.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v6.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v7.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v8.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v9.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-v10.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-bridges-types-fix.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-status-ui.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-types-persist.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-list-cards-ui.sh" "$MGR_REPO/src/main.tsx" || true
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-preflight-v1.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-preflight-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-preflight-v3.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-verbose-v1.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v1.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-fixes.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v3.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v4.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-project-ui-fix.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-header-layout.sh" "$MGR_REPO/src/main.tsx" || true
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-releases-ui.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-releases-ui-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-project-ui-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-warp-feature.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-warp-settings-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-components-jobs-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-components-jobs-v3.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-warp.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-ui-warp-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-components-jobs-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-components-jobs-ui-ttl.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-roadmap-finish-v1.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-roadmap-finish-v2.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-pending-locations-v1.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-stop-button.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v6.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v7.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v8.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v10.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v11.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v12.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v13.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v15.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v16.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v17.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v17-settings-layout.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v20.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v21.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v22.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v22-room-carrier.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-hotfix-v24-fix-component-installed.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-hotfix-v23.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-features-logs.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-async-delete.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # v24 legacy diff targets an old upstream tree and is fully superseded by
-  # apply-golden-panel.sh immediately below. Running it on a clean pinned clone
-  # can leave 100+ rejected hunks and abort a fresh install before golden copy.
-  # Патчим эталон панели перед копированием (добавляем randomization UI)
-  bash "$SCRIPT_DIR/patch-golden-panel-randomization-ui.sh"
-  # Эталон панели — финальное выравнивание UI и main.go (поверх всех hotfix).
-  bash "$SCRIPT_DIR/apply-golden-panel.sh" "$MGR_REPO"
-  # Subscription randomization must run after golden-panel because golden-panel rewrites main.go.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-randomization.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # profile-update-interval header (реальное автообновление olcbox из refresh); после subscription-randomization
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-subscription-update-interval.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Fix addon log resolution (correct file paths + journald fallback).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-feature-logs-fix.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Fix v2: логи tor/olcrtc показывали healthcheck.log — journald-первым для юнит-аддонов.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-feature-logs-fix-v2.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Fix: zapret показывался inactive (oneshot-сервис) — живость по nfqws.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-zapret-live-status.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Server-side autologi (auto-refresh logs) setting + endpoint.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-autologi-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Phase 1: per-bridge health API (join active bridges.conf with health TSV) + probe_now action.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-health-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Phase 1: bridge sources API + init on startup + legacy migration.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-bridge-sources-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Backup/Restore API: экспорт-импорт ВСЕХ данных (config + env + профили),
-  # устойчиво к смене версий (сырой JSON + deep-merge). См. docs/BACKUP.md.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Split "expand" action: deep авто-расширение субдоменов групп discovery (Phase 2E/2D).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-split-expand-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Access control: allowlist доступа к подписке по hwid устройства + журнал попыток.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-control-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-keyrand-gate.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Монитор подключений: устройства (device=) из логов olcrtc-core, read-only.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-connections-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Прокинуть client_id/room_id инстанса в olcrtc (env) для AuthHook per-client/instance.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-instance-env.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Мгновенный разрыв сессий устройства при отзыве доступа (device disable/ban/remove).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-drop-sessions.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # V2 cleanup при удалении клиента/локации: access state/logs + key rotation + key randomization.
-  # Сам patch вызывается до key-* patch-скриптов, но Go-хелперы могут ссылаться на объявления ниже.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-delete-client-cleanup.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Миграция access-control.json clients{} при переименовании client_id (Этап 5A эпика).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-client-rename-access.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Живой peer-count / активные подключения: парсинг "Current peers count: N, Devices: [...]" (Task 2).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-peer-summary.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Автосмена ключей (Z5-B): планировщик ротации Endpoint.Key + API; после peer-summary (нужен PeerSummary) и subscription-update-interval (subscriptionRefreshHours).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-key-rotation.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Рандомизация ключей (эпик A, часть 5a): состояние+API+вывод alt-ключа (тип1); после key-rotation (роутер /api/clients/) и access-control-api.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-key-randomization-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-instance-info-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-rand-scope-api.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Make visible type/scope settings authoritative for crypto and restart affected instances.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-randomization-crypto-sync.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-subscription-ui.sh" "$MGR_REPO/src/main.tsx"
-  _olc_substep "Применение патчей frontend" 2>/dev/null || true
-  # Sync global-randomization state across subscription/selective panels + client cards (instant, no polling lag).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-sync.sh" "$MGR_REPO/src/main.tsx"
-  # Disable addon "Логи" button when the addon is OFF.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-feature-logs-guard.sh" "$MGR_REPO/src/main.tsx"
-  # Autologi UI + unified LIVE across log modals + panel-expand memory.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-autologi-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Polish: hide log-source path label in addon log modal.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-polish.sh" "$MGR_REPO/src/main.tsx"
-  # Remember + restore whichever modal was open across a page reload.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-modal-memory.sh" "$MGR_REPO/src/main.tsx"
-  # Resilient feature-toggle fetch (survives the deferred manager restart; no stuck buttons).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-toggle-resilient.sh" "$MGR_REPO/src/main.tsx"
-  # Clarify + restructure addon settings modals (intro banner, sections, captions).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 0: autosave in addon settings modal (no Save button; debounce + on-close/unload).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-addon-settings-autosave.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 0: autosave in general settings modal (validated; save on close/unload).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-general-settings-autosave.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 1: per-bridge health list UI (uses new backend 'health' field + probe_now).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-health-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 1: bridge sources management UI (toggle/add/remove sources inline).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-sources-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 1: fix delete dead bridge + better profiles UI (card-based with radio buttons).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-fix-final.sh" "$MGR_REPO/src/main.tsx"
-  # Восстановить контролы системного профиля мостов (Типы/Автообновление/Обновить),
-  # которые bridge-fix-final выкинул при переходе на карточки (регрессия).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-bridge-system-controls.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2A Step 1: transform custom_direct_domains textarea → card-based list with add/remove.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2a-step1.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2A Step 2: collapse discovery.groups by default, add summary.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2a-step2.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2B: transform 4 remaining lists → card-based UI (panel_hosts, panel_cidrs, force_tor_domains, blocked_tor_domains).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2B Step 2: make 4 lists collapsible with persisted state (usePersistedOpen), reduce height to 120px.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step2.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2B Step 3: add collapsible for custom_direct_domains (5th list) + improve UX (border, hover, padding).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2b-step3.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2C Step 3: unify 3 split routing buttons into one "Apply" with progress.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step3.sh" "$MGR_REPO/src/main.tsx"
-  # Phase 2C Step 4: improve visual design of "Применить изменения" section + warm green button.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-phase2c-step4.sh" "$MGR_REPO/src/main.tsx"
-  # Backup/Restore UI: секция «Бекап данных» в общих настройках (экспорт/импорт).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-backup-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Split "expand" UI: кнопка «Расширить субдомены» в discovery (Phase 2E/2D).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-expand-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Split provenance: показать для каждого CDN/домена источник обнаружения.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-provenance-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Split UX: explicit apply destination and family -> subgroup hierarchy.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-split-ux-groups.sh" "$MGR_REPO/src/main.tsx"
-  # Access control UI: секция «Контроль доступа» (allowlist hwid + журнал попыток).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-control-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Per-client контроль доступа: шестерёнка у 🎲 на карточке клиента → модалка доступа
-  # для этой подписки (allow/ban устройств, режим). Требует randomization-ui (🎲).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Эпик «Типы рандомизации», Этап 2: выбор типа (мини-модалка на 🎲, глобальный селектор, метки).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-type-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Эпик «Типы рандомизации», Этап 4: кнопка Sub→Qr + модалка Qr (1/2 QR, тип2-без-доступа затемнён).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-qr-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Эпик «Типы рандомизации», Этап 5B: «Логи» клиента → плоский лог попыток подписки/доступа.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-access-log.sh" "$MGR_REPO/src/main.tsx"
-  # Автопрокрутка логов: возобновление follow с задержкой (не дёргать при листании вверх).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-sticky-scroll-resume.sh" "$MGR_REPO/src/main.tsx"
-  # Логи — накопительные (append-only): старые строки не «уезжают» при ротации буфера.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-logs-append-only.sh" "$MGR_REPO/src/main.tsx"
-  # Интервал автообновления подписки — пикер часов (profile-update-interval у olcbox).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-refresh-hours-ui.sh" "$MGR_REPO/src/main.tsx"
-  # Автосмена ключей (Z5-B): секция ♻️ (глоб. + per-client тумблеры). После selective-randomization (анкор MainSettingsAutodetectLink).
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-key-rotation-ui.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-randomization-collapse-hint.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-additional-randomization-section.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-instance-info-modal.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-keyrand-plus-sub.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-keyrand-off-warning.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-keyrand-plus-conn.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-polish.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-rand-scope-ui.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-client-logs-scope-polish.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-scope-sync.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-access-device-labels.sh" "$MGR_REPO/src/main.tsx"
-  # Final global 🎫 autosave, wrapped subscription journal and IP/CIDR/range rules.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-global-sub-plus-ip-ranges.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-rand-scope-transitions.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  # Auth: expired lockouts start a fresh counter; HTTP 429 is explained in the login form.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-lockout-ux.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-auth-session-lockout.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-backup-first-run.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  # Ordered access-control saves without blocking rapid interaction; labels
-  # survive allow<->ban and selective journals wrap long values.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-access-consistency.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  # Final access UX/data consistency: retained device labels in all four logs,
-  # plain Enter for every input, counter reset on allow and reconnect notes.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-final-access-polish.sh" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  grep -q 'olc-plain-enter-blur' "$MGR_REPO/src/main.tsx"
-  grep -q 'device_labels,omitempty' "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  # Native browser confirms are forbidden: every confirmation uses the same
-  # in-panel mini-modal, including first-run/import and destructive actions.
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-confirm-dialogs.sh" \
-    "$MGR_REPO/src/main.tsx"
-  # Selected upstream follow-ups: per-location SOCKS5 UI, no Jazz, smart Jitsi fields.
-  python3 "$SCRIPT_DIR/patch-olcrtc-manager-upstream-followup.py" \
-    "$MGR_REPO/cmd/olcrtc-manager/main.go" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-jitsi-https-discovery.sh" "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-https-discovery.sh" "$MGR_REPO/src/main.tsx"
-  python3 "$SCRIPT_DIR/patch-olcrtc-manager-proxy-policy.py"     "$MGR_REPO/cmd/olcrtc-manager/main.go"
-  git -C "$MGR_REPO" apply --check "$REPO_ROOT/patches/olcrtc-manager-proxy-policy-ui.patch"
-  git -C "$MGR_REPO" apply "$REPO_ROOT/patches/olcrtc-manager-proxy-policy-ui.patch"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-toggle-buttons.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-targeted-toggle-layout.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-defaults-autosave-crud.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-form-layout.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-jitsi-batch-import.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-panel-instance-table-guard.sh" "$MGR_REPO/src/main.tsx"
-  bash "$SCRIPT_DIR/patch-olcrtc-manager-postcss.sh" "$MGR_REPO"
-  if [[ -f "$MGR_REPO/package.json" ]]; then
-    if ! command -v npm >/dev/null 2>&1; then
-      log "WARN: npm missing — install nodejs/npm then re-run apply-olcrtc-patches.sh (admin UI will be stale)"
-    else
-      _olc_substep "npm install" 2>/dev/null || true
-      log "build manager admin UI (web/dist)"
-      run_quiet "npm install (manager UI)" bash -c 'cd "$1" && npm ci 2>/dev/null || npm install' _ "$MGR_REPO"
-
-      # Проверить, изменился ли UI src с последней сборки (экономия ~15-20s)
-      local ui_cache="$MGR_REPO/.ui-build-cache"
-      local current_hash=""
-      if [[ -d "$MGR_REPO/src" ]]; then
-        current_hash=$(find "$MGR_REPO/src" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.css" \) -exec sha256sum {} + 2>/dev/null | sort | sha256sum | awk '{print $1}')
-      fi
-      local cached_hash=""
-      [[ -f "$ui_cache" ]] && cached_hash=$(cat "$ui_cache" 2>/dev/null)
-
-      if [[ -n "$current_hash" && "$current_hash" == "$cached_hash" && -d "$MGR_REPO/web/dist" && -f "$MGR_REPO/web/dist/index.html" ]]; then
-        log "UI src не изменился — пропуск npm build (используется кэшированная сборка)"
-        _olc_substep "npm build (cached)" 2>/dev/null || true
-      else
-        rm -rf "$MGR_REPO/web/dist"
-        _olc_substep "npm build" 2>/dev/null || true
-        run_quiet "npm build (manager UI)" bash -c 'cd "$1" && npm run build' _ "$MGR_REPO" || tui_fatal "Сборка UI панели (npm run build) завершилась с ошибкой" "Возможно: node_modules повреждены или недостаточно памяти" "Попробуйте: rm -rf $MGR_REPO/node_modules && cd $MGR_REPO && npm install && npm run build"
-        # Сохранить hash успешной сборки
-        [[ -n "$current_hash" ]] && echo "$current_hash" > "$ui_cache"
-      fi
-
-      if [[ -x "$SCRIPT_DIR/olc-panel-verify.sh" ]]; then
-        bash "$SCRIPT_DIR/olc-panel-verify.sh" || log "WARN: panel-verify — см. отличия выше"
-      else
-        log "WARN: olc-panel-verify.sh не найден — пропуск проверки эталона"
-      fi
-    fi
-  fi
-  # /api/logs without trailing slash — upstream main often has logsHandler already
-  tui_spinner_ok
-}
 
 build_binaries() {
   _olc_substep "Подготовка к сборке" 2>/dev/null || true
@@ -752,24 +264,14 @@ build_binaries() {
   date -Is > /var/lib/olcrtc/.split-routing-reload
 }
 
-# Число подзадач зависит от реально исполняемых npm/build веток.
-# Vendored path has four real stages: sources, OlcRTC patches, build preparation, parallel Go build.
-# The temporary legacy audit path has eight stages because it also patches and rebuilds the frontend.
+# Vendored path has four real stages: sources, OlcRTC patches, source verification, parallel Go build.
 if declare -f _olc_substep_reset >/dev/null 2>&1; then
-  if use_vendored_manager; then
-    _olc_substep_reset 4
-  else
-    _olc_substep_reset 8
-  fi
+  _olc_substep_reset 4
 fi
 
 clone_repos
 run_quiet "apply olcrtc patches" apply_olcrtc
-if use_vendored_manager; then
-  run_quiet "verify vendored manager + prebuilt UI" bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$MGR_REPO"
-else
-  run_quiet "apply legacy manager patches + UI" apply_manager
-fi
+run_quiet "verify vendored manager + prebuilt UI" bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$MGR_REPO"
 if [[ "${OLC_PATCH_ONLY:-0}" == "1" ]]; then
   log "patch-only done"
   exit 0

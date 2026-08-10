@@ -232,7 +232,7 @@ key-rotation. Журналы попыток/подключений намере�
 
 При изменении структуры access JSON нужно одновременно обновлять:
 
-1. manager-модель и API в `patch-olcrtc-manager-access-control-api.sh`;
+1. manager-модель и API в `components/olcrtc-manager/cmd/olcrtc-manager/main.go`;
 2. зеркальную core-модель и решение в `patch-olcrtc-core-access-hook.sh` и
    `patch-olcrtc-core-key-randomization.sh`;
 3. UI глобального и per-client контроля;

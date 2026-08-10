@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sync upstream olcrtc + olcrtc-manager, apply Olc-cost-l patches, queue manual review on failure.
+# Check upstream core + manager audit status; apply only OlcRTC core updates.
 #
 # Usage:
 #   upstream-sync.sh --check
@@ -74,11 +74,11 @@ check_status() {
   osha="$(remote_sha openlibrecommunity/olcrtc "$obranch")"
   msha="$(remote_sha BigDaddy3334/olcrtc-manager-panel "$mbranch")"
   orem="$(pin_get olcrtc pinned_sha)"
-  mrem="$(pin_get olcrtc-manager pinned_sha)"
+  mrem="$(jq -r '."olcrtc-manager".upstream_head // empty' "$PINS_FILE" 2>/dev/null || true)"
   log "olcrtc upstream ($obranch):  ${osha:0:12}  pinned: ${orem:-none}"
-  log "manager upstream ($mbranch): ${msha:0:12}  pinned: ${mrem:-none}"
+  log "manager upstream ($mbranch): ${msha:0:12}  audited: ${mrem:-none}"
   [[ -n "$osha" && "$osha" != "$orem" ]] && { log "→ olcrtc: update available"; need=1; }
-  [[ -n "$msha" && "$msha" != "$mrem" ]] && { log "→ manager: update available"; need=1; }
+  [[ -n "$msha" && "$msha" != "$mrem" ]] && { log "→ manager: audit required (production source is vendored)"; need=1; }
   [[ "$need" -eq 0 ]] && log "status: pins match upstream (or first run)"
   return "$need"
 }
@@ -102,9 +102,8 @@ main() {
     tail -30 "$logf" | while read -r l; do log "  $l"; done
   fi
 
-  local osha msha failed=0
+  local osha failed=0
   osha="$(git -C "$OLCRTC_REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
-  msha="$(git -C "$MGR_REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
 
   verify_markers || failed=1
   if [[ -s "$logf" ]] && grep -qiE 'FAILED|error:|fatal:' "$logf"; then
@@ -112,7 +111,6 @@ main() {
   fi
 
   pin_set olcrtc "$osha" $([[ "$failed" -eq 0 ]] && echo true || echo false)
-  pin_set olcrtc-manager "$msha" $([[ "$failed" -eq 0 ]] && echo true || echo false)
 
   if [[ "$DO_ZAPRET" -eq 1 ]]; then
     "$SCRIPT_DIR/sync-zapret4rocket.sh" --apply || failed=1
@@ -126,7 +124,7 @@ main() {
   if [[ "$DO_BUILD" -eq 1 ]]; then
     systemctl restart olcrtc-manager 2>/dev/null || true
   fi
-  log "success olcrtc=${osha:0:12} manager=${msha:0:12}"
+  log "success olcrtc=${osha:0:12}; manager remains vendored"
 }
 
 main "$@"
