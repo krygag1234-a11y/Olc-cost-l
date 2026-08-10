@@ -100,9 +100,21 @@ sudo olc-reinstall
 4. восстанавливает тот же исходник и устанавливает прежний набор модулей/TLS;
 5. автоматически импортирует данные и проверяет профиль, порт, HTTPS и runtime.
 
-Rollback-архив и логический backup сохраняются. Эта команда предназначена для
-систем, уже установленных vendored-pipeline. Первый перевод старого production
-VPS выполняется отдельным миграционным планом.
+Rollback-архив и логический backup сохраняются. Для системы, уже установленной
+vendored-pipeline, команда использует `/opt/Olc-cost-l` и не требует параметров.
+
+Первый перевод legacy production выполняется из отдельно проверенного checkout:
+
+```bash
+sudo OLC_REINSTALL_SOURCE_DIR=/root/validated-Olc-cost-l \
+  /root/validated-Olc-cost-l/scripts/olc-reinstall.sh --dry-run
+sudo OLC_REINSTALL_SOURCE_DIR=/root/validated-Olc-cost-l \
+  /root/validated-Olc-cost-l/scripts/olc-reinstall.sh --yes
+```
+
+В этом режиме старый `/opt/Olc-cost-l` попадает в полный rollback-архив, а после
+purge устанавливаются только Git-tracked файлы и `.git` проверенного checkout.
+Источник обязан быть без staged/unstaged изменений отслеживаемых файлов.
 
 ## Проверка после обновления
 
