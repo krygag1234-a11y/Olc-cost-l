@@ -281,10 +281,10 @@ webtunnel_on() {
     echo "[webtunnel] ERROR: сначала установите и включите модуль bridges" >&2
     return 1
   fi
-  _save OLCRTC_ENABLE_WEBTUNNEL 1
   # shellcheck source=lib-webtunnel-build.sh
   source "$REPO_ROOT/scripts/lib-webtunnel-build.sh"
   if build_webtunnel_client log; then
+    _save OLCRTC_ENABLE_WEBTUNNEL 1
     systemctl restart tor@default 2>/dev/null || true
     echo "[webtunnel] installed and active"
   else

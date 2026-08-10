@@ -37,3 +37,11 @@ cat >"$BRIDGE_PROFILES_PATH" <<'JSON'
 {"active_profile":"legacy","legacy":{"types":"webtunnel"}}
 JSON
 [[ "$(get_bridge_types_from_profile)" == "webtunnel" ]]
+feature_script="$SCRIPT_DIR/olc-feature.sh"
+webtunnel_block="$(sed -n '/^webtunnel_on()/,/^}/p' "$feature_script")"
+build_line="$(grep -n 'if build_webtunnel_client' <<<"$webtunnel_block" | cut -d: -f1)"
+save_line="$(grep -n '_save OLCRTC_ENABLE_WEBTUNNEL 1' <<<"$webtunnel_block" | cut -d: -f1)"
+[[ -n "$build_line" && -n "$save_line" ]]
+(( save_line > build_line ))
+
+echo 'bridge-profile-types: PASS'
