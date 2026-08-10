@@ -155,6 +155,8 @@ else
   git -C "$SOURCE_DIR" diff --quiet --exit-code || die "validated source has unstaged tracked changes"
   git -C "$SOURCE_DIR" diff --cached --quiet --exit-code || die "validated source has staged changes"
   [[ -n "$SOURCE_COMMIT" ]] || die "validated source has no Git commit"
+  [[ "$(git -C "$SOURCE_DIR" rev-parse --is-shallow-repository)" != "true" ]] || \
+    die "validated source is shallow; run git -C '$SOURCE_DIR' fetch --unshallow first"
   SOURCE_KIND="bundle"
   SOURCE_ARCHIVE="$WORK_DIR/vendored-source.bundle"
   git -C "$SOURCE_DIR" bundle create "$SOURCE_ARCHIVE" "refs/heads/$branch"
