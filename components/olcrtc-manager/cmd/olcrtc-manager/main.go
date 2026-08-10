@@ -8714,6 +8714,22 @@ func bridgeSelectedTypes() map[string]bool {
 	return selected
 }
 
+func bridgeTypesSet(types string) map[string]bool {
+	selected := map[string]bool{"obfs4": false, "webtunnel": false, "snowflake": false}
+	for _, name := range strings.Split(strings.ToLower(types), ",") {
+		name = strings.TrimSpace(name)
+		if _, ok := selected[name]; ok {
+			selected[name] = true
+		}
+	}
+	return selected
+}
+
+func commandExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
 func bridgeTransportStates(flags map[string]bool, live map[string]string) map[string]any {
 	selected := bridgeSelectedTypes()
 	parentActive := flags["bridges"] && strings.TrimSpace(live["tor"]) == "active"
@@ -9023,7 +9039,7 @@ func defaultBridgeProfiles() map[string]any {
 		"system": map[string]any{
 			"id":          "system",
 			"label":       "Оригинальный",
-			"types":       "obfs4,webtunnel",
+			"types":       "obfs4",
 			"auto_update": true,
 			"readonly":    true,
 		},
@@ -9326,7 +9342,7 @@ func runBridgeProbe() {
 }
 
 func bridgePoolStats() map[string]any {
-	stats := map[string]any{"obfs4": 0, "webtunnel": 0, "other": 0, "total": 0}
+	stats := map[string]any{"obfs4": 0, "webtunnel": 0, "snowflake": 0, "other": 0, "total": 0}
 	pool := "/var/lib/olcrtc/tor-bridges-pool.txt"
 	b, err := os.ReadFile(pool)
 	if err != nil {
@@ -9344,6 +9360,8 @@ func bridgePoolStats() map[string]any {
 			stats["webtunnel"] = stats["webtunnel"].(int) + 1
 		case strings.Contains(low, " obfs4 "):
 			stats["obfs4"] = stats["obfs4"].(int) + 1
+		case strings.Contains(low, " snowflake "):
+			stats["snowflake"] = stats["snowflake"].(int) + 1
 		default:
 			stats["other"] = stats["other"].(int) + 1
 		}
@@ -9353,7 +9371,7 @@ func bridgePoolStats() map[string]any {
 
 func setBridgeAutoCron(enabled bool) {
 	if enabled {
-		cron := "15 3 * * * root " + filepath.Join(olcRepoRoot(), "scripts/tor-bridge-pool.sh") + " --types obfs4,webtunnel >>/var/log/olcrtc-bridge-pool.log 2>&1\n"
+		cron := "15 3 * * * root " + filepath.Join(olcRepoRoot(), "scripts/tor-bridge-pool.sh") + " >>/var/log/olcrtc-bridge-pool.log 2>&1\n"
 		_ = writeTextFile(bridgeCronPath, cron)
 	} else {
 		_ = os.Remove(bridgeCronPath)
@@ -9363,7 +9381,7 @@ func setBridgeAutoCron(enabled bool) {
 func runBridgePoolRefresh(types string) {
 	types = strings.TrimSpace(types)
 	if types == "" {
-		types = "obfs4,webtunnel"
+		types = "obfs4"
 	}
 	writeBridgePoolStatus(map[string]any{
 		"status":     "running",
@@ -9374,21 +9392,27 @@ func runBridgePoolRefresh(types string) {
 	go func() {
 		repo := olcRepoRoot()
 		script := filepath.Join(repo, "scripts/tor-bridge-pool.sh")
-		if strings.Contains(strings.ToLower(types), "webtunnel") {
-			if !fileExists("/usr/bin/webtunnel-client") && !fileExists("/usr/local/bin/webtunnel-client") {
-				wt := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
-				if _, err := os.Stat(wt); err == nil {
-					appendBridgePoolLog("[bridge-pool] installing webtunnel-client (mirror-cry first)...")
-					wtCmd := exec.Command("bash", wt)
-					wtCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
-					out, wtErr := wtCmd.CombinedOutput()
-					if len(out) > 0 {
-						appendBridgePoolLog(string(out))
-					}
-					if wtErr != nil {
-						appendBridgePoolLog("[bridge-pool] webtunnel install error: " + wtErr.Error())
-					}
-				}
+		selected := bridgeTypesSet(types)
+		missing := (selected["obfs4"] && !commandExists("obfs4proxy")) ||
+			(selected["webtunnel"] && !commandExists("webtunnel-client")) ||
+			(selected["snowflake"] && !commandExists("snowflake-client"))
+		if missing {
+			installer := filepath.Join(repo, "scripts/install-tor-pluggable-transports.sh")
+			appendBridgePoolLog("[bridge-pool] installing selected transports: " + types)
+			installCmd := exec.Command("bash", installer, "--types", types)
+			installCmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin")
+			out, installErr := installCmd.CombinedOutput()
+			if len(out) > 0 {
+				appendBridgePoolLog(string(out))
+			}
+			if installErr != nil {
+				writeBridgePoolStatus(map[string]any{
+					"status": "error", "stage": "install-transports", "types": types,
+					"error":       strings.TrimSpace(installErr.Error()),
+					"finished_at": time.Now().Format(time.RFC3339),
+					"log_tail":    tailLogFile("/var/log/olcrtc-bridge-pool.log", 40),
+				})
+				return
 			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
@@ -9480,7 +9504,7 @@ func applyActiveBridgeProfile(profiles map[string]any) error {
 		sys, _ := profiles["system"].(map[string]any)
 		types, _ := sys["types"].(string)
 		if strings.TrimSpace(types) == "" {
-			types = "obfs4,webtunnel"
+			types = "obfs4"
 		}
 		runBridgePoolRefresh(types)
 		return nil
@@ -9508,7 +9532,7 @@ func applyActiveBridgeProfile(profiles map[string]any) error {
 	}
 	types, _ := selected["types"].(string)
 	if strings.TrimSpace(types) == "" {
-		types = "obfs4,webtunnel"
+		types = "obfs4"
 	}
 	runBridgePoolRefresh(types)
 	return nil
@@ -10278,7 +10302,7 @@ func componentSettingsHandler() http.HandlerFunc {
 					return
 				}
 				if action, ok := body["action"].(string); ok && action == "refresh_pool" {
-					types := "obfs4,webtunnel"
+					types := "obfs4"
 					if v, ok := body["types"].(string); ok && strings.TrimSpace(v) != "" {
 						types = strings.TrimSpace(v)
 					}

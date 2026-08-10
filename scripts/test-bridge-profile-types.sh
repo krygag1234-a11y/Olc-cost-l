@@ -44,4 +44,14 @@ save_line="$(grep -n '_save OLCRTC_ENABLE_WEBTUNNEL 1' <<<"$webtunnel_block" | c
 [[ -n "$build_line" && -n "$save_line" ]]
 (( save_line > build_line ))
 
+installer="$SCRIPT_DIR/install-tor-pluggable-transports.sh"
+[[ "$(bash "$installer" --plan --types obfs4)" == "[transport-plan] obfs4=1 webtunnel=0 snowflake=0" ]]
+[[ "$(bash "$installer" --plan --types webtunnel,snowflake)" == "[transport-plan] obfs4=0 webtunnel=1 snowflake=1" ]]
+[[ "$(bash "$installer" --plan --types obfs4,webtunnel,snowflake)" == "[transport-plan] obfs4=1 webtunnel=1 snowflake=1" ]]
+manager="$SCRIPT_DIR/../components/olcrtc-manager/cmd/olcrtc-manager/main.go"
+grep -qF 'exec.Command("bash", installer, "--types", types)' "$manager"
+grep -qF '"stage": "install-transports"' "$manager"
+grep -qF 'types = "obfs4"' "$manager"
+! grep -qF 'types = "obfs4,webtunnel"' "$manager"
+
 echo 'bridge-profile-types: PASS'

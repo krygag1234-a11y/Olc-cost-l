@@ -41,6 +41,21 @@ if [[ "$want_webtunnel" -eq 1 ]]; then
   build_webtunnel_client echo || true
 fi
 
+missing=""
+if [[ $want_obfs4 -eq 1 ]] && ! command -v obfs4proxy >/dev/null 2>&1; then
+  missing+=" obfs4proxy"
+fi
+if [[ $want_webtunnel -eq 1 ]] && ! webtunnel_client_ready; then
+  missing+=" webtunnel-client"
+fi
+if [[ $want_snowflake -eq 1 ]] && ! command -v snowflake-client >/dev/null 2>&1; then
+  missing+=" snowflake-client"
+fi
+if [[ -n "$missing" ]]; then
+  printf "[tor-pt] ERROR: selected transports are missing:%s\n" "$missing" >&2
+  exit 1
+fi
+
 mkdir -p /etc/apparmor.d/local
 for entry in "obfs4proxy:$want_obfs4" "webtunnel-client:$want_webtunnel" "snowflake-client:$want_snowflake"; do
   bin="${entry%%:*}"

@@ -3758,7 +3758,7 @@ function BridgesSettingsFields({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Пул: obfs4 {ps.obfs4 ?? 0}, webtunnel {ps.webtunnel ?? 0}, прочие {ps.other ?? 0}, всего {ps.total ?? 0}
+        Пул: obfs4 {ps.obfs4 ?? 0}, webtunnel {ps.webtunnel ?? 0}, snowflake {ps.snowflake ?? 0}, прочие {ps.other ?? 0}, всего {ps.total ?? 0}
         {!wtInstalled && String(sys.types ?? "").includes("webtunnel") && (
           <span className="block text-amber-400">webtunnel-client не установлен — скачивается с mirror-cry при обновлении</span>
         )}
