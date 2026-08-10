@@ -26,6 +26,16 @@ profile_ensure_dir() {
   mkdir -p "$(dirname "$OLCRTC_DEPLOY_PROFILE")"
 }
 
+profile_feature_toggle_write() {
+  local env="$1" key="$2" value="$3"
+  mkdir -p "$(dirname "$env")"
+  if grep -q "^${key}=" "$env" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$env"
+  else
+    printf '%s=%s\n' "$key" "$value" >>"$env"
+  fi
+}
+
 profile_from_flags() {
   # Sets: PROFILE_ID PROFILE_LABEL and writes JSON from current shell flags.
   local tor="${1:-${ENABLE_TOR:-1}}"
@@ -264,6 +274,16 @@ profile_apply_env() {
       _f_bridges="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WEBTUNNEL=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
     fi
     _f_warp="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WARP=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    # Tor is the parent runtime for split routing and bridge transports.
+    # Old backups may not contain all dependent flags, so normalize them here.
+    if [[ "$_f_tor" == "0" ]]; then
+      _f_split="0"
+      _f_bridges="0"
+      profile_feature_toggle_write /etc/olcrtc-manager/features.env OLCRTC_ENABLE_SPLIT 0
+      profile_feature_toggle_write /etc/olcrtc-manager/features.env OLCRTC_ENABLE_BRIDGES 0
+      profile_feature_toggle_write /etc/olcrtc-manager/features.env OLCRTC_ENABLE_WEBTUNNEL 0
+    fi
+
     
     [[ "$_f_tor" == "1" ]] && tor="true"
     [[ "$_f_tor" == "0" ]] && tor="false"
@@ -546,6 +566,15 @@ profile_apply_runtime_toggles() {
 
   if [[ "${OLCRTC_ENABLE_TOR:-1}" != "1" ]]; then
     systemctl stop tor@default.service 2>/dev/null || true
+    profile_feature_toggle_write "$env" OLCRTC_ENABLE_SPLIT 0
+    profile_feature_toggle_write "$env" OLCRTC_ENABLE_BRIDGES 0
+    profile_feature_toggle_write "$env" OLCRTC_ENABLE_WEBTUNNEL 0
+    for unit in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
+      systemctl stop "${unit}.timer" 2>/dev/null || true
+      systemctl disable "${unit}.timer" 2>/dev/null || true
+    done
+    OLCRTC_ENABLE_SPLIT=0
+    OLCRTC_ENABLE_BRIDGES=0
     systemctl disable tor@default.service 2>/dev/null || true
     profile_log "runtime: tor left stopped (features.env)"
   fi

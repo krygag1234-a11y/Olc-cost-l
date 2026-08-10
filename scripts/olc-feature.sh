@@ -262,12 +262,15 @@ bridges_on() {
   echo "[bridges] ON"
 }
 bridges_off() {
+  _load
   _save OLCRTC_ENABLE_BRIDGES 0
   for u in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
     systemctl stop "${u}.timer" 2>/dev/null || true
     systemctl disable "${u}.timer" 2>/dev/null || true
   done
-  systemctl restart tor@default.service 2>/dev/null || true
+  if [[ "${OLCRTC_ENABLE_TOR:-0}" == "1" ]] && systemctl is-active --quiet tor@default.service; then
+    systemctl restart tor@default.service 2>/dev/null || true
+  fi
   echo "[bridges] OFF (конфигурация и транспорты сохранены)"
 }
 
