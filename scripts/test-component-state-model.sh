@@ -88,4 +88,11 @@ done
 LOG_FILE="$TMP/healthcheck.log" TOR_RETRIES=1 bash "$SCRIPT_DIR/healthcheck.sh"
 [[ ! -s "$SYSTEMCTL_LOG" ]]
 
+# Rebuild-only must re-apply desired runtime state after manager restart.
+rebuild_block="$(sed -n '/if \[\[ "$REBUILD_ONLY" -eq 1 \]\]; then/,/^fi$/p' "$SCRIPT_DIR/agent-bootstrap.sh")"
+restart_line="$(grep -n 'run_restart_manager' <<<"$rebuild_block" | tail -1 | cut -d: -f1)"
+runtime_line="$(grep -n 'profile_apply_runtime_toggles' <<<"$rebuild_block" | tail -1 | cut -d: -f1)"
+[[ -n "$restart_line" && -n "$runtime_line" ]]
+(( runtime_line > restart_line ))
+
 echo 'component-state-model: PASS'

@@ -721,6 +721,7 @@ if [[ "$REBUILD_ONLY" -eq 1 ]]; then
   run_patches
   run_cleanup_tmp
   run_restart_manager
+  profile_apply_runtime_toggles 2>/dev/null || true
   exit 0
 fi
 
