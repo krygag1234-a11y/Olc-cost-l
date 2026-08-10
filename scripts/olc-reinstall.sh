@@ -158,7 +158,7 @@ else
   SOURCE_KIND="bundle"
   SOURCE_ARCHIVE="$WORK_DIR/vendored-source.bundle"
   git -C "$SOURCE_DIR" bundle create "$SOURCE_ARCHIVE" "refs/heads/$branch"
-  git bundle verify "$SOURCE_ARCHIVE" >/dev/null
+  git -C "$SOURCE_DIR" bundle verify "$SOURCE_ARCHIVE" >/dev/null
 fi
 if [[ "$SOURCE_KIND" == "tar" ]]; then
   gzip -t "$SOURCE_ARCHIVE"
