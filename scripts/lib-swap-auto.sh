@@ -28,13 +28,40 @@ olc_swap_recommend() {
   echo "$swap_size_mb"
 }
 
+olc_swap_ensure_fstab() {
+  local swapfile="$1"
+  if ! awk -v path="$swapfile" '$1 == path && $3 == "swap" { found=1 } END { exit !found }' /etc/fstab 2>/dev/null; then
+    printf '%s none swap sw 0 0\n' "$swapfile" >> /etc/fstab
+  fi
+}
+
 # Create swap file
 olc_swap_create() {
   local size_mb="${1:-2048}"
   local swapfile="${2:-/swapfile}"
-  
-  [[ -f "$swapfile" ]] && { echo "Swap file already exists: $swapfile"; return 1; }
-  
+
+  if [[ -e "$swapfile" ]]; then
+    if [[ ! -f "$swapfile" ]]; then
+      echo "ERROR: Existing swap path is not a regular file: $swapfile"
+      return 1
+    fi
+    chmod 600 "$swapfile" || return 1
+    if swapon --noheadings --show=NAME 2>/dev/null | awk -v path="$swapfile" '$1 == path { found=1 } END { exit !found }'; then
+      olc_swap_ensure_fstab "$swapfile"
+      echo "Swap already active: $swapfile"
+      return 0
+    fi
+    if [[ "$(blkid -p -s TYPE -o value "$swapfile" 2>/dev/null || true)" != "swap" ]]; then
+      echo "ERROR: Existing file is not a valid swap area: $swapfile"
+      return 1
+    fi
+    swapon "$swapfile" || return 1
+    olc_swap_ensure_fstab "$swapfile"
+    echo "Existing swap activated: $swapfile"
+    free -h
+    return 0
+  fi
+
   echo "Creating ${size_mb}MB swap at $swapfile..."
   
   # Check available disk space
@@ -51,9 +78,7 @@ olc_swap_create() {
   swapon "$swapfile" || return 1
   
   # Make persistent
-  if ! grep -q "$swapfile" /etc/fstab; then
-    echo "$swapfile none swap sw 0 0" >> /etc/fstab
-  fi
+  olc_swap_ensure_fstab "$swapfile"
   
   echo "Swap created and activated: ${size_mb}MB"
   free -h

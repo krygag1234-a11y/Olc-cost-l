@@ -26,18 +26,16 @@ olc_cleanup_go_caches() {
   local mode="${1:-go-only}"
   [[ "${OLC_CLEANUP_DISABLE:-0}" == "1" ]] && return 0
 
-  olc_cleanup_log "Удаление кэшей Go/npm"
+  olc_cleanup_log "Удаление кэшей сборки Olc-cost-l"
 
   local cleaned=0
-  [[ -d /tmp/go-build ]] && { rm -rf /tmp/go-build* 2>/dev/null || true; cleaned=1; }
-  find /tmp -maxdepth 1 -type d -name 'go-*' -exec rm -rf {} + 2>/dev/null || true
-  [[ -d /root/.cache/go-build ]] && { rm -rf /root/.cache/go-build 2>/dev/null || true; cleaned=1; }
-  [[ -d /root/.npm/_cacache ]] && { rm -rf /root/.npm/_cacache 2>/dev/null || true; cleaned=1; }
-  npm cache clean --force >/dev/null 2>&1 || true
+  find /tmp -maxdepth 1 -type d -name 'go-build*' -exec rm -rf {} + 2>/dev/null || true
+  [[ -d /var/cache/go-build ]] && { rm -rf /var/cache/go-build 2>/dev/null || true; cleaned=1; }
+  [[ -d /var/tmp/go-build-tmp ]] && { rm -rf /var/tmp/go-build-tmp 2>/dev/null || true; cleaned=1; }
 
   # Go module cache can be useful for repeated builds, so keep it unless asked.
   if [[ "${OLC_CLEAN_GO_MOD_CACHE:-0}" == "1" ]]; then
-    [[ -d /root/go/pkg/mod ]] && { rm -rf /root/go/pkg/mod 2>/dev/null || true; cleaned=1; }
+    [[ -d /var/cache/olc-go/pkg/mod ]] && { rm -rf /var/cache/olc-go/pkg/mod 2>/dev/null || true; cleaned=1; }
   fi
 
   if [[ "$cleaned" -eq 1 ]]; then
@@ -75,11 +73,6 @@ olc_cleanup_build_caches() {
 olc_cleanup_purge_caches() {
   olc_cleanup_log "Полная очистка (purge mode)"
   olc_cleanup_build_caches "purge"
-
-  # Use find instead of glob to avoid argument list overflow
-  if [[ -d /var/backups/olc-vps ]]; then
-    find /var/backups/olc-vps -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tsv' -o -name '*.txt' -o -name '*.meta.txt' \) -delete 2>/dev/null || true
-  fi
 
   apt-get clean 2>/dev/null || true
   if declare -f olc_print_ok >/dev/null 2>&1; then

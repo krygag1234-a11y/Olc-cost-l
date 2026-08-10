@@ -31,8 +31,7 @@ CDN меняет edge, один IP = чужой nginx → **404** при пря�
 ```bash
 sudo chmod +x /opt/Olc-cost-l/scripts/*.sh
 sudo /opt/Olc-cost-l/scripts/setup-split-ru.sh
-sudo /opt/Olc-cost-l/scripts/apply-olcrtc-patches.sh
-sudo systemctl restart olcrtc-manager
+sudo olc-update --update
 ```
 
 В `panel.env`:

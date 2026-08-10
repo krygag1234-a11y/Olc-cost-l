@@ -99,8 +99,8 @@ olc_disk_print_report_ru() {
   echo "    1. Посмотреть диск:     df -h / /tmp" >&2
   echo "    2. Кто съел место:      sudo du -xh / --max-depth=1 2>/dev/null | sort -hr | head -15" >&2
   echo "    3. Бэкапы Olc:         sudo ls -lh /var/backups/olc-vps/ 2>/dev/null" >&2
-  echo "       удалить все бэкапы: sudo rm -f /var/backups/olc-vps/*.tar.gz" >&2
-  echo "    4. Кэши сборки:        sudo rm -rf /root/.cache/go-build /root/.npm/_cacache" >&2
+  echo "       архивы отката не удаляются автоматически; удаляйте выбранные архивы вручную" >&2
+  echo "    4. Кэши сборки Olc:    sudo rm -rf /var/cache/go-build /var/tmp/go-build-tmp" >&2
   echo "    5. Очистка apt:        sudo apt-get clean" >&2
   echo "    6. Проверка снова:     olc-disk-check   (или повторите install/update)" >&2
   echo "" >&2
@@ -222,41 +222,35 @@ olc_disk_interactive_cleanup() {
   if [[ "${answer,,}" == "1" || "${answer,,}" == "да" || "${answer,,}" == "-да" || "${answer,,}" == "- да" || "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
     echo "Выполняем анализ..." >&2
     
-    local backups_size=0 cache_go=0 cache_npm=0 apt_cache=0 logs_gz=0
+    local backups_size=0 cache_go=0 apt_cache=0
     [[ -d /var/backups/olc-vps ]] && backups_size=$(du -sm /var/backups/olc-vps 2>/dev/null | awk '{print $1}')
-    [[ -d /root/.cache/go-build ]] && cache_go=$(du -sm /root/.cache/go-build 2>/dev/null | awk '{print $1}')
-    [[ -d /root/.npm/_cacache ]] && cache_npm=$(du -sm /root/.npm/_cacache 2>/dev/null | awk '{print $1}')
+    [[ -d /var/cache/go-build ]] && cache_go=$(du -sm /var/cache/go-build 2>/dev/null | awk '{print $1}')
     [[ -d /var/cache/apt/archives ]] && apt_cache=$(du -sm /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
-    logs_gz=$(find /var/log -type f -name '*.gz' -exec du -cm {} + 2>/dev/null | awk '/total$/ {print $1}')
     
     echo "" >&2
     echo "Найдены следующие временные/старые файлы:" >&2
     [[ -n "$backups_size" && "$backups_size" -gt 0 ]] && echo " - Бэкапы Olc-cost-l (/var/backups/olc-vps): ~${backups_size} МБ" >&2
-    [[ -n "$cache_go" && "$cache_go" -gt 0 ]] && echo " - Кэш сборки Go (/root/.cache/go-build): ~${cache_go} МБ" >&2
-    [[ -n "$cache_npm" && "$cache_npm" -gt 0 ]] && echo " - Кэш npm (/root/.npm/_cacache): ~${cache_npm} МБ" >&2
+    [[ -n "$cache_go" && "$cache_go" -gt 0 ]] && echo " - Кэш сборки Olc-cost-l (/var/cache/go-build): ~${cache_go} МБ" >&2
     [[ -n "$apt_cache" && "$apt_cache" -gt 0 ]] && echo " - Кэш пакетов apt: ~${apt_cache} МБ" >&2
-    [[ -n "$logs_gz" && "$logs_gz" -gt 0 ]] && echo " - Старые сжатые логи (/var/log/*.gz): ~${logs_gz} МБ" >&2
     
-    local total_junk=$(( ${backups_size:-0} + ${cache_go:-0} + ${cache_npm:-0} + ${apt_cache:-0} + ${logs_gz:-0} ))
+    local total_junk=$(( ${cache_go:-0} + ${apt_cache:-0} ))
     if [[ "$total_junk" -eq 0 ]]; then
       echo "Мусорных файлов не найдено (или они занимают < 1 МБ)." >&2
       return 1
     fi
 
     echo "" >&2
-    echo "Хотите очистить диск прямо от сюда автоматически (ВСЕ бэкапы и кэш будут удалены):" >&2
-    echo "1 - Да, очистить всё найденное" >&2
+    [[ "${backups_size:-0}" -gt 0 ]] && echo "Архивы отката занимают ~${backups_size} МБ, но автоматически удалены не будут." >&2
+    echo "Хотите очистить только кэши сборки Olc-cost-l и apt?" >&2
+    echo "1 - Да, выполнить безопасную очистку" >&2
     echo "2 - Нет, я сам решу эту проблему" >&2
 
     local ans2
     read -r -p "Введите 1 или 2: " ans2 </dev/tty || return 1
     if [[ "${ans2,,}" == "1" || "${ans2,,}" == "да" || "${ans2,,}" == "- да" || "${ans2,,}" == "-да" || "${ans2,,}" == "y" || "${ans2,,}" == "yes" ]]; then
       echo "Очистка..." >&2
-      rm -f /var/backups/olc-vps/*.tar.gz /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
-      rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
+      rm -rf /var/cache/go-build /var/tmp/go-build-tmp 2>/dev/null || true
       apt-get clean 2>/dev/null || true
-      find /var/log -type f -name '*.gz' -delete 2>/dev/null || true
-      journalctl --vacuum-time=1d 2>/dev/null || true
       echo "Очистка завершена." >&2
       return 0
     fi

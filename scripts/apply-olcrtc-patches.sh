@@ -40,10 +40,18 @@ prepare_vendored_manager() {
     return 1
   }
   log "prepare vendored manager source: $VENDORED_MANAGER_SOURCE"
-  bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$VENDORED_MANAGER_SOURCE"
+  # A developer checkout may legitimately contain node_modules after npm test.
+  # Validate its tracked/source content, then copy only reproducible inputs into
+  # the isolated build directory and enforce the strict no-build-state rule there.
+  OLC_ALLOW_VENDORED_BUILD_STATE=1 \
+    bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$VENDORED_MANAGER_SOURCE"
   rm -rf "$MGR_REPO"
   install -d "$MGR_REPO"
-  cp -a "$VENDORED_MANAGER_SOURCE/." "$MGR_REPO/"
+  tar -C "$VENDORED_MANAGER_SOURCE" \
+    --exclude='./.git' --exclude='./node_modules' \
+    --exclude='*.bak' --exclude='*.bak-*' \
+    --exclude='*.orig' --exclude='*.rej' \
+    -cf - . | tar -C "$MGR_REPO" -xf -
   bash "$SCRIPT_DIR/verify-vendored-manager.sh" "$MGR_REPO"
   if find "$MGR_REPO" -type d \( -name .git -o -name node_modules \) -print -quit | grep -q .; then
     echo "temporary vendored manager copy contains forbidden build state" >&2

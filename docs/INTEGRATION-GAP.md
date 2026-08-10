@@ -38,5 +38,5 @@ How our repo extends upstream projects (public overview).
 |------|---------|
 | Refresh domain lists | `setup-split-ru.sh` |
 | Refresh zapret exclusions | `zapret-sync-excludes.sh --reload-zapret` |
-| Rebuild binaries | `apply-olcrtc-patches.sh` |
+| Rebuild production core + vendored manager | `olc-update --update` |
 | Check upstream drift | `upstream-sync.sh --check` |

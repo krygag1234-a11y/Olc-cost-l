@@ -5268,14 +5268,73 @@ func readEnvFile(path string) (map[string]string, error) {
 
 func updatePanelEnvPassword(configPath, user, pass string) error {
 	path := panelEnvPath(configPath)
-	values, _ := readEnvFile(path)
-	if values == nil {
-		values = make(map[string]string)
+	return updateEnvFileKeys(path, map[string]string{
+		"OLCRTC_MANAGER_USER": defaultString(user, "admin"),
+		"OLCRTC_MANAGER_PASS": pass,
+	})
+}
+
+func updateEnvFileKeys(path string, updates map[string]string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	values["OLCRTC_MANAGER_USER"] = defaultString(user, "admin")
-	values["OLCRTC_MANAGER_PASS"] = pass
-	data := fmt.Sprintf("OLCRTC_MANAGER_USER=%s\nOLCRTC_MANAGER_PASS=%s\n", shellQuote(values["OLCRTC_MANAGER_USER"]), shellQuote(values["OLCRTC_MANAGER_PASS"]))
-	return os.WriteFile(path, []byte(data), 0o600)
+	mode := os.FileMode(0o600)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	seen := make(map[string]bool, len(updates))
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(trimmed, "=", 2)[0])
+		value, ok := updates[key]
+		if !ok {
+			continue
+		}
+		lines[i] = key + "=" + shellQuote(value)
+		seen[key] = true
+	}
+	keys := make([]string, 0, len(updates))
+	for key := range updates {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if !seen[key] {
+			lines = append(lines, key+"="+shellQuote(updates[key]))
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".panel-env-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func shellQuote(value string) string {

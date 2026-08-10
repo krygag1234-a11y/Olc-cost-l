@@ -13,7 +13,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
+INSTALL_DIR="$(readlink -m -- "${OLC_INSTALL_DIR:-/opt/Olc-cost-l}")"
+case "$INSTALL_DIR" in
+  /|/bin|/boot|/dev|/etc|/home|/opt|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var)
+    echo "Refusing unsafe OLC_INSTALL_DIR: $INSTALL_DIR" >&2
+    exit 1
+    ;;
+esac
 
 KEEP_TOR=0
 KEEP_WARP=0
@@ -48,13 +54,14 @@ if [[ "$PURGE_REPO" -eq 1 && -z "${OLC_PURGE_REEXEC:-}" ]]; then
     "$INSTALL_DIR"/*)
       SELF_TMP="$(mktemp -d /tmp/.olc-purge-self-XXXXXX)"
       cp -a "$SCRIPT_DIR" "$SELF_TMP/scripts"
+      reexec_args=()
+      ((KEEP_TOR)) && reexec_args+=(--keep-tor)
+      ((KEEP_WARP)) && reexec_args+=(--keep-warp)
+      ((PURGE_ALL)) && reexec_args+=(--purge-all) || reexec_args+=(--purge-repo)
+      ((ASSUME_YES)) && reexec_args+=(--yes)
+      ((DRY_RUN)) && reexec_args+=(--dry-run)
       exec env OLC_PURGE_REEXEC=1 OLC_PURGE_SELF_TMP="$SELF_TMP" \
-        bash "$SELF_TMP/scripts/$(basename "${BASH_SOURCE[0]}")" \
-        $( ((KEEP_TOR)) && echo --keep-tor ) \
-        $( ((KEEP_WARP)) && echo --keep-warp ) \
-        $( ((PURGE_ALL)) && echo --purge-all || echo --purge-repo ) \
-        $( ((ASSUME_YES)) && echo --yes ) \
-        $( ((DRY_RUN)) && echo --dry-run )
+        bash "$SELF_TMP/scripts/$(basename "${BASH_SOURCE[0]}")" "${reexec_args[@]}"
       ;;
   esac
 fi
@@ -222,14 +229,14 @@ else
 fi
 
 log "remove build caches"
-# Remove Go workspace and cloned repos from /root
-run rm -rf /root/go /root/olcrtc
+# Remove only build state owned by Olc-cost-l. Never delete user-wide root workspaces.
+run rm -rf /var/cache/go-build /var/tmp/go-build-tmp
 if [[ "$DRY_RUN" -eq 0 ]] && declare -f olc_cleanup_purge_caches >/dev/null 2>&1; then
   olc_cleanup_purge_caches
 fi
 if [[ "$PURGE_ALL" -eq 1 ]]; then
-  log "remove go toolchain + deep caches (--purge-all)"
-  run rm -rf /usr/local/go /root/.cache/go-build /root/.npm
+  log "remove Olc-cost-l Go toolchain and project caches (--purge-all)"
+  run rm -rf /usr/local/go /var/cache/olc-go /var/cache/go-build /var/tmp/go-build-tmp
 fi
 
 log "remove sysctl drop-in"

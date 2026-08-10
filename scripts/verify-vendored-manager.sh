@@ -30,7 +30,13 @@ if find "$ROOT" -type f \( -name '*.orig' -o -name '*.rej' \) -print -quit | gre
 fi
 
 actual="$({
-  find "$ROOT/src" -type f -print0
+  # Backups are deliberately kept beside a live checkout for rollback, but
+  # they are not reproducible source inputs and must never influence the
+  # committed UI fingerprint.
+  find "$ROOT/src" -type f \
+    ! -name '*.bak' ! -name '*.bak-*' \
+    ! -name '*.orig' ! -name '*.rej' \
+    -print0
   printf '%s\0' \
     "$ROOT/index.html" \
     "$ROOT/package.json" \

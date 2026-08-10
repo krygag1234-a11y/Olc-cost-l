@@ -56,19 +56,52 @@ olc_update_has_tty() {
   [ -t 0 ] || { [ -e /dev/tty ] && : </dev/tty; } 2>/dev/null
 }
 
+olc_update_usage() {
+  cat <<'EOF'
+Использование: olc-update [режим] [параметры]
+
+Режимы:
+  --incremental        Доустановка: пропустить уже работающие компоненты
+  --update             Полная пересборка OlcRTC core и manager
+
+Параметры:
+  --profile <id>       Применить профиль установки
+  --show-profile       Показать текущий профиль и выйти
+  --force-sha-update   Обновить закреплённые upstream SHA
+  --ssh | --localhost  Оставить панель только за SSH-туннелем
+  --ip --http          Открыть панель по IP через HTTP
+  --ip --https         HTTPS по IP (совместимый алиас)
+  --ip --https-self-signed
+                       HTTPS по IP с self-signed сертификатом
+  --ip --https-letsencrypt
+                       HTTPS по IP с доверенным сертификатом Let's Encrypt
+  --resume             Продолжить прерванное обновление
+  --plan               Только разобрать флаги, ничего не менять
+  -h, --help           Показать эту справку и выйти
+EOF
+}
+
 main() {
   local plan_only=0
+  local help_requested=0
   local update_mode=""
   local tui_panel_args=()
   local repo profile_arg=()
   local has_explicit_flags=0
   local unknown_flags=()
+  local expect_profile_value=0
   local arg
   for arg in "$@"; do
+    if [[ "$expect_profile_value" -eq 1 ]]; then
+      profile_arg=(--profile "$arg")
+      expect_profile_value=0
+      continue
+    fi
     case "$arg" in
+      -h|--help) help_requested=1 ;;
       --plan) plan_only=1 ;;  # dry-run парсинга флагов (без root/сети); ДО need_root
       --show-profile) ;;      # обрабатывается ниже после need_root
-      --profile) profile_arg=(--profile) ;;
+      --profile) profile_arg=(--profile); expect_profile_value=1 ;;
       --force-sha-update) export OLCRTC_FORCE_SHA_UPDATE=1; has_explicit_flags=1 ;;
       --manager-stable|--manager-latest) echo "Флаги --manager-stable/--manager-latest удалены: используется встроенная версия manager." >&2; exit 2 ;;
       --incremental) update_mode="--incremental"; has_explicit_flags=1 ;;
@@ -79,6 +112,11 @@ main() {
       *) unknown_flags+=("$arg") ;;
     esac
   done
+
+  if [[ "$help_requested" -eq 1 ]]; then
+    olc_update_usage
+    exit 0
+  fi
 
   # --plan: напечатать разобранный режим и выйти БЕЗ каких-либо действий.
   # Должно идти ДО need_root, чтобы тесты можно было гонять без sudo.

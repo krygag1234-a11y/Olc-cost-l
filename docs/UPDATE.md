@@ -1,162 +1,120 @@
-﻿# Установка и обновление
+# Установка, обновление и полная переустановка
 
-## Одна команда (с GitHub)
+## Единый manager
 
-> **Рекомендуется:** Используйте стабильную версию панели!
+Исходный код нашей панели хранится в `components/olcrtc-manager` и собирается
+напрямую. Production не клонирует `local-panel-version`, не выбирает
+`stable/latest` и не накладывает старый manager patch-stack. Upstream manager
+используется только для покоммитного аудита; выбранные изменения вручную
+адаптируются в vendored-исходник.
+
+## Установка
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
+# Интерактивный TUI
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash
+
+# Полный RU-профиль; HTTPS self-signed по умолчанию
+curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh \
+  | sudo bash -s -- --full --ip
 ```
 
-| Состояние VPS | Действие |
-|---------------|----------|
-| `fresh` | `agent-bootstrap.sh --full` |
-| `installed` / `partial` | `agent-bootstrap.sh --update` |
+Основные комбинации компонентов:
 
-Симлинк: `/opt/olcrtc` → `/opt/Olc-cost-l`
+| Команда | Tor | Bridges | Split | Zapret | WARP |
+|---|---:|---:|---:|---:|---:|
+| `--full` | да | да | да | да | нет |
+| `--full --no-tor` | нет | нет | нет | да | нет |
+| `--full --no-bridges` | да | нет | да | да | нет |
+| `--full --no-split` | да | да | нет | да | нет |
+| `--full --no-zapret` | да | да | да | нет | нет |
+| `--tor` | да | нет | нет | нет | нет |
+| `--tor --bridges` | да | да | нет | нет | нет |
+| `--tor --split` | да | нет | да | нет | нет |
+| `--bridges` | не меняет | да | нет | нет | нет |
+| `--split` | не меняет | нет | да | нет | нет |
+| `--zapret` | нет | нет | нет | да | нет |
+| `--warp` | нет | нет | нет | нет | да |
 
-### Версии панели
+`--bridges` требует уже работающий Tor. Split без Tor и расширенная маршрутизация
+на произвольную SOCKS-ноду — отдельная будущая архитектурная задача; текущий
+production-сценарий Split рассчитан на установленный Tor.
 
-- **По умолчанию** (рекомендуется): Стабильный форк с проверенными патчами из https://github.com/krygag1234-a11y/local-panel-version
-- **`--manager-latest`**: HEAD из upstream (экспериментальная, может сломаться при обновлении)
-
-> ℹ️ С версии `d92baf4` стабильный форк используется по умолчанию (`OLC_MANAGER_STABLE=1`). Флаг больше не нужен.
-
-## Выбор HTTP/HTTPS при обновлении
+Доступ и TLS:
 
 ```bash
-sudo olc-update --ip --https-letsencrypt   # доверенный IP-сертификат + автопродление
-sudo olc-update --ip --https-self-signed   # HTTPS с предупреждением браузера
-sudo olc-update --ip --http                # открытый HTTP
-sudo olc-update --ssh --http               # HTTP только через SSH-туннель
+--ip --https-self-signed   # HTTPS по IP с предупреждением браузера
+--ip --https-letsencrypt   # доверенный IP-сертификат + автопродление
+--ip --http                # явный HTTP
+--ssh --http               # панель только на 127.0.0.1 через SSH-туннель
 ```
 
-Без явного TLS-флага сохранённый режим берётся из deploy-profile. Подробно: [PANEL-HTTPS.md](PANEL-HTTPS.md).
+Без флагов TUI предлагает режим и компоненты. `Ctrl+O` разворачивает/сворачивает
+дополнительный вывод, не создавая второй поток логов.
 
-## После клонирования репозитория
+## Переход установщика в обновление
+
+Повторный запуск `install.sh` обнаруживает существующую систему и предлагает
+обновление. Он использует тот же vendored manager и сохранённый
+`/etc/olcrtc-manager/deploy-profile.json`; отдельного старого пути сборки нет.
+
+## `olc-update`
 
 ```bash
-sudo olc-update       # git pull + bootstrap по deploy-profile
+sudo olc-update --help
+sudo olc-update                 # TUI выбора режима
+sudo olc-update --update        # полная пересборка core + manager
+sudo olc-update --incremental   # не трогать уже исправные компоненты
 sudo olc-update --show-profile
-sudo olc-update --profile ru-full
-
-sudo olc-feature status                # toggle без переустановки пакетов
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --rebuild-only
+sudo olc-update --profile ru-full --incremental
+sudo olc-update --plan --profile ru-full --incremental
 ```
 
-`olc-update` вызывает `scripts/agent-bootstrap.sh --update` с учётом `/etc/olcrtc-manager/deploy-profile.json` (инкрементальный update: foreign VPS не тянет лишний zapret/Tor).
+Если TLS/access не указаны, используются значения deploy-profile. Обычное
+обновление не должно удалять сертификат, менять порт или включать выключенный
+модуль. Перед изменениями создаётся VPS-backup; Git обновляется безопасным
+fast-forward/проверяемым путём, без автоматического `reset --hard` грязного дерева.
 
-## Ручные режимы install.sh
+## Продолжение прерванного запуска
 
 ```bash
-# Рекомендуемая полная установка
-sudo bash install.sh --full
-
-# Обновление стабильной версии
-sudo bash install.sh --update
-
-# Продолжить прерванную установку
-sudo bash install.sh --resume
-
-# Ручные варианты из репозитория
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --no-tor
-sudo bash /opt/Olc-cost-l/scripts/agent-bootstrap.sh --with-warp   # foreign + WARP
+sudo olc-update --resume
+sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --state
 ```
 
-<details>
-<summary>⚙️ Другие варианты версий панели</summary>
+Состояние шагов хранится в `/var/lib/olcrtc/install-state.json`. Подробнее:
+[RESUME-INSTALL.md](RESUME-INSTALL.md).
+
+## Полная безопасная переустановка
 
 ```bash
-# Последняя upstream версия (экспериментальная)
-sudo bash install.sh --full --manager-latest
-
-# Pinned версия из репозитория
-sudo bash install.sh --full
+sudo olc-reinstall --dry-run
+sudo olc-reinstall
 ```
 
-</details>
+`olc-reinstall`:
 
-## Что делает `--update`
+1. создаёт полный rollback-архив VPS и логический JSON-backup;
+2. сохраняет deploy-profile и точный снимок текущего vendored-исходника;
+3. выполняет `olc-purge --purge-repo`;
+4. восстанавливает тот же исходник и устанавливает прежний набор модулей/TLS;
+5. автоматически импортирует данные и проверяет профиль, порт, HTTPS и runtime.
 
-1. `git pull` (или `reset --hard origin/main` при грязном дереве — см. install.sh)
-2. `apply-olcrtc-patches.sh` — olcrtc ветка **`master`** (pin в `data/upstream-pins.json`)
-3. Клонирование/обновление панели согласно флагу (`` / `--manager-latest` / pinned)
-4. Шаги по **deploy-profile**: split-списки, Tor pool, zapret, timers
-5. `features.env` — после update **не** включает выключенные компоненты
-6. `systemctl restart olcrtc-manager`
+Rollback-архив и логический backup сохраняются. Эта команда предназначена для
+систем, уже установленных vendored-pipeline. Первый перевод старого production
+VPS выполняется отдельным миграционным планом.
 
-`torrc` и существующий `bridges.conf` не сносятся; пул дополняется.
-
-### Автообновление SHA256 checksums
-
-Если при обновлении `golden-panel` checksum не совпадает:
+## Проверка после обновления
 
 ```bash
-# Автоматически обновить checksum без запроса
-sudo olc-update --force-sha-update
+systemctl is-active olcrtc-manager
+systemctl is-active tor@default 2>/dev/null || true
+systemctl is-active zapret 2>/dev/null || true
+pidof nfqws 2>/dev/null || true
+sudo OLC_ALLOW_VENDORED_BUILD_STATE=1 \
+  /opt/Olc-cost-l/scripts/verify-vendored-manager.sh \
+  /opt/Olc-cost-l/components/olcrtc-manager
 ```
 
-Флаг `--force-sha-update` работает во всех скриптах установки/обновления.
-
-## Обновление из панели
-
-«Состояние проекта» → обновление с GitHub. Лог: `/var/log/olcrtc-panel-update.log`, статус: `/var/lib/olcrtc/panel-update-status.json`.
-
-### Регрессии UI/API (тестовый VPS, май 2026)
-
-После `olc-update` должны быть доступны:
-
-- `GET /api/project/status` (в UI больше не `HTTP 404` в «Состояние проекта»)
-- `GET/PUT /api/notification-settings` (сохранение в «Звоночек → Настройки уведомлений» без `HTTP 404`)
-- `GET/PUT /api/settings/warp` (без ошибки JSON `unknown component`)
-
-Проверка с VPS:
-
-```bash
-curl -kI -u admin:admin https://127.0.0.1:8888/api/project/status
-curl -kI -u admin:admin https://127.0.0.1:8888/api/notification-settings
-curl -kI -u admin:admin https://127.0.0.1:8888/api/settings/warp
-```
-
-Ожидаемо: `HTTP/1.1 200 OK` (или `401`, если без корректной авторизации).
-Для явно выбранного `--http` замените `https://` на `http://` и уберите `-k`.
-
-Если job завис в `running`:
-
-```bash
-sudo bash /opt/Olc-cost-l/scripts/olc-panel-update-run.sh --reconcile
-```
-
-## Пересборка только бинарников
-
-```bash
-cd /opt/Olc-cost-l
-sudo BUILD=1 bash scripts/apply-olcrtc-patches.sh
-sudo systemctl restart olcrtc-manager
-```
-
-## После обновления — проверки
-
-```bash
-systemctl is-active tor@default olcrtc-manager
-systemctl list-timers 'olcrtc-tor-bridge-*' --no-pager
-curl -s --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
-grep -cE '^Bridge ' /etc/tor/bridges.conf
-```
-
-## Tor (опционально)
-
-```bash
-sudo /opt/Olc-cost-l/scripts/fetch-bridge-extra-sources.sh
-sudo /opt/Olc-cost-l/scripts/tor-bridge-pool.sh --apply
-sudo /opt/Olc-cost-l/scripts/tor-bridge-deep-check.sh --from-pool --limit 8 --jobs 2
-```
-
-## Версия стека
-
-```bash
-jq . /opt/Olc-cost-l/version.json
-bash /opt/Olc-cost-l/scripts/generate-version-stack.sh   # обновить block "stack" перед релизом
-```
-
-См. [FEATURES.md](./FEATURES.md), [RESUME-INSTALL.md](./RESUME-INSTALL.md).
+Панель может работать по HTTP или HTTPS и на порту из `config.json`; для CLI
+экспорта/импорта используйте `olc-backup`, который определяет протокол сам.

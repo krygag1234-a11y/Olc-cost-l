@@ -21,15 +21,12 @@ sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
 sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
 ```
 
-### Флаги версии панели при resume
-
-- `` — продолжить с стабильной версией
-- `--manager-latest` — продолжить с последней upstream
-- без флага — продолжить с pinned версией
+При `--resume` всегда используется встроенный manager из
+`components/olcrtc-manager`. Флагов выбора версии панели больше нет.
 
 ### Автообновление SHA256
 
-Если при обновлении `golden-panel` checksum не совпадает:
+Если требуется обновить закреплённые SHA OlcRTC core:
 
 ```bash
 sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --force-sha-update
@@ -40,7 +37,7 @@ sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --force-sha-up
 | Шаг                     | Soft-fail | Что значит fail                                       |
 | ----------------------- | --------- | ----------------------------------------------------- |
 | `packages`              | нет       | apt не вышел — без него ничего не построить           |
-| `patches` / `webtunnel` | webtunnel: да | Без webtunnel будут только obfs4 бриджи            |
+| `core` / `manager` / `webtunnel` | webtunnel: да | Manager собирается vendored; без webtunnel останется obfs4 |
 | `sysctl` / `cron`       | да        | Не критично для запуска панели                        |
 | `tor` / `bridges`       | да        | Если bridges не скачались — будут добавлены позже cron|
 | `split`                 | да        | Сплит-листы пустые — весь трафик пойдёт через Tor exit|
@@ -53,11 +50,14 @@ sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume --force-sha-up
 sudo OLCRTC_FORCE_STEP=zapret /opt/Olc-cost-l/scripts/agent-bootstrap.sh --update --resume
 ```
 
-## Сброс state (полная переустановка)
+## Сброс только install-state
 
 ```bash
 sudo /opt/Olc-cost-l/scripts/agent-bootstrap.sh --full --fresh-state
 ```
+
+Это не удаляет проект и не выполняет backup/import. Для полной обратимой
+переустановки используйте `sudo olc-reinstall`.
 
 ## Где state
 

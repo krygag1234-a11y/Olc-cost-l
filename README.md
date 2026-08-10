@@ -256,10 +256,16 @@ sudo olc-update --incremental --zapret --bridges
 
 > `--incremental` **не пересобирает** уже установленное, только добавляет новое. Быстрее, чем `--update`.
 
-**Принудительная переустановка:**
+**Полная безопасная переустановка с сохранением профиля и данных:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/install.sh | sudo bash -s -- --full
+sudo olc-reinstall --dry-run
+sudo olc-reinstall
 ```
+
+Повторный `install.sh --full` на установленной системе — это штатный переход в
+обновление, а не полный снос. `olc-reinstall` создаёт rollback-архив и JSON-backup,
+удаляет также `/opt/Olc-cost-l`, восстанавливает тот же vendored-исходник,
+устанавливает прежние компоненты и автоматически импортирует настройки.
 
 </details>
 
@@ -285,7 +291,7 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 | `--tor` | Устанавливается только Tor + панель |
 | `--split` | Устанавливается только Split + панель (требует Tor) |
 | `--zapret` | Устанавливается только Zapret + панель |
-| `--bridges`| Устанавливается только мосты для Tor + панель |
+| `--bridges`| Устанавливает мосты + панель; требует уже установленный Tor |
 | **РЕЖИМЫ УСТАНОВКИ** | |
 | `--update` | Обновление: git pull, пересборка, обновление списков |
 | `--incremental` | Доустановка: добавить недостающие компоненты без полной пересборки |
@@ -356,6 +362,20 @@ curl -fsSL .../uninstall.sh | sudo bash -s -- --keep-tor     # оставить 
 > sudo olc-purge
 > ```
 
+Перед удалением можно посмотреть точный план без изменений:
+
+```bash
+sudo olc-purge --dry-run
+sudo olc-purge --keep-tor       # оставить Tor и его bridges.conf
+sudo olc-purge --keep-warp      # оставить пакет Cloudflare WARP
+sudo olc-purge --purge-repo     # удалить также /opt/Olc-cost-l
+sudo olc-purge --purge-all      # дополнительно удалить toolchain/кэши проекта
+```
+
+`olc-purge` — именно удаление, оно не делает логический импорт. Для сценария
+«backup → полный снос → чистая установка → автоматический import» используйте
+`olc-reinstall`.
+
 ## Очистка кэшей
 
 После `--full`, `--update` и пересборки панель/Go могут временно занимать много места в `/tmp`, Go build cache и npm cache. Эти файлы не нужны для работы установленной панели; они только ускоряют повторную сборку.
@@ -391,7 +411,7 @@ sudo olc-cleanup-caches
 | [RESUME-INSTALL.md](docs/RESUME-INSTALL.md) | [DEV] Resumable install/update + webtunnel mirror |
 | [AGENT-REPO.md](docs/AGENT-REPO.md) | Карта кода репозитория (для ИИ-агентов) |
 | [AGENT-VPS.md](docs/AGENT-VPS.md) | Карта runtime VPS окружения (для ИИ-агентов) |
-| [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) | API эндпоинты панели (golden panel) |
+| [API-ENDPOINTS.md](docs/API-ENDPOINTS.md) | API эндпоинты встроенного manager |
 
 ---
 

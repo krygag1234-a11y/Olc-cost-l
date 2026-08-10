@@ -495,7 +495,7 @@ EOF
 
 install_cli_symlinks() {
   local s
-  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-split-analyze.sh olc-vps-backup.sh olc-vps-snapshot.sh olc-panel-verify.sh olc-panel-refresh-local.sh olc-cleanup-caches.sh olc-purge.sh olc-backup.sh; do
+  for s in olc-feature.sh olc-update.sh olc-sync-panel-host.sh olc-split-analyze.sh olc-vps-backup.sh olc-vps-snapshot.sh olc-panel-verify.sh olc-panel-refresh-local.sh olc-cleanup-caches.sh olc-purge.sh olc-backup.sh olc-reinstall.sh; do
     [[ -f "$SCRIPT_DIR/$s" ]] || continue
     ln -sfn "$SCRIPT_DIR/$s" "/usr/local/bin/${s%.sh}" 2>/dev/null || true
   done
@@ -736,6 +736,22 @@ setup_zapret() {
   olc_run_with_progress "установка/обновление zapret" bash "$SCRIPT_DIR/install-zapret-vps.sh" || log "WARN: zapret install failed — retry manually"
 }
 
+# nfqws is daemonized by the upstream SysV wrapper while the installer step is
+# still inside our progress process group.  Some systemd/progress combinations
+# reap that child when the step is collapsed even though installation itself
+# succeeded.  Verify the runtime only after the progress session is closed.
+ensure_zapret_runtime() {
+  [[ "${OLCRTC_ENABLE_ZAPRET:-0}" -eq 1 ]] || return 0
+  [[ -x /opt/zapret/nfq/nfqws ]] || return 0
+  if ! pidof nfqws >/dev/null 2>&1; then
+    systemctl restart zapret.service
+  fi
+  systemctl is-active --quiet zapret.service && pidof nfqws >/dev/null 2>&1 || {
+    tui_log_error "Zapret установлен, но nfqws не запущен"
+    return 1
+  }
+}
+
 # shellcheck source=lib-component-check.sh
 if [[ -f "$SCRIPT_DIR/lib-component-check.sh" ]]; then
   source "$SCRIPT_DIR/lib-component-check.sh"
@@ -771,6 +787,7 @@ state_step_profile bridges              setup_bridges
   ensure_manager_restarted
   state_finish   # схлопывание строк шагов + анимация бара (в TTY)
   olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
+  ensure_zapret_runtime
   tui_log_success "Обновление успешно завершено!"
   olc_ui_success_recap
   olc_ui_logs_recap
@@ -814,6 +831,7 @@ if [[ "$INCREMENTAL" -eq 1 ]]; then
   ensure_manager_restarted
   state_finish   # схлопывание строк шагов + анимация бара (в TTY)
   olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
+  ensure_zapret_runtime
   tui_log_success "Доустановка успешно завершена!"
   olc_ui_success_recap
   olc_ui_logs_recap
@@ -870,6 +888,7 @@ state_step start-manager         bash -c 'systemctl enable olcrtc-manager.servic
 ensure_manager_restarted
 state_finish   # схлопывание строк шагов + анимация бара (в TTY)
 olc_ui_end     # закрыть alt-screen: дальше — чистый финальный вывод
+ensure_zapret_runtime
 
 tui_divider
 tui_banner "Установка завершена!"

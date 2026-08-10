@@ -240,6 +240,7 @@ def run(args, keys=None, wait=None):
         os.environ["OLC_INSTALL_DIR"] = repo
         os.environ["OLC_ASSUME_FRESH"] = "1"       # считать систему чистой → MODE=full
         os.environ["OLC_EXIT_AFTER_PROMPT"] = "1"  # выйти сразу после добора
+        os.environ["OLC_SKIP_SWAP_CHECK"] = "1"    # не смешивать swap prompt с TUI-контрактом
         os.execvp("bash", ["bash", repo + "/install.sh"] + args)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
     raw = b""; sent = False; t0 = time.time()
@@ -317,6 +318,7 @@ def run_case(name, target, args, prompts, extra_env, assertions):
             "OLC_REPO_URL": "file://" + os.environ["OLC_TEST_SEED"],
             "OLC_REPO_BRANCH": "main",
             "OLC_INSTALL_PROFILE_PATH": target + ".profile.json",
+            "OLC_SKIP_SWAP_CHECK": "1",
         }
         env.update(extra_env)
         os.environ.update(env)

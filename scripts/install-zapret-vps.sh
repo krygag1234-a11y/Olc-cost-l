@@ -138,14 +138,14 @@ noninteractive_install() {
 }
 
 enable_service() {
-  install -m 0644 "$OPT/init.d/systemd/zapret.service" /etc/systemd/system/zapret.service 2>/dev/null || true
+  install -m 0644 "$REPO_ROOT/packaging/systemd/olc-zapret.service" /etc/systemd/system/zapret.service
   systemctl daemon-reload
-  systemctl enable zapret.service 2>/dev/null || true
-  timeout 180 "$OPT/init.d/sysv/zapret" restart || systemctl restart zapret.service
-  if pidof nfqws >/dev/null; then
+  systemctl enable zapret.service
+  systemctl restart zapret.service
+  if systemctl is-active --quiet zapret.service && pidof nfqws >/dev/null; then
     log "nfqws running: $(pidof nfqws)"
   else
-    log "WARN: nfqws not running"
+    log "WARN: zapret.service or nfqws is not active"
     return 1
   fi
 }

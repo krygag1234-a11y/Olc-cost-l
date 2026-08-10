@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -384,9 +385,13 @@ func TestDeleteLastClient(t *testing.T) {
 func TestFirstRunSetupCreatesAdminSession(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
-	t.Setenv("OLCRTC_MANAGER_ENV_FILE", filepath.Join(dir, "panel.env"))
+	envPath := filepath.Join(dir, "panel.env")
+	t.Setenv("OLCRTC_MANAGER_ENV_FILE", envPath)
 	t.Setenv("OLCRTC_MANAGER_USER", "")
 	t.Setenv("OLCRTC_MANAGER_PASS", "")
+	if err := os.WriteFile(envPath, []byte("# keep installer settings\nOLCRTC_MANAGER_TLS_CERT='/etc/olcrtc-manager/tls/fullchain.pem'\nOLCRTC_PUBLIC_URL='https://vps.example:8888'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	adminSessions.Clear()
 
 	rec := httptest.NewRecorder()
@@ -403,6 +408,21 @@ func TestFirstRunSetupCreatesAdminSession(t *testing.T) {
 	setupHandler(configPath).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/auth/setup", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	envAfter, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, preserved := range []string{
+		"# keep installer settings",
+		"OLCRTC_MANAGER_TLS_CERT='/etc/olcrtc-manager/tls/fullchain.pem'",
+		"OLCRTC_PUBLIC_URL='https://vps.example:8888'",
+		"OLCRTC_MANAGER_USER='admin'",
+		"OLCRTC_MANAGER_PASS='firstpass123'",
+	} {
+		if !strings.Contains(string(envAfter), preserved) {
+			t.Fatalf("panel.env lost %q after setup:\n%s", preserved, envAfter)
+		}
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)

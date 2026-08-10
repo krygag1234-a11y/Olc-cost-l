@@ -1,6 +1,6 @@
-# OlcRTC Manager — API endpoints (golden panel)
+# OlcRTC Manager — API endpoints (vendored manager)
 
-Эталон: `packaging/golden-panel/main.go` (тестовый VPS, синк через внутренние dev-скрипты).
+Источник: `components/olcrtc-manager/cmd/olcrtc-manager/main.go`.
 
 Все `/api/*` (кроме auth login/setup) требуют сессию администратора.
 

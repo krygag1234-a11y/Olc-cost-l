@@ -17,6 +17,26 @@ INSTALL_DIR="${OLC_INSTALL_DIR:-/opt/Olc-cost-l}"
 REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
 BRANCH="${OLC_REPO_BRANCH:-main}"
 
+install_usage() {
+  cat <<'EOF'
+Usage: install.sh [mode] [components] [panel access] [TLS]
+
+Modes:       --full | --update | --fresh | --resume | --state | --plan
+Components:  --tor --bridges --split --zapret --warp and --no-* variants
+Panel:       --ssh | --ip
+TLS:         --http | --https-self-signed | --https-letsencrypt
+Other:       --interactive | --force-sha-update | -h | --help
+EOF
+}
+
+# Help must be side-effect free: no root check, TUI, disk cleanup or swap setup.
+for _olc_early_arg in "$@"; do
+  case "$_olc_early_arg" in
+    -h|--help) install_usage; exit 0 ;;
+  esac
+done
+unset _olc_early_arg
+
 # Early fatal (before TUI loaded)
 fatal_early() {
   echo "" >&2
@@ -46,12 +66,10 @@ olc_has_tty() {
 }
 
 olc_cleanup_disk_junk() {
-  rm -f /var/backups/olc-vps/*.tar.gz 2>/dev/null || true
-  rm -f /var/backups/olc-vps/*.tsv /var/backups/olc-vps/*.txt 2>/dev/null || true
-  rm -rf /root/.cache/go-build /root/.npm/_cacache 2>/dev/null || true
+  # Only Olc-cost-l-owned build caches are safe for automatic cleanup.
+  rm -rf /var/cache/go-build /var/tmp/go-build-tmp 2>/dev/null || true
+  rm -rf /tmp/olcrtc-src /tmp/olcrtc-manager-panel /tmp/go-build* 2>/dev/null || true
   apt-get clean 2>/dev/null || true
-  find /var/log -type f -name '*.gz' -delete 2>/dev/null || true
-  journalctl --vacuum-time=1d 2>/dev/null || true
 }
 
 # Быстрая проверка до git clone (curl | bash — репо ещё может не быть на диске)
@@ -65,8 +83,8 @@ if command -v df >/dev/null 2>&1; then
     
     if olc_has_tty; then
       echo "" >&2
-      echo "Хотите очистить временные файлы (кэш Go, npm, apt, логи, бэкапы) прямо сейчас автоматически?" >&2
-      echo "1 - Да, очистить мусор (и все локальные бэкапы)" >&2
+      echo "Хотите очистить только временные кэши сборки Olc-cost-l и apt?" >&2
+      echo "1 - Да, очистить только кэши сборки Olc-cost-l и apt" >&2
       echo "2 - Нет, я сам решу эту проблему (установка будет прервана)" >&2
       
       _ans=""
@@ -93,8 +111,8 @@ if command -v df >/dev/null 2>&1; then
       _avail="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4+0}')"
       _use="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5+0}')"
       if [[ -n "$_avail" && ( "$_avail" -lt 400 || "$_use" -ge 98 ) ]]; then
-        [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Недостаточно места на диске после автоочистки" "Свободно: ~${_avail} МБ, занято ${_use}%" "Освободите диск вручную: rm -rf /root/.cache /var/log/*.gz" || \
-          fatal_early "Недостаточно места после автоочистки (~${_avail} МБ, ${_use}% занято)" "" "Освободите диск и повторите"
+        [[ ${TUI_AVAILABLE:-0} -eq 1 ]] && tui_fatal "Недостаточно места на диске после безопасной автоочистки" "Свободно: ~${_avail} МБ, занято ${_use}%" "Архивы отката и чужие файлы не удалялись; освободите место вручную" || \
+          fatal_early "Недостаточно места после безопасной автоочистки (~${_avail} МБ, ${_use}% занято)" "Архивы отката и чужие файлы не удалялись" "Освободите диск вручную и повторите"
       fi
       echo "[install] Очистка помогла. Продолжаем установку (~${_avail} МБ свободно)." >&2
     fi
@@ -159,12 +177,14 @@ fi
 # shellcheck source=scripts/lib-swap-auto.sh
 if [[ -f "$SCRIPT_DIR/scripts/lib-swap-auto.sh" ]]; then
   source "$SCRIPT_DIR/scripts/lib-swap-auto.sh"
-  if olc_swap_check 2>/dev/null; then
+  if [[ "${OLC_SKIP_SWAP_CHECK:-0}" != "1" ]] && olc_swap_check 2>/dev/null; then
     ram_mb=$(free -m | awk '/^Mem:/ {print $2}')
     swap_rec=$(olc_swap_recommend)
     tui_log_warning "Обнаружено мало RAM (${ram_mb}MB) и нет swap. Рекомендуется: ${swap_rec}MB"
-    if tui_confirm "Создать swap автоматически?" 2>/dev/null || true; then
-      olc_swap_create "$swap_rec" 2>&1 | tee -a /var/log/olc-swap.log
+    if tui_confirm "Создать swap автоматически?" 2>/dev/null; then
+      if ! olc_swap_create "$swap_rec" 2>&1 | tee -a /var/log/olc-swap.log; then
+        tui_log_warning "Автосоздание swap не удалось — установка продолжается без swap; подробности: /var/log/olc-swap.log"
+      fi
     fi
   fi
 fi
@@ -554,6 +574,7 @@ ln -sfn "$INSTALL_DIR/scripts/olc-vps-snapshot.sh" /usr/local/bin/olc-vps-snapsh
 ln -sfn "$INSTALL_DIR/scripts/olc-cleanup-caches.sh" /usr/local/bin/olc-cleanup-caches 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-purge.sh" /usr/local/bin/olc-purge 2>/dev/null || true
 ln -sfn "$INSTALL_DIR/scripts/olc-backup.sh" /usr/local/bin/olc-backup 2>/dev/null || true
+ln -sfn "$INSTALL_DIR/scripts/olc-reinstall.sh" /usr/local/bin/olc-reinstall 2>/dev/null || true
 
 # Передаём режим в agent-bootstrap.sh
 if [[ "$MODE" == "full" ]]; then

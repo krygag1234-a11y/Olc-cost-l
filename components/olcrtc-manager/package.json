@@ -1,7 +1,8 @@
 {
   "scripts": {
     "build": "vite build",
-    "dev": "vite --host 127.0.0.1"
+    "dev": "vite --host 127.0.0.1",
+    "test:ui-backup": "node --experimental-default-type=module scripts/test-ui-backup.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",

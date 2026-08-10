@@ -26,6 +26,7 @@ const JOB_MSG_TTL_MS = 45_000;
 /* olc-panel-ui-v10 */
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { collectBackupUIPreferences, restoreBackupUIPreferences } from "./backup-ui-preferences.js";
 import {
   Activity,
   ChevronDown,
@@ -2481,6 +2482,7 @@ async function importBackupWithDecisions(endpoint: string, body: string, foreign
     }
     if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
     const installed = await installBackupComponents(data?.install_components);
+    restoreBackupUIPreferences(body, window.localStorage);
     return { cancelled: false, data, installed };
   }
   throw new Error("Импорт не удалось подтвердить после нескольких попыток");
@@ -4086,7 +4088,9 @@ function BackupSection() {
     try {
       const res = await fetch("/api/backup/export", { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      const blob = await res.blob();
+      const payload = await res.json() as Record<string, unknown>;
+      payload.ui_preferences = collectBackupUIPreferences(window.localStorage);
+      const blob = new Blob([JSON.stringify(payload, null, 2) + "\n"], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -4094,7 +4098,7 @@ function BackupSection() {
       a.download = "olc-backup-" + stamp + ".json";
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-      setMsg("Бекап скачан. Храните файл в надёжном месте — в нём все ваши данные.");
+      setMsg("Бекап скачан: серверные данные и настройки этого браузера сохранены.");
     } catch (e: any) {
       setErr("Не удалось экспортировать: " + (e?.message || String(e)));
     } finally { setBusy(false); }

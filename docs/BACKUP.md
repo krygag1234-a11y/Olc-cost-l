@@ -39,6 +39,11 @@ UI предлагает три действия:
 - пропустить только настройки и состояния отсутствующих модулей;
 - восстановить данные и последовательно доустановить модули через штатные component jobs.
 
+Выбранный файл остаётся в памяти UI на время обновления: когда будет завершена
+реализация обновления панели из UI, сценарий «backup новее текущей панели» должен
+обновить backend с показом логов и автоматически повторить импорт уже загруженного
+файла. Повторно выбирать JSON пользователь не должен.
+
 
 ## Что попадает в бэкап
 
@@ -59,6 +64,28 @@ UI предлагает три действия:
 | `zapret_exclude_domains`, `zapret_force_domains`, `zapret_strategy` | `/var/lib/olcrtc/zapret-custom/*`, `/etc/olcrtc-manager/zapret.strategy` | пользовательские настройки Zapret |
 | `zapret_sync_cron`, `bridge_pool_cron` | `/etc/cron.d/olcrtc-*` | включённые пользователем фоновые обновления |
 | `install_profile`, `github_env` | `/var/lib/olcrtc/install-profile.json`, `/etc/olcrtc-manager/github.env` | профиль установки и настройки обновления из GitHub |
+| `ui_preferences` | `localStorage` текущего браузера | язык, дефолты инстансов, отображение логов и остальные постоянные `olc-*` настройки UI |
+
+Каждый элемент серверного manifest записывается даже при отсутствии файла:
+`{"kind":"absent"}`. Поэтому импорт точно восстанавливает не только включённое
+состояние, но и выключенное/удалённое: старый файл на целевом VPS будет перед
+удалением сохранён как `.bak-import-*`, а затем убран. Это исключает ситуацию,
+когда отсутствующий marker из backup случайно оставляет включённый модуль или
+старую настройку на целевом сервере.
+
+### Настройки браузера
+
+UI добавляет в скачиваемый конверт `ui_preferences.schema_version` и все
+постоянные ключи `localStorage`, начинающиеся с `olc-`. Временные указатели
+открытых модалок (`olc-active-modal-v1`, `olc-active-feature-modal-v1`,
+`olc-modal-client-access-v1`) намеренно не переносятся. При импорте постоянные
+`olc-*` ключи восстанавливаются точно: лишние текущие значения удаляются, значения
+из backup записываются. Чужие ключи браузера и временные модалки не меняются.
+
+Реальный экспорт `olc-backup-2026-08-10-00-22-36.json` подтвердил schema 3,
+UI schema 1 и сохранение фактических `olc-instance-defaults-v1` и
+`olc-panel-logs-verbose-v1`. Отдельный автоматический тест выполняет точный
+round-trip: `npm run test:ui-backup`.
 
 ## Почему бэкап устойчив к смене версий панели
 
@@ -95,8 +122,10 @@ JSON** и имена файлов из таблицы выше. Для явны�
 2. При **переименовании/переезде** ключа добавьте преобразование в
    `migrateBackup()` (там же), сверяясь с `schema_version`, и поднимите
    `olcBackupSchemaVersion` при несовместимых изменениях формата.
-3. В vendored UI (`components/olcrtc-manager/src/main.tsx`) новые настройки должны
-   в итоге сохраняться в один из перечисленных файлов — иначе они не попадут в бэкап.
+3. В vendored UI серверные настройки должны сохраняться в один из перечисленных
+   файлов. Постоянные браузерные настройки должны иметь стабильный ключ `olc-*`;
+   тогда общий экспорт `ui_preferences` подхватит их автоматически. Не добавляйте
+   постоянную настройку в список временных ключей.
 4. Обновите таблицу «Что попадает в бэкап» в этом файле.
 
 5. Если меняется структура JSON-конверта, повысить `schema_version` и добавить последовательный шаг в
@@ -121,14 +150,13 @@ JSON** и имена файлов из таблицы выше. Для явны�
 - `POST /api/backup/restart` — отложенно перезапускает `olcrtc-manager`, успев
   вернуть браузеру `{"status":"ok","restarting":true}`.
 
-Пример (с боевого/локального хоста):
+Предпочтительный CLI сам читает порт из `config.json`, определяет HTTP/HTTPS и
+учитывает self-signed сертификат:
 
 ```bash
-# экспорт
-curl -fsS -u admin:ПАРОЛЬ http://127.0.0.1:8888/api/backup/export -o olc-backup.json
-# импорт
-curl -fsS -u admin:ПАРОЛЬ -X POST http://127.0.0.1:8888/api/backup/import \
-  -H 'Content-Type: application/json' --data-binary @olc-backup.json
+sudo olc-backup export ./olc-backup.json
+sudo olc-backup import ./olc-backup.json --missing-components skip
+sudo olc-backup import ./olc-backup.json --missing-components install
 ```
 
 ## Полный manifest после аудита 2026-07-31
@@ -166,7 +194,12 @@ JSON-файлы сохраняются как `kind: "json"`, env-файлы —
   "config": { "...": "сырой config.json" },
   "extras": {
     "panel_env":    { "kind": "env",  "values": { "OLCRTC_MANAGER_USER": "admin", "...": "..." } },
-    "deploy_profile": { "kind": "json", "value": { "...": "..." } }
+    "deploy_profile": { "kind": "json", "value": { "...": "..." } },
+    "notification_settings": { "kind": "absent" }
+  },
+  "ui_preferences": {
+    "schema_version": 1,
+    "local_storage": { "olc-panel-lang-v1": "ru" }
   }
 }
 ```

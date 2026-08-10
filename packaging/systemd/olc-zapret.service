@@ -1,0 +1,17 @@
+[Unit]
+Description=Zapret DPI bypass for Olc-cost-l direct egress
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/zapret/init.d/sysv/zapret start
+ExecReload=/opt/zapret/init.d/sysv/zapret restart
+ExecStop=/opt/zapret/init.d/sysv/zapret stop
+TimeoutStartSec=180
+TimeoutStopSec=60
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

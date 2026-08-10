@@ -39,14 +39,9 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 
 > Нужно меню выбора компонентов даже с флагами — добавьте `--interactive`.
 
-<details>
-<summary>📖 О версиях панели</summary>
-
-По умолчанию устанавливается **стабильная версия панели** из нашего форка — это рекомендуется для всех.
-
-Флаг `--manager-latest` устанавливает последнюю upstream версию (экспериментальная, может сломаться). **Не используйте для production.**
-
-</details>
+Панель всегда собирается из встроенного исходника
+`components/olcrtc-manager`. Старых режимов `stable/latest` и зависимости от
+`local-panel-version` больше нет.
 
 Перед установкой (рекомендуется):
 
@@ -107,11 +102,11 @@ curl -fsSL https://raw.githubusercontent.com/krygag1234-a11y/Olc-cost-l/main/ins
 <summary>⚙️ Другие опции обновления</summary>
 
 ```bash
-# Обновиться на последнюю upstream версию (экспериментальная, не рекомендуется)
-sudo olc-update --manager-latest
-
 # Показать текущий профиль установки
 sudo olc-update --show-profile
+
+# Быстро доустановить недостающее, не пересобирая исправные компоненты
+sudo olc-update --incremental
 
 # Продолжить прерванное обновление
 sudo olc-update --resume
@@ -119,7 +114,7 @@ sudo olc-update --resume
 
 </details>
 
-Только пересобрать панель из эталона (без полного update):
+Только пересобрать встроенный manager (без полного update):
 
 ```bash
 sudo olc-panel-refresh-local.sh
@@ -132,21 +127,19 @@ sudo olc-panel-refresh-local.sh
 | `sudo olc-feature tor on/off` | Tor |
 | `sudo olc-feature warp on/off` | WARP (обычно foreign VPS) |
 | `sudo olc-disk-check` | Место на диске |
-| `sudo olc-panel-verify` | Совпадает ли сборка с эталоном |
+| `sudo olc-panel-verify` | Проверка установленной сборки manager |
+| `sudo olc-reinstall --dry-run` | План полной переустановки с backup/import |
+| `sudo olc-reinstall` | Полная безопасная переустановка прежнего профиля |
 | `sudo olc-vps-snapshot` | Снимок конфига VPS в репо |
 
 ## 6. Режимы установки
-
-> **💡 Рекомендация:** Добавляйте `` ко всем командам для установки проверенной версии панели.
 
 ### Полный список флагов
 
 | Флаг | Результат |
 |------|-----------|
-| **ВЕРСИЯ ПАНЕЛИ** | |
-| `` | Стабильная проверенная версия панели (рекомендуется) |
-| `--manager-latest` | Последняя версия из upstream (экспериментальная) |
-| без флага | Pinned версия из репозитория (средний вариант) |
+| **ПАНЕЛЬ** | |
+| встроенная | Всегда собирается из `components/olcrtc-manager` |
 | **ПОЛНАЯ УСТАНОВКА** | |
 | `--full` | Панель + Tor + мосты + split + zapret |
 | `--full --no-tor` | Всё, кроме Tor/мостов (foreign VPS) |
@@ -155,8 +148,8 @@ sudo olc-panel-refresh-local.sh
 | `--full --no-bridges` | Без мостов (только прямой Tor) |
 | **ОТДЕЛЬНЫЕ КОМПОНЕНТЫ** | |
 | `--tor` | Только Tor + панель |
-| `--bridges` | Только мосты + панель (требует Tor) |
-| `--split` | Только split + панель (требует Tor) |
+| `--bridges` | Только мосты + панель (требует уже установленный Tor) |
+| `--split` | Только split + панель (текущий production-сценарий требует Tor) |
 | `--zapret` | Только zapret + панель |
 | `--warp` | Cloudflare WARP proxy + панель (без Tor) |
 | **ОБНОВЛЕНИЕ** | |
