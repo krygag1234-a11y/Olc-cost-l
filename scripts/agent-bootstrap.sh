@@ -502,6 +502,7 @@ install_cli_symlinks() {
   for obsolete in olc-export-golden-panel olc-sync-from-vps olc-panel-refresh-local; do
     [[ -L "/usr/local/bin/$obsolete" ]] && rm -f "/usr/local/bin/$obsolete"
   done
+  return 0
 }
 
 setup_cron() {

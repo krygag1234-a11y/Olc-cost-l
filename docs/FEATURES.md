@@ -53,6 +53,8 @@ sudo ln -sf /opt/Olc-cost-l/scripts/olc-feature.sh /usr/local/bin/olc-feature
 - **Toggle Zp/Tor/Sp/Wt/WARP** в шапке → только `features.env`; состав стека не меняется.
 - При `olc-update` шаги идут по **профилю**; после обслуживания **не включают** сервис, если в `features.env` он выключен.
 
+Схема `deploy-profile.json` сейчас — **2**. При первом чтении старой схемы 1 состав установленных компонентов определяется по фактическим файлам, прежнее поле `components` сохраняется в `legacy_schema1_components`, а рядом создаётся резервная копия `.bak-schema1-*`. Значения `features.env` при этой миграции не изменяются.
+
 ### Пресеты и custom
 
 | `profile_id` | Когда |

@@ -159,6 +159,9 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     componentNotInstalled: "не установлен",
     componentOn: "вкл",
     componentOff: "выкл",
+    componentRuntimeInactive: "служба не запущена",
+    componentRuntimeStillActive: "служба всё ещё работает",
+    componentConfigurationIncomplete: "настройка не завершена",
     componentLog: "Лог",
     jobLogTitle: "Лог задачи: {id}",
     installing: "Устанавливается…",
@@ -407,6 +410,9 @@ const PANEL_I18N: Record<PanelLang, Record<string, string>> = {
     componentNotInstalled: "not installed",
     componentOn: "on",
     componentOff: "off",
+    componentRuntimeInactive: "service is not running",
+    componentRuntimeStillActive: "service is still running",
+    componentConfigurationIncomplete: "configuration is incomplete",
     componentLog: "Log",
     jobLogTitle: "Job log: {id}",
     installing: "Installing…",
@@ -6950,7 +6956,7 @@ async function postFeatureToggle(name: FeatureName, enabled: boolean, flags?: Re
 type Capabilities = {
   panel_version?: string;
   deploy_profile?: string;
-  components?: Record<string, { installed?: boolean; enabled?: boolean; label?: string; requires?: string[] }>;
+  components?: Record<string, { installed?: boolean; enabled?: boolean; configured?: boolean; active?: boolean; runtime?: string; label?: string; requires?: string[] }>;
 };
 
 function useCapabilities() {
@@ -7675,8 +7681,14 @@ function ProjectUpdateButton({ disabled }: { disabled?: boolean }) {
                   />
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
-                  {((stack.items as { id?: string; enabled?: boolean; label?: string }[]) ?? []).map((it) => (
-                    <span key={it.id} className={`rounded px-1.5 py-0.5 ${it.enabled ? "bg-emerald-500/20 text-emerald-300" : "bg-zinc-600/30"}`}>
+                  {((stack.items as { id?: string; installed?: boolean; enabled?: boolean; active?: boolean; label?: string }[]) ?? []).map((it) => (
+                    <span key={it.id} className={`rounded px-1.5 py-0.5 ${
+                      it.installed === false ? "bg-zinc-600/30 text-muted-foreground"
+                      : it.enabled && it.active ? "bg-emerald-500/20 text-emerald-300"
+                      : it.enabled && it.active === false ? "bg-red-500/20 text-red-300"
+                      : !it.enabled && it.active ? "bg-amber-500/20 text-amber-300"
+                      : "bg-zinc-600/30"
+                    }`}>
                       {it.label ?? it.id}
                     </span>
                   ))}
@@ -8038,6 +8050,9 @@ function ComponentsDrawerButton() {
                     <div className="text-xs text-muted-foreground">
                       {installed ? t("componentInstalled") : t("componentNotInstalled")}
                       {st?.enabled ? ` · ${t("componentOn")}` : st?.installed ? ` · ${t("componentOff")}` : ""}
+                      {st?.installed && st?.enabled && st?.active === false ? ` · ${t("componentRuntimeInactive")}` : ""}
+                      {st?.installed && !st?.enabled && st?.active === true ? ` · ${t("componentRuntimeStillActive")}` : ""}
+                      {st?.installed && st?.configured === false ? ` · ${t("componentConfigurationIncomplete")}` : ""}
                     </div>
                     {installBlocked && (
                       <div className="text-xs text-amber-400">Requires: {unmetRequires.join(", ")}</div>

@@ -269,8 +269,11 @@ func TestBackupMissingComponentsAndSkip(t *testing.T) {
 	}
 	profile := extras["deploy_profile"].(map[string]any)["value"].(map[string]any)
 	components := profile["components"].(map[string]any)
-	if _, ok := components["tor"]; ok {
-		t.Fatal("tor deploy-profile state was not skipped")
+	if got, ok := components["tor"].(bool); !ok || got {
+		t.Fatalf("tor deploy-profile installed state=%v, want explicit false", components["tor"])
+	}
+	if got := profile["schema"]; got != 2 {
+		t.Fatalf("profile schema=%v, want 2", got)
 	}
 	if got := profile["profile_id"]; got != "custom-import" {
 		t.Fatalf("profile_id=%v, want custom-import", got)

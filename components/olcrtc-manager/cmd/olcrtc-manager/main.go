@@ -5660,8 +5660,13 @@ func backupSkipMissingComponents(env map[string]any, missing []string) {
 		if value, ok := entry["value"].(map[string]any); ok {
 			if components, ok := value["components"].(map[string]any); ok {
 				for _, name := range missing {
-					delete(components, name)
+					// Schema 2 components represent installed state. Keep an explicit
+					// false instead of deleting the key (legacy readers default missing
+					// core components to true).
+					components[name] = false
 				}
+				value["schema"] = 2
+				value["component_state_model"] = "installed-profile-vs-enabled-runtime"
 				value["profile_id"] = "custom-import"
 				value["label"] = "Custom import (missing components skipped)"
 			}
@@ -8661,6 +8666,53 @@ func componentInstalled(name string) bool {
 	}
 }
 
+func componentConfigured(name string) bool {
+	if !componentInstalled(name) {
+		return false
+	}
+	switch name {
+	case "tor":
+		_, err := os.Stat("/etc/tor/torrc")
+		return err == nil
+	case "zapret":
+		_, err := os.Stat("/opt/zapret/config")
+		return err == nil
+	case "split":
+		return componentInstalled("split")
+	case "bridges":
+		return componentInstalled("bridges")
+	case "warp":
+		return componentInstalled("warp")
+	default:
+		return false
+	}
+}
+
+func componentRuntimeStatus(name string, flags map[string]bool, live map[string]string) (bool, string) {
+	switch name {
+	case "tor", "zapret":
+		status := strings.TrimSpace(live[name])
+		return status == "active", status
+	case "split":
+		if flags[name] && componentConfigured(name) {
+			return true, "configured"
+		}
+		return false, "inactive"
+	case "bridges":
+		if flags[name] && strings.TrimSpace(live["tor"]) == "active" && componentConfigured(name) {
+			return true, "attached"
+		}
+		return false, "inactive"
+	case "warp":
+		if warpConnected() {
+			return true, "connected"
+		}
+		return false, "disconnected"
+	default:
+		return false, "unknown"
+	}
+}
+
 func loadFeatureFlagsMap() map[string]bool {
 	b, err := os.ReadFile("/etc/olcrtc-manager/features.env")
 	if err != nil {
@@ -10186,32 +10238,32 @@ func capabilitiesHandler() http.HandlerFunc {
 		type comp struct {
 			Installed    bool     `json:"installed"`
 			Enabled      bool     `json:"enabled"`
+			Configured   bool     `json:"configured"`
+			Active       bool     `json:"active"`
+			Runtime      string   `json:"runtime"`
 			Configurable bool     `json:"configurable"`
 			Label        string   `json:"label,omitempty"`
 			Requires     []string `json:"requires,omitempty"`
 		}
+		live := featureLiveStatus()
+		makeComp := func(name, label string, requires []string) comp {
+			installed := componentInstalled(name)
+			active, runtime := componentRuntimeStatus(name, flags, live)
+			configurable := installed
+			if name == "bridges" {
+				configurable = componentInstalled("tor")
+			}
+			return comp{
+				Installed: installed, Enabled: flags[name], Configured: componentConfigured(name),
+				Active: active, Runtime: runtime, Configurable: configurable, Label: label, Requires: requires,
+			}
+		}
 		components := map[string]comp{
-			"zapret": {
-				Installed: componentInstalled("zapret"), Enabled: flags["zapret"],
-				Configurable: componentInstalled("zapret"), Label: "Zapret",
-			},
-			"tor": {
-				Installed: componentInstalled("tor"), Enabled: flags["tor"],
-				Configurable: componentInstalled("tor"), Label: "Tor",
-			},
-			"split": {
-				Installed: componentInstalled("split"), Enabled: flags["split"],
-				Configurable: componentInstalled("split"), Label: "Split",
-				Requires: []string{"tor"},
-			},
-			"bridges": {
-				Installed: componentInstalled("bridges"), Enabled: flags["bridges"],
-				Configurable: componentInstalled("tor"), Label: "Мосты", Requires: []string{"tor"},
-			},
-			"warp": {
-				Installed: componentInstalled("warp"), Enabled: flags["warp"],
-				Configurable: componentInstalled("warp"), Label: "WARP",
-			},
+			"zapret":  makeComp("zapret", "Zapret", nil),
+			"tor":     makeComp("tor", "Tor", nil),
+			"split":   makeComp("split", "Split", []string{"tor"}),
+			"bridges": makeComp("bridges", "Мосты", []string{"tor"}),
+			"warp":    makeComp("warp", "WARP", nil),
 		}
 		writeJSON(w, map[string]any{
 			"panel_version":  ver["panel"],
@@ -10581,19 +10633,24 @@ func componentStackStatus() map[string]any {
 	on := 0
 	total := 0
 	items := []map[string]any{}
+	live := featureLiveStatus()
 	for _, id := range []string{"zapret", "tor", "split", "bridges"} {
 		total++
 		enabled := flags[id]
 		if enabled {
 			on++
 		}
+		active, runtime := componentRuntimeStatus(id, flags, live)
 		items = append(items, map[string]any{
 			"id": id, "label": labels[id], "enabled": enabled, "installed": installed[id],
+			"configured": componentConfigured(id), "active": active, "runtime": runtime,
 		})
 	}
 	for _, id := range optional {
+		active, runtime := componentRuntimeStatus(id, flags, live)
 		items = append(items, map[string]any{
 			"id": id, "label": "WARP", "enabled": flags[id], "installed": componentInstalled("warp"), "optional": true,
+			"configured": componentConfigured(id), "active": active, "runtime": runtime,
 		})
 	}
 	return map[string]any{

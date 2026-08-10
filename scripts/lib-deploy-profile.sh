@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Deploy profile: records which stack components this VPS uses (tor/split/zapret/bridges).
+# Deploy profile: records which stack components are installed on this VPS.
+# Desired runtime on/off state lives only in features.env; observed runtime state
+# is queried from systemd/processes and is never written back into this profile.
 # Read on olc-update so foreign/minimal hosts skip heavy steps.
 #
 # File: /etc/olcrtc-manager/deploy-profile.json
@@ -9,6 +11,11 @@
 
 : "${OLCRTC_DEPLOY_PROFILE:=/etc/olcrtc-manager/deploy-profile.json}"
 : "${OLCRTC_PROFILES_DIR:=${OLC_REPO_ROOT:-}/data/deploy-profiles}"
+: "${OLCRTC_FEATURES_ENV:=/etc/olcrtc-manager/features.env}"
+: "${OLCRTC_COMPONENT_REMOVED_DIR:=/var/lib/olcrtc/component-removed}"
+: "${OLCRTC_SPLIT_LISTS_DIR:=/var/lib/olcrtc/lists}"
+: "${OLCRTC_TOR_BRIDGES_CONF:=/etc/tor/bridges.conf}"
+: "${OLCRTC_ZAPRET_BIN:=/opt/zapret/nfq/nfqws}"
 
 profile_log() {
   # Тихий режим: сводка профиля показывается вызывающим кодом (заголовок экрана)
@@ -89,7 +96,7 @@ profile_from_flags() {
       --argjson warp "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
       --argjson ru "$([[ "$ru" -eq 1 ]] && echo true || echo false)" \
       '{
-        schema: 1,
+        schema: 2,
         profile_id: $id,
         label: $label,
         components: { tor: $tor, split: $split, zapret: $zapret, bridges: $bridges, warp: $warp },
@@ -100,7 +107,7 @@ profile_from_flags() {
         install_script_fingerprint: $fp
       }' >"$OLCRTC_DEPLOY_PROFILE"
   else
-    printf '{"schema":1,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s},"panel":{"access":"%s","listen_addr":"%s","tls":%s,"tls_mode":"%s"}}\n' \
+    printf '{"schema":2,"profile_id":"%s","label":"%s","components":{"tor":%s,"split":%s,"zapret":%s,"bridges":%s,"warp":%s},"panel":{"access":"%s","listen_addr":"%s","tls":%s,"tls_mode":"%s"}}\n' \
       "$PROFILE_ID" "$PROFILE_LABEL" \
       "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
       "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
@@ -205,31 +212,14 @@ profile_component() {
 }
 
 profile_sanitize_warp_ru() {
-  # RU VPS: WARP только если явно включён в features.env (olc-feature warp on / --with-warp).
-  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 0
-  command -v jq >/dev/null 2>&1 || return 0
-  local ru warp
-  ru="$(jq -r '.ru_vps // false' "$OLCRTC_DEPLOY_PROFILE")"
-  warp="$(jq -r '.components.warp // false' "$OLCRTC_DEPLOY_PROFILE")"
-  [[ "$ru" == "true" && "$warp" == "true" ]] || return 0
-  local feat=0
-  if [[ -f /etc/olcrtc-manager/features.env ]]; then
-    # shellcheck disable=SC1091
-    set -a
-    source /etc/olcrtc-manager/features.env 2>/dev/null || true
-    set +a
-    [[ "${OLCRTC_ENABLE_WARP:-0}" == "1" ]] && feat=1
-  fi
-  if [[ "$feat" -eq 0 ]]; then
-    local tmp
-    tmp="$(mktemp)"
-    jq '.components.warp = false' "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
-    profile_log "RU VPS: WARP в профиле выключен (не включён в features.env). Используйте --with-warp или olc-feature warp on"
-  fi
+  # Installed Tor and WARP may coexist. Runtime exclusivity is enforced by
+  # olc-feature.sh and must not mutate the installed profile.
+  return 0
 }
 
 profile_apply_env() {
   [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 0
+  profile_migrate_schema
   if [[ "${OLCRTC_PROFILE_IGNORE:-0}" == "1" ]]; then
     return 0
   fi
@@ -263,49 +253,40 @@ profile_apply_env() {
       "$OLCRTC_DEPLOY_PROFILE" >"$tmp_panel" && mv "$tmp_panel" "$OLCRTC_DEPLOY_PROFILE"
   fi
 
-  # Если есть features.env, он имеет больший приоритет (пользователь менял через UI)
-  if [[ -f /etc/olcrtc-manager/features.env ]]; then
-    local _f_tor _f_split _f_zapret _f_bridges _f_warp
-    _f_tor="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_TOR=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
-    _f_split="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_SPLIT=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
-    _f_zapret="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_ZAPRET=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
-    _f_bridges="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_BRIDGES=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+  # features.env is the authoritative desired runtime state. It must never
+  # rewrite the installed component composition stored in the deploy profile.
+  if [[ -f "$OLCRTC_FEATURES_ENV" ]]; then
+    local _f_tor _f_split _f_zapret _f_bridges _f_webtunnel _f_warp
+    _f_tor="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_TOR=' "$OLCRTC_FEATURES_ENV" | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_split="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_SPLIT=' "$OLCRTC_FEATURES_ENV" | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_zapret="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_ZAPRET=' "$OLCRTC_FEATURES_ENV" | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_bridges="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_BRIDGES=' "$OLCRTC_FEATURES_ENV" | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_webtunnel="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WEBTUNNEL=' "$OLCRTC_FEATURES_ENV" | cut -d= -f2 | tr -d '"'"'" | tail -1)"
     if [[ -z "$_f_bridges" ]]; then
-      _f_bridges="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WEBTUNNEL=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+      _f_bridges="$_f_webtunnel"
     fi
-    _f_warp="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WARP=' /etc/olcrtc-manager/features.env | cut -d= -f2 | tr -d '"'"'" | tail -1)"
+    _f_warp="$(grep -E '^[[:space:]]*OLCRTC_ENABLE_WARP=' "$OLCRTC_FEATURES_ENV" | cut -d= -f2 | tr -d '"'"'" | tail -1)"
     # Tor is the parent runtime for split routing and bridge transports.
     # Old backups may not contain all dependent flags, so normalize them here.
     if [[ "$_f_tor" == "0" ]]; then
       _f_split="0"
       _f_bridges="0"
-      profile_feature_toggle_write /etc/olcrtc-manager/features.env OLCRTC_ENABLE_SPLIT 0
-      profile_feature_toggle_write /etc/olcrtc-manager/features.env OLCRTC_ENABLE_BRIDGES 0
-      profile_feature_toggle_write /etc/olcrtc-manager/features.env OLCRTC_ENABLE_WEBTUNNEL 0
+      profile_feature_toggle_write "$OLCRTC_FEATURES_ENV" OLCRTC_ENABLE_SPLIT 0
+      profile_feature_toggle_write "$OLCRTC_FEATURES_ENV" OLCRTC_ENABLE_BRIDGES 0
+      profile_feature_toggle_write "$OLCRTC_FEATURES_ENV" OLCRTC_ENABLE_WEBTUNNEL 0
     fi
 
     
-    [[ "$_f_tor" == "1" ]] && tor="true"
-    [[ "$_f_tor" == "0" ]] && tor="false"
-    [[ "$_f_split" == "1" ]] && split="true"
-    [[ "$_f_split" == "0" ]] && split="false"
-    [[ "$_f_zapret" == "1" ]] && zapret="true"
-    [[ "$_f_zapret" == "0" ]] && zapret="false"
-    [[ "$_f_bridges" == "1" ]] && bridges="true"
-    [[ "$_f_bridges" == "0" ]] && bridges="false"
-    [[ "$_f_warp" == "1" ]] && warp="true"
-    [[ "$_f_warp" == "0" ]] && warp="false"
-    
-    # Синхронизируем изменения обратно в deploy-profile.json
-    local tmp
-    tmp="$(mktemp)"
-    jq --argjson t "$tor" --argjson s "$split" --argjson z "$zapret" --argjson b "$bridges" --argjson w "$warp" \
-      '.components.tor = $t | .components.split = $s | .components.zapret = $z | .components.bridges = $b | .components.warp = $w' \
-      "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+    export OLCRTC_ENABLE_TOR="${_f_tor:-0}"
+    export OLCRTC_ENABLE_SPLIT="${_f_split:-0}"
+    export OLCRTC_ENABLE_ZAPRET="${_f_zapret:-0}"
+    export OLCRTC_ENABLE_BRIDGES="${_f_bridges:-0}"
+    export OLCRTC_ENABLE_WEBTUNNEL="${_f_webtunnel:-0}"
+    export OLCRTC_ENABLE_WARP="${_f_warp:-0}"
   else
     # Инициализируем features.env из профиля, чтобы UI видел правильное состояние
-    install -d /etc/olcrtc-manager
-    cat >/etc/olcrtc-manager/features.env <<EOF
+    install -d "$(dirname "$OLCRTC_FEATURES_ENV")"
+    cat >"$OLCRTC_FEATURES_ENV" <<EOF
 # Olc-cost-l feature toggles (managed by /opt/Olc-cost-l/scripts/olc-feature.sh)
 # Values: 1 = enabled (default), 0 = disabled
 OLCRTC_ENABLE_ZAPRET=$([[ "$zapret" == "true" ]] && echo 1 || echo 0)
@@ -315,11 +296,17 @@ OLCRTC_ENABLE_BRIDGES=$([[ "$bridges" == "true" ]] && echo 1 || echo 0)
 OLCRTC_ENABLE_WEBTUNNEL=0
 OLCRTC_ENABLE_WARP=$([[ "$warp" == "true" ]] && echo 1 || echo 0)
 EOF
+    export OLCRTC_ENABLE_TOR=$([[ "$tor" == "true" ]] && echo 1 || echo 0)
+    export OLCRTC_ENABLE_SPLIT=$([[ "$split" == "true" ]] && echo 1 || echo 0)
+    export OLCRTC_ENABLE_ZAPRET=$([[ "$zapret" == "true" ]] && echo 1 || echo 0)
+    export OLCRTC_ENABLE_BRIDGES=$([[ "$bridges" == "true" ]] && echo 1 || echo 0)
+    export OLCRTC_ENABLE_WEBTUNNEL=0
+    export OLCRTC_ENABLE_WARP=$([[ "$warp" == "true" ]] && echo 1 || echo 0)
   fi
 
   [[ "$tor" == "true" ]] && ENABLE_TOR=1 || ENABLE_TOR=0
   [[ "$split" == "true" ]] && ENABLE_SPLIT=1 || ENABLE_SPLIT=0
-  [[ "$zapret" == "true" ]] && export OLCRTC_ENABLE_ZAPRET=1 || export OLCRTC_ENABLE_ZAPRET=0
+  [[ "$zapret" == "true" ]] && ENABLE_ZAPRET=1 || ENABLE_ZAPRET=0
   [[ "$bridges" == "true" ]] && ENABLE_BRIDGES=1 || ENABLE_BRIDGES=0
   [[ "$ru" == "true" ]] && RU_VPS=1 || RU_VPS=0
   [[ "$warp" == "true" ]] && ENABLE_WARP=1 || ENABLE_WARP=0
@@ -328,8 +315,8 @@ EOF
   PANEL_TLS="$panel_tls"
   PANEL_TLS_MODE="$panel_tls_mode"
 
-  export ENABLE_TOR ENABLE_SPLIT ENABLE_BRIDGES RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR PANEL_TLS PANEL_TLS_MODE
-  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=${OLCRTC_ENABLE_ZAPRET:-1} bridges=$ENABLE_BRIDGES warp=$ENABLE_WARP panel=$PANEL_ACCESS tls=$PANEL_TLS)"
+  export ENABLE_TOR ENABLE_SPLIT ENABLE_ZAPRET ENABLE_BRIDGES RU_VPS ENABLE_WARP PANEL_ACCESS PANEL_LISTEN_ADDR PANEL_TLS PANEL_TLS_MODE
+  profile_log "applied $(jq -r '.profile_id // "custom"' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo "custom") (installed: tor=$ENABLE_TOR split=$ENABLE_SPLIT zapret=$ENABLE_ZAPRET bridges=$ENABLE_BRIDGES warp=$ENABLE_WARP; enabled: tor=${OLCRTC_ENABLE_TOR:-0} split=${OLCRTC_ENABLE_SPLIT:-0} zapret=${OLCRTC_ENABLE_ZAPRET:-0} bridges=${OLCRTC_ENABLE_BRIDGES:-0} warp=${OLCRTC_ENABLE_WARP:-0})"
   # Совет про olc-update только при первой установке (не при UPDATE режиме)
   if [[ "${OLCRTC_UPDATE_MODE:-0}" != "1" ]]; then
     profile_log "Совет: для доустановки или обновления можно использовать короткую команду: olc-update"
@@ -359,11 +346,11 @@ profile_step_enabled() {
       return
       ;;
     zapret)
-      [[ "${OLCRTC_ENABLE_ZAPRET:-1}" -eq 1 && "${RU_VPS:-1}" -eq 1 ]]
+      [[ "${ENABLE_ZAPRET:-0}" -eq 1 && "${RU_VPS:-1}" -eq 1 ]]
       return
       ;;
     fetch-community-lists)
-      [[ "${OLCRTC_ENABLE_ZAPRET:-1}" -eq 1 || ( "${ENABLE_SPLIT:-1}" -eq 1 && "${RU_VPS:-1}" -eq 1 ) ]]
+      [[ "${ENABLE_ZAPRET:-0}" -eq 1 || ( "${ENABLE_SPLIT:-0}" -eq 1 && "${RU_VPS:-1}" -eq 1 ) ]]
       return
       ;;
     *)
@@ -429,7 +416,7 @@ profile_set_component() {
   local tmp json
   tmp="$(mktemp)"
   jq --arg k "$key" --argjson v "$([[ "$val" == true ]] && echo true || echo false)" \
-    '.components[$k] = $v | .updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    '.schema = 2 | .components[$k] = $v | .updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
     "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
   mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
   profile_refresh_id_label
@@ -475,18 +462,10 @@ profile_after_component_job() {
     zapret|split|warp)
       profile_set_component "$component" "$enabled"
       ;;
-    tor)
-      profile_set_component tor "$enabled"
-      if [[ "$action" != "install" ]]; then
-        profile_set_component split false
-        profile_set_component bridges false
-      fi
-      ;;
-    bridges)
-      profile_set_component bridges "$enabled"
-      if [[ "$action" == "install" ]]; then
-        profile_set_component tor true
-      fi
+    tor|bridges)
+      # Dependencies affect runtime availability, not installed composition.
+      # Runtime toggles handle the dependency cascade separately.
+      profile_set_component "$component" "$enabled"
       ;;
     *)
       profile_log "unknown component for profile sync: $component"
@@ -494,18 +473,6 @@ profile_after_component_job() {
       ;;
   esac
 
-  if [[ "$component" == "warp" && "$action" == "install" ]]; then
-    profile_set_component tor false
-    profile_set_component split false
-    profile_set_component bridges false
-    profile_set_component zapret false
-    local tmp
-    tmp="$(mktemp)"
-    jq '.ru_vps = false' "$OLCRTC_DEPLOY_PROFILE" >"$tmp" && mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
-  fi
-  if [[ "$component" == "tor" && "$action" == "install" ]]; then
-    profile_set_component warp false
-  fi
   profile_refresh_id_label
   profile_log "after component job: $component $action → $(jq -c '.components' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo '?')"
 }
@@ -515,15 +482,21 @@ profile_detect_installed() {
   local tor=0 split=0 zapret=0 bridges=0 warp=0 ru=1
 
   dpkg-query -W -f='${Status}' tor 2>/dev/null | grep -q 'install ok installed' && tor=1
-  [[ -x /opt/zapret/nfq/nfqws ]] && zapret=1
+  [[ -x "$OLCRTC_ZAPRET_BIN" ]] && zapret=1
   command -v warp-cli >/dev/null 2>&1 && warp=1
-  if [[ -f /var/lib/olcrtc/lists/ru-direct-domains.txt ]] \
-    || [[ -f /var/lib/olcrtc/lists/panel-carrier-hosts.txt ]]; then
+  if compgen -G "$OLCRTC_SPLIT_LISTS_DIR/*.txt" >/dev/null \
+    || compgen -G "$OLCRTC_SPLIT_LISTS_DIR/disabled/*.txt" >/dev/null; then
     split=1
   fi
-  if [[ -f /etc/tor/bridges.conf ]] && grep -qE '^[[:space:]]*Bridge ' /etc/tor/bridges.conf 2>/dev/null; then
+  if command -v obfs4proxy >/dev/null 2>&1 || command -v snowflake-client >/dev/null 2>&1 \
+    || command -v webtunnel-client >/dev/null 2>&1 \
+    || { [[ -f "$OLCRTC_TOR_BRIDGES_CONF" ]] && grep -qE '^[[:space:]]*Bridge ' "$OLCRTC_TOR_BRIDGES_CONF" 2>/dev/null; }; then
     bridges=1
   fi
+  local component
+  for component in tor split zapret bridges warp; do
+    [[ -e "$OLCRTC_COMPONENT_REMOVED_DIR/$component" ]] && printf -v "$component" 0
+  done
   [[ "$tor" -eq 0 && "$split" -eq 0 && "$zapret" -eq 0 && "$warp" -eq 0 ]] && ru=0
 
   printf '%s %s %s %s %s %s\n' "$tor" "$split" "$zapret" "$bridges" "$warp" "$ru"
@@ -548,7 +521,7 @@ profile_sync_from_installed() {
     --argjson bridges "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
     --argjson warp "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
     --argjson ru "$([[ "$ru" -eq 1 ]] && echo true || echo false)" \
-    '.components = {tor:$tor, split:$split, zapret:$zapret, bridges:$bridges, warp:$warp}
+    '.schema = 2 | .components = {tor:$tor, split:$split, zapret:$zapret, bridges:$bridges, warp:$warp}
      | .ru_vps = $ru
      | .synced_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
     "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
@@ -557,9 +530,40 @@ profile_sync_from_installed() {
   profile_log "synced from installed packages → $(jq -r '.profile_id' "$OLCRTC_DEPLOY_PROFILE")"
 }
 
+profile_migrate_schema() {
+  [[ -f "$OLCRTC_DEPLOY_PROFILE" ]] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local schema
+  schema="$(jq -r '.schema // 1' "$OLCRTC_DEPLOY_PROFILE" 2>/dev/null || echo 1)"
+  [[ "$schema" =~ ^[0-9]+$ ]] || schema=1
+  (( schema >= 2 )) && return 0
+  local tor split zapret bridges warp ru backup tmp
+  read -r tor split zapret bridges warp ru <<<"$(profile_detect_installed)"
+  backup="${OLCRTC_DEPLOY_PROFILE}.bak-schema1-$(date -u +%Y%m%dT%H%M%SZ)"
+  cp -a "$OLCRTC_DEPLOY_PROFILE" "$backup"
+  tmp="$(mktemp)"
+  jq \
+    --argjson tor "$([[ "$tor" -eq 1 ]] && echo true || echo false)" \
+    --argjson split "$([[ "$split" -eq 1 ]] && echo true || echo false)" \
+    --argjson zapret "$([[ "$zapret" -eq 1 ]] && echo true || echo false)" \
+    --argjson bridges "$([[ "$bridges" -eq 1 ]] && echo true || echo false)" \
+    --argjson warp "$([[ "$warp" -eq 1 ]] && echo true || echo false)" \
+    --arg backup "$backup" \
+    '.legacy_schema1_components = (.components // {})
+     | .schema = 2
+     | .components = {tor:$tor, split:$split, zapret:$zapret, bridges:$bridges, warp:$warp}
+     | .component_state_model = "installed-profile-vs-enabled-runtime"
+     | .schema_migrated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+     | .schema1_backup = $backup' \
+    "$OLCRTC_DEPLOY_PROFILE" >"$tmp"
+  mv "$tmp" "$OLCRTC_DEPLOY_PROFILE"
+  profile_refresh_id_label
+  profile_log "migrated deploy profile schema 1 -> 2"
+}
+
 # Honor features.env after update maintenance (toggle off ≠ remove from profile).
 profile_apply_runtime_toggles() {
-  local env=/etc/olcrtc-manager/features.env
+  local env="$OLCRTC_FEATURES_ENV"
   [[ -f "$env" ]] || return 0
   # shellcheck disable=SC1090
   set -a; source "$env"; set +a

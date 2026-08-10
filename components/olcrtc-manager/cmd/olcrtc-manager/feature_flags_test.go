@@ -44,3 +44,14 @@ OLCRTC_ENABLE_WEBTUNNEL=1
 		t.Fatalf("module and submodule state were collapsed: %#v", flags)
 	}
 }
+
+func TestComponentRuntimeStatusSeparatesDesiredAndObserved(t *testing.T) {
+	active, runtime := componentRuntimeStatus("tor", map[string]bool{"tor": false}, map[string]string{"tor": "active"})
+	if !active || runtime != "active" {
+		t.Fatalf("observed active Tor must remain visible when desired flag is off: active=%t runtime=%q", active, runtime)
+	}
+	active, runtime = componentRuntimeStatus("tor", map[string]bool{"tor": true}, map[string]string{"tor": "inactive"})
+	if active || runtime != "inactive" {
+		t.Fatalf("desired-on Tor must not be reported active when systemd is inactive: active=%t runtime=%q", active, runtime)
+	}
+}
