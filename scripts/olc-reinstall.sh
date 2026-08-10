@@ -2,8 +2,12 @@
 # Safe full reinstall of the vendored Olc-cost-l stack with exact profile and data restore.
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$(readlink -m -- "${OLC_INSTALL_DIR:-/opt/Olc-cost-l}")"
 SOURCE_DIR="$(readlink -m -- "${OLC_REINSTALL_SOURCE_DIR:-$INSTALL_DIR}")"
+REPO_URL="${OLC_REPO_URL:-https://github.com/krygag1234-a11y/Olc-cost-l.git}"
+# shellcheck source=lib-reinstall-source.sh
+source "$SCRIPT_DIR/lib-reinstall-source.sh"
 case "$INSTALL_DIR" in
   /|/bin|/boot|/dev|/etc|/home|/opt|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var)
     printf '[reinstall] ERROR: unsafe install directory: %s\n' "$INSTALL_DIR" >&2
@@ -64,10 +68,14 @@ fi
 [[ -x "$SOURCE_DIR/scripts/olc-backup.sh" ]] || die "logical backup script not found"
 [[ -x "$SOURCE_DIR/scripts/olc-vps-backup.sh" ]] || die "VPS backup script not found"
 [[ -f "$PROFILE" ]] || die "deploy profile not found: $PROFILE"
+[[ -f "$SOURCE_DIR/scripts/lib-reinstall-source.sh" ]] || die "reinstall source helper not found"
 command -v jq >/dev/null 2>&1 || die "jq is required"
 
 profile_schema="$(jq -r '.schema // 0' "$PROFILE")"
-[[ "$profile_schema" == "1" ]] || die "unsupported deploy profile schema: $profile_schema"
+case "$profile_schema" in
+  1|2) ;;
+  *) die "unsupported deploy profile schema: $profile_schema" ;;
+esac
 old_port="$(jq -r '.port // 8888' /etc/olcrtc-manager/config.json 2>/dev/null || echo 8888)"
 [[ "$old_port" =~ ^[0-9]+$ ]] || die "invalid manager port in existing config: $old_port"
 
@@ -233,9 +241,8 @@ bash "$WORK_DIR/olc-purge.sh" --yes --purge-repo
 
 PHASE="source-restore"
 if [[ "$SOURCE_KIND" == "bundle" ]]; then
-  git clone --branch "$branch" "$SOURCE_ARCHIVE" "$INSTALL_DIR"
-  [[ "$(git -C "$INSTALL_DIR" rev-parse HEAD)" == "$SOURCE_COMMIT" ]] || \
-    die "restored source commit does not match validated source"
+  olc_reinstall_restore_bundle \
+    "$SOURCE_ARCHIVE" "$INSTALL_DIR" "$branch" "$SOURCE_COMMIT" "$REPO_URL"
 else
   install -d -m 0755 "$INSTALL_DIR"
   tar -C "$INSTALL_DIR" -xzf "$SOURCE_ARCHIVE"
@@ -247,7 +254,7 @@ fi
 cd "$INSTALL_DIR"
 
 PHASE="install"
-OLC_REPO_BRANCH="$branch" bash "$INSTALL_DIR/install.sh" "${INSTALL_FLAGS[@]}"
+OLC_REPO_URL="$REPO_URL" OLC_REPO_BRANCH="$branch" bash "$INSTALL_DIR/install.sh" "${INSTALL_FLAGS[@]}"
 cp -a /etc/olcrtc-manager/panel.env "$WORK_DIR/panel.env.after-install"
 
 PHASE="logical-import"
