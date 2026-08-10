@@ -8314,8 +8314,12 @@ func featureScriptPath() string {
 	return ""
 }
 
+func featureFlagsPath() string {
+	return envDefault("OLCRTC_FEATURES_ENV_FILE", "/etc/olcrtc-manager/features.env")
+}
+
 func readFeatureFlags() map[string]bool {
-	data, err := os.ReadFile("/etc/olcrtc-manager/features.env")
+	data, err := os.ReadFile(featureFlagsPath())
 	if err != nil {
 		return parseFeatureFlags(nil)
 	}
@@ -8804,7 +8808,7 @@ func componentRuntimeStatus(name string, flags map[string]bool, live map[string]
 }
 
 func loadFeatureFlagsMap() map[string]bool {
-	b, err := os.ReadFile("/etc/olcrtc-manager/features.env")
+	b, err := os.ReadFile(featureFlagsPath())
 	if err != nil {
 		return parseFeatureFlags(nil)
 	}
@@ -11054,13 +11058,10 @@ func instanceDefaultsHandler(w http.ResponseWriter, r *http.Request) {
 
 // panelBackendV4 — updates, notifications, jobs, component install
 const (
-	panelUpdateLock      = "/var/lib/olcrtc/panel-update.lock"
-	panelUpdateStatus    = "/var/lib/olcrtc/panel-update-status.json"
-	panelJobsDir         = "/var/lib/olcrtc/panel-jobs"
-	panelNotifFile       = "/var/lib/olcrtc/notifications.json"
-	bridgeProfilesPath   = "/var/lib/olcrtc/bridge-profiles.json"
-	bridgeCronPath       = "/etc/cron.d/olcrtc-bridge-pool"
-	bridgePoolStatusFile = "/var/lib/olcrtc/bridge-pool-status.json"
+	panelUpdateLock   = "/var/lib/olcrtc/panel-update.lock"
+	panelUpdateStatus = "/var/lib/olcrtc/panel-update-status.json"
+	panelJobsDir      = "/var/lib/olcrtc/panel-jobs"
+	panelNotifFile    = "/var/lib/olcrtc/notifications.json"
 )
 
 func panelUpdateLocked() bool {
@@ -11078,6 +11079,12 @@ func panelUpdateLocked() bool {
 	}
 	return proc.Signal(syscall.Signal(0)) == nil
 }
+
+var (
+	bridgeProfilesPath   = envDefault("OLCRTC_BRIDGE_PROFILES_PATH", "/var/lib/olcrtc/bridge-profiles.json")
+	bridgeCronPath       = envDefault("OLCRTC_BRIDGE_CRON_PATH", "/etc/cron.d/olcrtc-bridge-pool")
+	bridgePoolStatusFile = envDefault("OLCRTC_BRIDGE_POOL_STATUS_FILE", "/var/lib/olcrtc/bridge-pool-status.json")
+)
 
 func olcRepoRoot() string {
 	if p := strings.TrimSpace(os.Getenv("OLC_REPO_ROOT")); p != "" {
