@@ -11080,6 +11080,11 @@ func panelUpdateLocked() bool {
 }
 
 func olcRepoRoot() string {
+	if p := strings.TrimSpace(os.Getenv("OLC_REPO_ROOT")); p != "" {
+		if _, err := os.Stat(filepath.Join(p, "scripts/apply-olcrtc-patches.sh")); err == nil {
+			return p
+		}
+	}
 	for _, p := range []string{"/opt/Olc-cost-l", "/opt/olcrtc"} {
 		if _, err := os.Stat(filepath.Join(p, "scripts/apply-olcrtc-patches.sh")); err == nil {
 			return p
