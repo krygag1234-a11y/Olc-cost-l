@@ -7421,6 +7421,11 @@ type PanelNotification = {
   meaning?: string;
   fixes?: string[];
   read?: boolean;
+  status?: "active" | "resolved";
+  active?: boolean;
+  first_seen?: string;
+  last_seen?: string;
+  resolved_at?: string;
 };
 
 
@@ -7567,7 +7572,7 @@ function NotificationBell() {
 
   const load = async () => {
     try {
-      const res = await fetch("/api/notifications", { cache: "no-store" });
+      const res = await fetch("/api/notifications?view=notifications", { cache: "no-store" });
       if (!res.ok) return;
       const body = (await res.json()) as { notifications?: PanelNotification[]; unread?: number };
       setList(body.notifications ?? []);
@@ -7649,7 +7654,9 @@ function NotificationBell() {
             {list.map((n) => (
               <li key={n.id} className="mb-2 rounded border border-border p-2">
                 <div className="flex items-start justify-between gap-2">
-                  <span className={n.severity === "error" ? "text-destructive" : "text-amber-400"}>{n.title}</span>
+                  <span className={n.status === "resolved" ? "text-emerald-500" : n.severity === "error" ? "text-destructive" : "text-amber-400"}>
+                    {n.status === "resolved" ? `✓ ${n.title ?? ""}` : n.title}
+                  </span>
                   <button type="button" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={() => void dismiss(n.id)}>
                     ×
                   </button>
@@ -8214,7 +8221,7 @@ function ErrorsSummaryButton() {
   const refreshIssues = async () => {
     try {
       await fetch("/api/notifications/scan", { method: "POST" });
-      const res = await fetch("/api/notifications", { cache: "no-store" });
+      const res = await fetch("/api/notifications?view=issues", { cache: "no-store" });
       if (!res.ok) return;
       const b = (await res.json()) as { notifications?: PanelNotification[] };
       setItems(b.notifications ?? []);

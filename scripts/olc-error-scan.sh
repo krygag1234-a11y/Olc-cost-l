@@ -4,11 +4,11 @@ set -euo pipefail
 
 REPO_ROOT="${OLC_REPO_ROOT:-/opt/Olc-cost-l}"
 CATALOG="${OLC_ERROR_CATALOG:-$REPO_ROOT/data/error-catalog.json}"
-OUT=/var/lib/olcrtc/notifications.json
-STATE=/var/lib/olcrtc/notifications-state.json
-MAX_LINES=400
+OUT="${OLC_NOTIFICATIONS_PATH:-/var/lib/olcrtc/notifications.json}"
+STATE="${OLC_NOTIFICATIONS_STATE_PATH:-/var/lib/olcrtc/notifications-state.json}"
+MAX_LINES="${OLC_ERROR_SCAN_MAX_LINES:-400}"
 
-install -d /var/lib/olcrtc
+install -d "$(dirname "$OUT")" "$(dirname "$STATE")"
 [[ -f "$CATALOG" ]] || { echo "[]" >"$OUT"; exit 0; }
 
 _now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -159,12 +159,14 @@ seen = state.get("seen", {})
 dismissed = set(state.get("dismissed", []))
 
 for ci, cl in enumerate(clients):
-    cid = cl.get("id") or f"client-{ci}"
+    cid = cl.get("client-id") or f"client-{ci}"
     for li, loc in enumerate(cl.get("locations") or []):
-        err = validate_room(loc.get("room_id"), loc.get("carrier"))
+        endpoint = loc.get("endpoint") or {}
+        room_id = endpoint.get("room_id")
+        err = validate_room(room_id, loc.get("carrier"))
         if not err:
             continue
-        eid = f"config-room-{cid}-{li}"
+        eid = f"config-room-{cid}-{loc.get('name') or li}"
         if eid in dismissed:
             continue
         fp = hashlib.sha256(eid.encode()).hexdigest()[:16]
@@ -173,7 +175,7 @@ for ci, cl in enumerate(clients):
             "catalog_id": eid,
             "severity": "warning",
             "title": f"Локация {cid}: {err}",
-            "meaning": f"carrier={loc.get('carrier')} room_id={loc.get('room_id')!r}",
+            "meaning": f"carrier={loc.get('carrier')} room_id={room_id!r}",
             "fixes": ["Исправьте room_id в панели", "Jitsi — URL meet; telemost/wbstream — только ID"],
             "matched_lines": [],
             "created_at": now,
@@ -187,3 +189,75 @@ notifications.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 Path(out_path).write_text(json.dumps(notifications, ensure_ascii=False, indent=2))
 Path(state_path).write_text(json.dumps({"seen": seen, "dismissed": list(dismissed)}, ensure_ascii=False, indent=2))
 CFGPY
+# Reconcile the current scan with persistent event history. Active issues are
+# separated from resolved events while keeping the legacy JSON files/API.
+python3 - "$OUT" "$STATE" <<'EVENTPY'
+import json, os, sys
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+out_path, state_path = sys.argv[1:3]
+now_dt = datetime.now(timezone.utc)
+now = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+ttl_seconds = int(os.environ.get("OLC_RESOLVED_EVENT_TTL", "604800"))
+
+def load_json(path, default):
+    try:
+        return json.loads(Path(path).read_text())
+    except Exception:
+        return default
+
+def parse_time(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+current_list = load_json(out_path, [])
+state = load_json(state_path, {"seen": {}, "dismissed": []})
+seen = state.get("seen") if isinstance(state.get("seen"), dict) else {}
+dismissed = state.get("dismissed") if isinstance(state.get("dismissed"), list) else []
+current = {}
+
+for raw in current_list if isinstance(current_list, list) else []:
+    if not isinstance(raw, dict) or not raw.get("id"):
+        continue
+    event_id = str(raw["id"])
+    previous = seen.get(event_id) if isinstance(seen.get(event_id), dict) else {}
+    was_active = previous.get("active", previous.get("status") != "resolved")
+    event = dict(previous)
+    event.update(raw)
+    event["status"] = "active"
+    event["active"] = True
+    event["first_seen"] = previous.get("first_seen") or previous.get("created_at") or raw.get("created_at") or now
+    event["created_at"] = event["first_seen"]
+    event["last_seen"] = now
+    event["repeat_count"] = int(previous.get("repeat_count") or 0) + 1
+    event.pop("resolved_at", None)
+    if not was_active:
+        event["read"] = False
+    current[event_id] = event
+
+resolved = {}
+for event_id, raw in seen.items():
+    if event_id in current or not isinstance(raw, dict):
+        continue
+    event = dict(raw)
+    if event.get("active", event.get("status") != "resolved"):
+        event["status"] = "resolved"
+        event["active"] = False
+        event["resolved_at"] = now
+        event["read"] = False
+    resolved_at = parse_time(event.get("resolved_at"))
+    if resolved_at is None or now_dt - resolved_at <= timedelta(seconds=ttl_seconds):
+        resolved[event_id] = event
+
+merged = {**resolved, **current}
+visible = [
+    event for event in merged.values()
+    if event.get("id") not in dismissed and event.get("catalog_id") not in dismissed
+]
+visible.sort(key=lambda event: (bool(event.get("active")), event.get("last_seen") or event.get("resolved_at") or event.get("created_at") or ""), reverse=True)
+Path(out_path).write_text(json.dumps(visible, ensure_ascii=False, indent=2))
+Path(state_path).write_text(json.dumps({"schema": 2, "seen": merged, "dismissed": dismissed}, ensure_ascii=False, indent=2))
+EVENTPY

@@ -5691,44 +5691,45 @@ func backupSkipMissingComponents(env map[string]any, missing []string) {
 func backupExtraFiles(configPath string) map[string]string {
 	dir := filepath.Dir(configPath)
 	return map[string]string{
-		"panel_env":               filepath.Join(dir, "panel.env"),
-		"features_env":            filepath.Join(dir, "features.env"),
-		"deploy_profile":          filepath.Join(dir, "deploy-profile.json"),
-		"notification_settings":   notificationSettingsPath,
-		"instance_defaults":       instanceDefaultsPath,
-		"access_control":          "/var/lib/olcrtc/access-control.json",
-		"key_rotation":            "/var/lib/olcrtc/key-rotation.json",
-		"key_randomization":       "/var/lib/olcrtc/key-randomization.json",
-		"bridge_sources":          "/var/lib/olcrtc/bridge-sources.json",
-		"bridge_extra_urls":       "/var/lib/olcrtc/bridge-extra-urls.txt",
-		"force_tor_domains":       "/var/lib/olcrtc/force-tor-domains.txt",
-		"ru_blocked_tor_domains":  "/var/lib/olcrtc/ru-blocked-tor-domains.txt",
-		"custom_direct_domains":   "/var/lib/olcrtc/lists/custom-direct-domains.txt",
-		"ru_domains_extra":        "/var/lib/olcrtc/ru-domains-extra.txt",
-		"split_discovered":        "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
-		"split_panel_hosts":       "/var/lib/olcrtc/lists/panel-carrier-hosts.txt",
-		"split_panel_cidrs":       "/var/lib/olcrtc/lists/panel-carrier-cidrs.txt",
-		"zapret_exclude_domains":  "/var/lib/olcrtc/zapret-custom/exclude-domains.txt",
-		"zapret_force_domains":    "/var/lib/olcrtc/zapret-custom/force-domains.txt",
-		"zapret_strategy":         filepath.Join(dir, "zapret.strategy"),
-		"zapret_sync_cron":        "/etc/cron.d/olcrtc-zapret-sync",
-		"zapret_sync_cron_legacy": "/etc/cron.d/zapret-sync",
-		"tor_exit_env":            filepath.Join(dir, "tor-exit.env"),
-		"tor_exit_exclude_env":    filepath.Join(dir, "tor-exit-exclude.env"),
-		"torrc":                   "/etc/tor/torrc",
-		"tor_bridges":             "/etc/tor/bridges.conf",
-		"tor_user_bridges":        "/var/lib/olcrtc/tor-user-bridges.txt",
-		"bridge_profiles":         bridgeProfilesPath,
-		"bridge_pool_cron":        "/etc/cron.d/olcrtc-bridge-pool",
-		"install_profile":         "/var/lib/olcrtc/install-profile.json",
-		"github_env":              filepath.Join(dir, "github.env"),
-		"access_attempts":         "/var/lib/olcrtc/access-attempts.json",
-		"access_connections":      "/var/lib/olcrtc/access-connections.json",
-		"removed_zapret":          "/var/lib/olcrtc/component-removed/zapret",
-		"removed_tor":             "/var/lib/olcrtc/component-removed/tor",
-		"removed_split":           "/var/lib/olcrtc/component-removed/split",
-		"removed_bridges":         "/var/lib/olcrtc/component-removed/bridges",
-		"removed_warp":            "/var/lib/olcrtc/component-removed/warp",
+		"panel_env":                filepath.Join(dir, "panel.env"),
+		"features_env":             filepath.Join(dir, "features.env"),
+		"deploy_profile":           filepath.Join(dir, "deploy-profile.json"),
+		"notification_settings":    notificationSettingsPath,
+		"notification_event_state": "/var/lib/olcrtc/notifications-state.json",
+		"instance_defaults":        instanceDefaultsPath,
+		"access_control":           "/var/lib/olcrtc/access-control.json",
+		"key_rotation":             "/var/lib/olcrtc/key-rotation.json",
+		"key_randomization":        "/var/lib/olcrtc/key-randomization.json",
+		"bridge_sources":           "/var/lib/olcrtc/bridge-sources.json",
+		"bridge_extra_urls":        "/var/lib/olcrtc/bridge-extra-urls.txt",
+		"force_tor_domains":        "/var/lib/olcrtc/force-tor-domains.txt",
+		"ru_blocked_tor_domains":   "/var/lib/olcrtc/ru-blocked-tor-domains.txt",
+		"custom_direct_domains":    "/var/lib/olcrtc/lists/custom-direct-domains.txt",
+		"ru_domains_extra":         "/var/lib/olcrtc/ru-domains-extra.txt",
+		"split_discovered":         "/var/lib/olcrtc/lists/panel-carrier-discovered.json",
+		"split_panel_hosts":        "/var/lib/olcrtc/lists/panel-carrier-hosts.txt",
+		"split_panel_cidrs":        "/var/lib/olcrtc/lists/panel-carrier-cidrs.txt",
+		"zapret_exclude_domains":   "/var/lib/olcrtc/zapret-custom/exclude-domains.txt",
+		"zapret_force_domains":     "/var/lib/olcrtc/zapret-custom/force-domains.txt",
+		"zapret_strategy":          filepath.Join(dir, "zapret.strategy"),
+		"zapret_sync_cron":         "/etc/cron.d/olcrtc-zapret-sync",
+		"zapret_sync_cron_legacy":  "/etc/cron.d/zapret-sync",
+		"tor_exit_env":             filepath.Join(dir, "tor-exit.env"),
+		"tor_exit_exclude_env":     filepath.Join(dir, "tor-exit-exclude.env"),
+		"torrc":                    "/etc/tor/torrc",
+		"tor_bridges":              "/etc/tor/bridges.conf",
+		"tor_user_bridges":         "/var/lib/olcrtc/tor-user-bridges.txt",
+		"bridge_profiles":          bridgeProfilesPath,
+		"bridge_pool_cron":         "/etc/cron.d/olcrtc-bridge-pool",
+		"install_profile":          "/var/lib/olcrtc/install-profile.json",
+		"github_env":               filepath.Join(dir, "github.env"),
+		"access_attempts":          "/var/lib/olcrtc/access-attempts.json",
+		"access_connections":       "/var/lib/olcrtc/access-connections.json",
+		"removed_zapret":           "/var/lib/olcrtc/component-removed/zapret",
+		"removed_tor":              "/var/lib/olcrtc/component-removed/tor",
+		"removed_split":            "/var/lib/olcrtc/component-removed/split",
+		"removed_bridges":          "/var/lib/olcrtc/component-removed/bridges",
+		"removed_warp":             "/var/lib/olcrtc/component-removed/warp",
 	}
 }
 
@@ -10814,6 +10815,9 @@ func notificationStats() map[string]any {
 	if readJSONFile(panelNotifFile, &list) {
 		st["total"] = len(list)
 		for _, n := range list {
+			if !notificationEventActive(n) {
+				continue
+			}
 			if read, ok := n["read"].(bool); ok && !read {
 				st["unread"] = st["unread"].(int) + 1
 			}
@@ -11308,6 +11312,38 @@ func componentsJobsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"jobs": jobs})
 }
 
+func notificationEventActive(n map[string]any) bool {
+	if active, ok := n["active"].(bool); ok {
+		return active
+	}
+	status, _ := n["status"].(string)
+	return status != "resolved"
+}
+
+func filterPanelNotifications(list []map[string]any, view string) []map[string]any {
+	if view == "" || view == "all" {
+		return list
+	}
+	out := make([]map[string]any, 0, len(list))
+	for _, n := range list {
+		severity, _ := n["severity"].(string)
+		issue := notificationEventActive(n) && (severity == "warning" || severity == "error")
+		switch view {
+		case "issues":
+			if issue {
+				out = append(out, n)
+			}
+		case "notifications":
+			if !issue {
+				out = append(out, n)
+			}
+		default:
+			return list
+		}
+	}
+	return out
+}
+
 func notificationsListHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
@@ -11318,6 +11354,7 @@ func notificationsListHandler(w http.ResponseWriter, r *http.Request) {
 	if !readJSONFile(panelNotifFile, &list) {
 		list = []map[string]any{}
 	}
+	list = filterPanelNotifications(list, strings.TrimSpace(r.URL.Query().Get("view")))
 	unread := 0
 	for _, n := range list {
 		if read, ok := n["read"].(bool); ok && !read {
@@ -11371,13 +11408,19 @@ func notificationsPatchHandler(w http.ResponseWriter, r *http.Request) {
 	if state == nil {
 		state = map[string]any{"seen": map[string]any{}, "dismissed": []any{}}
 	}
+	seen, _ := state["seen"].(map[string]any)
 	dismissed, _ := state["dismissed"].([]any)
 	for i, n := range list {
 		if n["id"] == id {
 			if body.Read != nil {
 				list[i]["read"] = *body.Read
 			}
+			if seenEvent, ok := seen[id].(map[string]any); ok && body.Read != nil {
+				seenEvent["read"] = *body.Read
+				seen[id] = seenEvent
+			}
 			if body.Dismiss {
+				dismissed = append(dismissed, id)
 				if cid, ok := n["catalog_id"].(string); ok {
 					dismissed = append(dismissed, cid)
 				}
@@ -11386,6 +11429,7 @@ func notificationsPatchHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	state["seen"] = seen
 	state["dismissed"] = dismissed
 	b, _ := json.Marshal(list)
 	_ = os.WriteFile(panelNotifFile, b, 0644)

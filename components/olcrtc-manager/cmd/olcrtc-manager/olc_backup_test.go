@@ -17,7 +17,7 @@ import (
 func TestBackupExtraFilesCompleteness(t *testing.T) {
 	files := backupExtraFiles("/etc/olcrtc-manager/config.json")
 	want := []string{
-		"panel_env", "features_env", "deploy_profile", "notification_settings",
+		"panel_env", "features_env", "deploy_profile", "notification_settings", "notification_event_state",
 		"instance_defaults", "access_control", "key_rotation", "key_randomization",
 		"bridge_sources", "bridge_extra_urls", "force_tor_domains", "ru_blocked_tor_domains",
 		"custom_direct_domains", "ru_domains_extra", "split_discovered",
