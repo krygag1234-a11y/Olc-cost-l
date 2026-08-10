@@ -5718,7 +5718,7 @@ func backupExtraFiles(configPath string) map[string]string {
 		"torrc":                   "/etc/tor/torrc",
 		"tor_bridges":             "/etc/tor/bridges.conf",
 		"tor_user_bridges":        "/var/lib/olcrtc/tor-user-bridges.txt",
-		"bridge_profiles":         "/var/lib/olcrtc/bridge-profiles.json",
+		"bridge_profiles":         bridgeProfilesPath,
 		"bridge_pool_cron":        "/etc/cron.d/olcrtc-bridge-pool",
 		"install_profile":         "/var/lib/olcrtc/install-profile.json",
 		"github_env":              filepath.Join(dir, "github.env"),
