@@ -570,17 +570,25 @@ profile_apply_runtime_toggles() {
 
   if [[ "${OLCRTC_ENABLE_TOR:-1}" != "1" ]]; then
     systemctl stop tor@default.service 2>/dev/null || true
+    systemctl disable tor@default.service 2>/dev/null || true
     profile_feature_toggle_write "$env" OLCRTC_ENABLE_SPLIT 0
     profile_feature_toggle_write "$env" OLCRTC_ENABLE_BRIDGES 0
     profile_feature_toggle_write "$env" OLCRTC_ENABLE_WEBTUNNEL 0
-    for unit in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
-      systemctl stop "${unit}.timer" 2>/dev/null || true
-      systemctl disable "${unit}.timer" 2>/dev/null || true
-    done
     OLCRTC_ENABLE_SPLIT=0
     OLCRTC_ENABLE_BRIDGES=0
-    systemctl disable tor@default.service 2>/dev/null || true
+    OLCRTC_ENABLE_WEBTUNNEL=0
     profile_log "runtime: tor left stopped (features.env)"
+  fi
+  if [[ "${OLCRTC_ENABLE_SPLIT:-0}" != "1" ]]; then
+    systemctl disable --now olcrtc-split-expand.timer 2>/dev/null || true
+    profile_log "runtime: split timer left stopped (features.env)"
+  fi
+  if [[ "${OLCRTC_ENABLE_BRIDGES:-0}" != "1" ]]; then
+    local unit
+    for unit in olcrtc-tor-bridge-pool olcrtc-tor-bridge-monitor olcrtc-tor-bridge-deep; do
+      systemctl disable --now "${unit}.timer" 2>/dev/null || true
+    done
+    profile_log "runtime: bridge timers left stopped (features.env)"
   fi
   if [[ "${OLCRTC_ENABLE_WARP:-0}" != "1" ]]; then
     warp-cli disconnect 2>/dev/null || true

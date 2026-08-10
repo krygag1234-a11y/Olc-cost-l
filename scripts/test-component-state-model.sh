@@ -56,4 +56,36 @@ profile_after_component_job tor install
 profile_after_component_job bridges uninstall
 jq -e '.components.tor == true and .components.split == true and .components.bridges == false' "$TMP/profile.json" >/dev/null
 
+# Disabled runtime must stop dependent timers and healthcheck must not revive Tor.
+cat >"$TMP/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${SYSTEMCTL_LOG:?}"
+exit 0
+SH
+cat >"$TMP/bin/timeout" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+cat >"$TMP/bin/curl" <<'SH'
+#!/usr/bin/env bash
+printf '200'
+SH
+cat >"$TMP/bin/sleep" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$TMP/bin/systemctl" "$TMP/bin/timeout" "$TMP/bin/curl" "$TMP/bin/sleep"
+export SYSTEMCTL_LOG="$TMP/systemctl.log"
+: >"$SYSTEMCTL_LOG"
+profile_apply_runtime_toggles
+for expected in \
+  'stop tor@default.service' \
+  'disable --now olcrtc-split-expand.timer' \
+  'disable --now olcrtc-tor-bridge-pool.timer'; do
+  grep -Fxq "$expected" "$SYSTEMCTL_LOG"
+done
+: >"$SYSTEMCTL_LOG"
+LOG_FILE="$TMP/healthcheck.log" TOR_RETRIES=1 bash "$SCRIPT_DIR/healthcheck.sh"
+[[ ! -s "$SYSTEMCTL_LOG" ]]
+
 echo 'component-state-model: PASS'

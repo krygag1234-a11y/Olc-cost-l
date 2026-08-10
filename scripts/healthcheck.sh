@@ -8,6 +8,12 @@ source "$SCRIPT_DIR/lib-output.sh"
 
 LOG="${LOG_FILE:-/var/log/olcrtc-healthcheck.log}"
 TOR_RETRIES="${TOR_RETRIES:-2}"
+FEATURES_ENV="${OLCRTC_FEATURES_ENV:-/etc/olcrtc-manager/features.env}"
+OLCRTC_ENABLE_TOR=1
+if [[ -f "$FEATURES_ENV" ]]; then
+  # shellcheck disable=SC1090
+  set -a; source "$FEATURES_ENV"; set +a
+fi
 
 log() {
   local msg="[$(date -Iseconds)] $*"
@@ -43,7 +49,8 @@ for _ in $(seq 1 "$TOR_RETRIES"); do
 done
 panel_ok && PANEL_OK=1
 
-if [[ "$TOR_OK" -eq 0 ]] && systemctl is-enabled tor@default &>/dev/null \
+if [[ "${OLCRTC_ENABLE_TOR:-1}" == "1" && "$TOR_OK" -eq 0 ]] \
+   && systemctl is-enabled tor@default &>/dev/null \
    && [[ ! -f /var/lib/olcrtc/component-removed/bridges ]]; then
   log "$(olc_print_warn "Tor недоступен — запуск ротации мостов")"
   FAST_WINDOW=6 "$SCRIPT_DIR/tor-bridge-rotate.sh" --no-restart >>"$LOG" 2>&1 || true
